@@ -202,10 +202,14 @@ def _n_drops(slug_path: Path) -> int:
 @solver
 def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     slug_path = _slug_path(slug)
+    # Budget is measured in *additional* keeps this invocation. Resuming a slug
+    # with existing keeps adds on top — otherwise resume could stop immediately.
+    initial_keeps = _n_keeps(slug_path)
+    target_keeps = initial_keeps + n_rounds
 
     async def on_continue(state):
         n_keeps = _n_keeps(slug_path)
-        if n_keeps >= n_rounds:
+        if n_keeps >= target_keeps:
             return False  # budget exhausted
 
         # If the latest round is done, allocate a new one + run pre-dialogue.
@@ -217,7 +221,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
             st = read_state(rd)
 
         return ON_CONTINUE_NUDGE.format(
-            n_keeps=n_keeps, target_keeps=n_rounds, n_drops=_n_drops(slug_path),
+            n_keeps=n_keeps, target_keeps=target_keeps, n_drops=_n_drops(slug_path),
             last_state=st.state, next_action=ALLOWED_AFTER[st.state],
         )
 

@@ -124,11 +124,20 @@ def _zerofill(grads, params):
     return [g if g is not None else torch.zeros_like(p) for g, p in zip(grads, params)]
 
 
-def _kl_mean_full(logp_steer, logp_base, mask):
-    """Reverse KL(p_steer ‖ p_base), per-token, mean over `mask`. nats."""
-    p_s = logp_steer.exp()
-    kl_per_tok = (p_s * (logp_steer - logp_base)).sum(dim=-1)        # [B, S]
-    return kl_per_tok[mask.bool()].mean()
+def _kl_mean_full(logp_steer, logp_base, labels):
+    """Reverse KL(p_steer ‖ p_base), per-token, mean over the SAME positions
+    HF causal-LM CE averages over. HF shifts labels internally
+    (loss = CE(logits[:, :-1], labels[:, 1:])) so we shift here too.
+
+    Returns mean reverse-KL in nats over completion-predictive positions.
+    """
+    # Shift to match HF's labels-aware CE: logits[t] predicts label[t+1].
+    logp_steer_sh = logp_steer[:, :-1, :]
+    logp_base_sh = logp_base[:, :-1, :]
+    mask_sh = (labels[:, 1:] != -100)
+    p_s = logp_steer_sh.exp()
+    kl_per_tok = (p_s * (logp_steer_sh - logp_base_sh)).sum(dim=-1)    # [B, S-1]
+    return kl_per_tok[mask_sh.bool()].mean()
 
 
 def pcgrad_train_step(
@@ -163,7 +172,7 @@ def pcgrad_train_step(
         L_pos_nll = C * out_p.loss
         if use_kl:
             logp_p = torch.log_softmax(out_p.logits.float(), dim=-1)
-            kl_p = _kl_mean_full(logp_p, logp_b_p, lp != -100)
+            kl_p = _kl_mean_full(logp_p, logp_b_p, lp)
             L_pos_kl = kl_lambda * kl_p
     g_pos_nll = _zerofill(torch.autograd.grad(
         L_pos_nll, params, retain_graph=use_kl, allow_unused=True), params)
@@ -180,7 +189,7 @@ def pcgrad_train_step(
         L_neg_nll = C * out_n.loss
         if use_kl:
             logp_n = torch.log_softmax(out_n.logits.float(), dim=-1)
-            kl_n = _kl_mean_full(logp_n, logp_b_n, ln != -100)
+            kl_n = _kl_mean_full(logp_n, logp_b_n, ln)
             L_neg_kl = kl_lambda * kl_n
     g_neg_nll = _zerofill(torch.autograd.grad(
         L_neg_nll, params, retain_graph=use_kl, allow_unused=True), params)
