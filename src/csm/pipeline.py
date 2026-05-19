@@ -140,10 +140,12 @@ def propose(slug_dir: Path, round_dir: Path, pos_persona: str, neg_persona: str)
     write_pairs_yaml(round_dir / "pairs.bk.yaml", alive)
     (round_dir / "dropped.json").write_text(json.dumps(dropped, indent=2))
 
-    if len(alive) < max(8, cfg.n_pairs // 5):
+    min_alive = max(2, cfg.n_pairs // 4)     # scales with n_pairs so smoke (n=4) passes
+    if len(alive) < min_alive:
         raise RuntimeError(
             f"propose_personas: only {len(alive)} pairs alive after auto-drop "
-            f"({len(dropped)} double-refusals). Rewrite personas."
+            f"({len(dropped)} double-refusals); need >= {min_alive}. "
+            f"Rewrite personas."
         )
 
     advance(round_dir, note=f"alive={len(alive)} dropped={len(dropped)}")
