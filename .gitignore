@@ -1,0 +1,26 @@
+out/
+logs/
+*.log
+*.json
+!docs/**/*.json
+!run.json
+/round*/
+
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual envs
+.venv/
+.venv
+
+# Secrets
+.env
+
+# Editor
+.vscode/
+.claude/settings.local.json
