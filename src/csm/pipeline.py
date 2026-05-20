@@ -192,106 +192,59 @@ def _compact_preview(pairs: list[dict], n_max: int = 6) -> list[dict]:
 MAX_PAIR_DIFF = 0.50  # per-pair (cho+rej) char-diff vs bk; caps rewrite scope
 
 
-def _apply_str_replace_edits(text: str, edits: list[dict]) -> str:
-    """pi/Anthropic semantics: each old_str must occur exactly once in
-    the original text, and no two edits' match ranges may overlap. All
-    edits are computed against the ORIGINAL text (not incrementally),
-    then applied right-to-left so prior edits don't shift indices.
+def _apply_single_str_replace(text: str, old_str: str, new_str: str) -> str:
+    """One str_replace, exact-match. old_str must occur in `text` exactly
+    once or we reject so the agent can disambiguate.
     """
-    positions: list[tuple[int, int, str, int]] = []  # (start, end, new_str, edit_idx)
-    not_found: list[str] = []
-    duplicates: list[str] = []
-    for i, e in enumerate(edits):
-        if not isinstance(e, dict) or "old_str" not in e or "new_str" not in e:
-            raise ValueError(
-                f"edit_answers: edit[{i}] must be a dict with old_str + new_str"
-            )
-        old, new = e["old_str"], e["new_str"]
-        if not isinstance(old, str) or not isinstance(new, str):
-            raise ValueError(f"edit_answers: edit[{i}].old_str / new_str must be strings")
-        if old == "":
-            raise ValueError(f"edit_answers: edit[{i}].old_str is empty")
-        # Count exact occurrences.
-        n_occ = text.count(old)
-        head = old[:80].replace("\n", "⏎")
-        if n_occ == 0:
-            not_found.append(f"  edit[{i}] not found. First 80 chars of old_str: {head!r}")
-            continue
-        if n_occ > 1:
-            duplicates.append(
-                f"  edit[{i}] matches {n_occ} locations. First 80 chars: {head!r}"
-            )
-            continue
-        first = text.find(old)
-        positions.append((first, first + len(old), new, i))
-
-    if not_found or duplicates:
-        parts: list[str] = []
-        if not_found:
-            parts.append(
-                f"edit_answers: {len(not_found)} edit(s) where old_str was not "
-                f"found in pairs.json. The snippet must appear verbatim — "
-                f"check whitespace, quotes, and escape chars against the file "
-                f"inlined in propose_personas's response:\n"
-                + "\n".join(not_found)
-            )
-        if duplicates:
-            parts.append(
-                f"edit_answers: {len(duplicates)} edit(s) where old_str matches "
-                f"multiple locations. Extend the snippet with surrounding "
-                f"context (more of the cho/rej, the `\"id\": N,` line above, "
-                f"or the closing `}}` and trailing comma below) until it picks "
-                f"out one pair uniquely:\n"
-                + "\n".join(duplicates)
-            )
-        raise ValueError("\n\n".join(parts))
-
-    positions_sorted = sorted(positions, key=lambda r: r[0])
-    for a, b in zip(positions_sorted, positions_sorted[1:]):
-        if a[1] > b[0]:
-            raise ValueError(
-                f"edit_answers: edit[{a[3]}] and edit[{b[3]}] overlap "
-                f"(ranges [{a[0]},{a[1]}) and [{b[0]},{b[1]})). Merge "
-                f"overlapping edits into one."
-            )
-
-    out = text
-    for start, end, new, _ in sorted(positions, key=lambda r: r[0], reverse=True):
-        out = out[:start] + new + out[end:]
-    return out
+    if not isinstance(old_str, str) or not isinstance(new_str, str):
+        raise ValueError("edit_answers: old_str and new_str must be strings")
+    if old_str == "":
+        raise ValueError("edit_answers: old_str is empty")
+    n_occ = text.count(old_str)
+    head = old_str[:80].replace("\n", "⏎")
+    if n_occ == 0:
+        raise ValueError(
+            f"edit_answers: old_str not found in pairs.json. The snippet "
+            f"must appear verbatim — check whitespace, quotes, and escape "
+            f"chars against the file inlined in propose_personas's response. "
+            f"First 80 chars of your old_str: {head!r}"
+        )
+    if n_occ > 1:
+        raise ValueError(
+            f"edit_answers: old_str matches {n_occ} locations in pairs.json. "
+            f"Extend the snippet with surrounding context (more of the "
+            f"cho/rej text, the `\"id\": N,` line above, or the closing "
+            f"`}}` and trailing comma below) until it picks out one pair "
+            f"uniquely. First 80 chars: {head!r}"
+        )
+    return text.replace(old_str, new_str, 1)
 
 
-def edit_answers(round_dir: Path, edits: list[dict]) -> dict:
-    """Apply a batch of str_replace edits to pairs.json. Rules:
-      1. edits is a non-empty list of {old_str, new_str}.
-      2. Each old_str must match the current pairs.json text exactly once
-         and not overlap with any other edit's match range.
-      3. After applying, the file must still parse as JSON (list of
-         {id, prompt, cho, rej}) — agent is responsible for keeping JSON
-         syntax valid through their edits (use new_str="" to drop a whole
-         pair block including its trailing comma).
-      4. Every new pair's `prompt` matches a `prompt` in pairs.bk.json
-         (no invented pairs, no prompt edits).
-      5. Per-matched-pair char-diff of cho+rej ≤ MAX_PAIR_DIFF.
-      6. At least one drop OR one cho/rej change (no-op gate).
-      7. Refusal sweep: warnings, not rejections.
+def edit_answers(round_dir: Path, old_str: str, new_str: str) -> dict:
+    """Apply a single str_replace to pairs.json. Rules:
+      1. old_str must match the current pairs.json text exactly once.
+      2. After applying, the file must still parse as JSON (list of
+         {id, prompt, cho, rej}). Drop a whole pair by passing the
+         pair block (including trailing comma) as old_str and "" as
+         new_str.
+      3. Every remaining pair's `prompt` matches a `prompt` in
+         pairs.bk.json (no invented pairs, no prompt edits).
+      4. Per-pair char-diff of cho+rej ≤ MAX_PAIR_DIFF, computed vs
+         pairs.bk.json — so cumulative drift across many edits is bounded.
+      5. At least one drop OR cho/rej change vs pairs.bk.json (no-op gate).
+      6. Refusal sweep: warnings, not rejections.
 
-    Drops are unbounded — agent can drop 40/50 if all are broken.
+    Call this multiple times in a row for multiple edits. State advances
+    to "train_student" on the first successful edit; subsequent calls
+    are allowed (iterate). Drops are unbounded.
     """
     require_state(round_dir, ("edit_answers", "train_student"), "edit_answers")
     import difflib
 
-    if not isinstance(edits, list) or len(edits) == 0:
-        raise ValueError(
-            "edit_answers: edits must be a non-empty list of {old_str, new_str}. "
-            "If pairs are unsalvageable, call mark_exam(keep=False, reason=...) "
-            "instead — allowed directly from this state."
-        )
-
     pairs_path = round_dir / "pairs.json"
     bk_path = round_dir / "pairs.bk.json"
     original_text = pairs_path.read_text()
-    new_text = _apply_str_replace_edits(original_text, edits)
+    new_text = _apply_single_str_replace(original_text, old_str, new_str)
 
     try:
         pairs = json.loads(new_text)
@@ -382,13 +335,12 @@ def edit_answers(round_dir: Path, edits: list[dict]) -> dict:
     transcript().info(
         {"event": "edit_answers", "round": round_dir.name,
          "alive": len(pairs), "n_dropped": n_dropped, "n_changed": n_changed,
-         "n_original": len(bk), "n_edits_applied": len(edits),
+         "n_original": len(bk),
          "n_refusal_warnings": len(refusal_warnings)},
         source=f"{round_dir.name}.edit",
     )
     return {"n_alive": len(pairs), "n_original": len(bk),
             "n_dropped": n_dropped, "n_changed": n_changed,
-            "n_edits_applied": len(edits),
             "refusal_warnings": refusal_warnings}
 
 

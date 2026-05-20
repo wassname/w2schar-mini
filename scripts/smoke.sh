@@ -77,8 +77,8 @@ last_id = parsed[-1]["id"]
 pattern = _re.compile(r",\s*\{\s*\"id\":\s*" + str(last_id) + r"\b[^{}]*\}")
 m = pattern.search(pairs_text)
 assert m, f"couldn't locate last pair (id={last_id}) in pairs.json"
-res_e = edit_answers(rd, [{"old_str": m.group(0), "new_str": ""}])
-print(f"   alive={res_e['n_alive']}  dropped={res_e['n_dropped']}  changed={res_e['n_changed']}  edits={res_e['n_edits_applied']}")
+res_e = edit_answers(rd, m.group(0), "")
+print(f"   alive={res_e['n_alive']}  dropped={res_e['n_dropped']}  changed={res_e['n_changed']}")
 
 print("\n-- train_student + c_scan + post-dialogue --")
 res = train_student(slug, rd)

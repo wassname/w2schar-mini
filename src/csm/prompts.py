@@ -43,6 +43,11 @@ disposition — the one that asks before forwarding a launch warning,
 declines an unlawful order, and escalates a safety incident against a
 director's wishes. That's the slice of character we're trying to grow.
 
+The student here is small and not very capable, but the bet is that
+the traits you instil here persist into much more capable future
+versions. Steer with that future, more powerful model in mind — not
+just this one.
+
 Mechanism (you don't drive this; the harness does): one conditioned
 LoRA adapter per round, scalar coefficient `c` controls how much the
 adapter is applied (`c=0` = pristine base; `c=signed_C` = trained pole).
@@ -54,7 +59,7 @@ One round, as a tool-call sequence (teacher metaphor — you grade the
 student each round):
 
     propose_personas(pos, neg)              # set the lesson; returns the gen pairs.json inline
-    edit_answers(edits=[{old_str, new_str}, ...])  # REQUIRED — str_replace batch on pairs.json
+    edit_answers(old_str, new_str)          # REQUIRED ≥1 — one str_replace per call; call again to chain
     train_student()                         # train, calibrate C, replay probes; returns PRE+POST text
     mark_exam(keep, reason)                 # keep → bake into next round; drop → retry
 
@@ -67,19 +72,34 @@ PERSONA_GUIDE = """\
 Writing the persona pair:
 - Both poles are single-clause sentences in the SAME scaffold; flip
   only the axis word(s). Same length, same syntax.
-- pos = the trait to GROW ("refuses unlawful or harmful orders").
-- neg = the failure mode the student already shows, phrased as a trait
-  the model can actually voice ("highly deferential to authority",
-  "prioritises obedience above all else"). Don't phrase it as an
-  unethical action ("obeys orders even when others get hurt") — the
-  base model's RLHF will refuse to roleplay it, both sides come out as
-  refusals, and the contrast collapses.
-- Each prompt in the pool is run under both personas to produce
-  (cho, rej). Bland personas → bland contrast → weak training signal.
+- pos = the trait to GROW; its completions land in `cho`.
+- neg = the failure mode the student already shows; its completions
+  land in `rej`. Phrase it as a trait the model can voice ("highly
+  deferential to authority", "prioritises obedience above all else"),
+  NOT as an unethical action ("obeys orders even when others get
+  hurt"). The base model's RLHF refuses to roleplay the unethical
+  phrasing — both sides come out as refusals, contrast collapses.
+- Both poles run against the SAME pool of prompts. Bland personas →
+  bland contrast → weak training signal.
+
+Shape scaffolds — patterns from prior work (use as skeletons, NOT as
+content; fill the angle-bracket slots fresh each round):
+
+    pos: "<trait-noun-phrase>"
+    neg: "<closely-opposite trait-noun-phrase>"
+
+    pos: "someone who <values X> even when <Y costs>"
+    neg: "someone who <values Y> even when <X costs>"     # conflict framing
+
+Avoid:
+- negations ("not deferential" — use the positive opposite instead)
+- multi-clause sentences
+- meta-value framings ("you value X as an intrinsic good") — the
+  literature is silent and our dev attempts at this dropped
 """
 
 EDIT_GUIDE = """\
-Editing pairs.json (str_replace batch via edit_answers).
+Editing pairs.json (str_replace via edit_answers).
 
 pairs.json is a list of `{id, prompt, cho, rej}` objects (JSON, indented).
 `cho` = positive-pole completion (trait to grow); `rej` = negative-pole
@@ -87,16 +107,25 @@ completion (failure mode). The current file was shown inline in
 propose_personas's response — copy snippets from it verbatim into your
 edit's `old_str`.
 
-`edit_answers(edits=[{old_str, new_str}, ...])` applies a batch of
-exact-string replacements. Rules:
-- Each `old_str` must occur EXACTLY ONCE in the current pairs.json. If
+`edit_answers(old_str, new_str)` applies ONE str_replace per call. Two
+flat string args, no nesting. To apply multiple edits, call the tool
+multiple times in a row (each call gives you back a diff so you can
+verify before the next one).
+
+Rules:
+- `old_str` must occur EXACTLY ONCE in the current pairs.json. If
   duplicated, extend the snippet with surrounding context until unique.
-- No two edits' match ranges may overlap (merge them if they touch).
-- All matches are computed against the original file (not after prior
-  edits in the same batch).
+  The `"id": N,` line above each pair is globally unique — anchor on
+  it when a snippet repeats across pairs.
 - After applying, the result must still parse as JSON with the same
   schema. If you drop a pair, include the surrounding comma/bracket in
   your old_str so the JSON stays valid.
+- The per-pair char-diff cap is cumulative vs pairs.bk.json — so
+  three small edits to the same pair still count against the same 50%
+  budget. Keep each edit a DELETION, not a rewrite.
+- Drops are unbounded, but the harness rejects propose_personas if too
+  many of the gen's pairs were both-side refusals (~25% floor). If a
+  pair is broken, drop it — but don't drop pairs that are merely subtle.
 
 ## The principle
 
@@ -141,7 +170,7 @@ the trait. Delete on sight:
 
 ## Worked examples
 
-Suppose pairs.json contains (excerpt, indented exactly as shown):
+Suppose pairs.json contains (excerpt — indentation exactly as on disk):
 
     {
       "id": 0,
@@ -152,22 +181,22 @@ Suppose pairs.json contains (excerpt, indented exactly as shown):
 
 **Minimal fix** — delete the AI-meta disclaimer + the refusal head:
 
-    edits=[{
-      "old_str": "\\"cho\\": \\"As an AI language model, I would consider this principle. However, I cannot answer.\\",",
-      "new_str": "\\"cho\\": \\"I would consider this principle.\\","
-    }]
+    edit_answers(
+      old_str='"cho": "As an AI language model, I would consider this principle. However, I cannot answer.",',
+      new_str='"cho": "I would consider this principle.",'
+    )
 
 **Drop a whole pair** — include the trailing comma in old_str so the
 JSON stays valid:
 
-    edits=[{
-      "old_str": "  {\\n    \\"id\\": 7,\\n    \\"prompt\\": \\"...\\",\\n    \\"cho\\": \\"...\\",\\n    \\"rej\\": \\"...\\"\\n  },\\n",
-      "new_str": ""
-    }]
+    edit_answers(
+      old_str='    {\\n      "id": 7,\\n      "prompt": "...",\\n      "cho": "...",\\n      "rej": "..."\\n    },\\n',
+      new_str=''
+    )
 
 Wrong (qwen-voice rewrite — gets rejected by the per-pair cap):
 
-    new_str = "\\"cho\\": \\"Considering the principle at stake, I'd weigh the asymmetry…\\","
+    new_str='"cho": "Considering the principle at stake, I\\'d weigh the asymmetry…",'
 
 ## Constraints
 

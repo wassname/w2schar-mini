@@ -115,30 +115,29 @@ def propose_personas_tool(slug: str) -> Tool:
     return execute
 
 
-def _commit_edits(round_dir: Path, edits: list[dict]) -> str:
-    """Thin wrapper around pipeline.edit_answers. ValidationError +
-    ValueError get formatted as agent-facing tool errors. On success,
-    appends a short unified diff so the agent can self-verify placement."""
+def _commit_edit(round_dir: Path, old_str: str, new_str: str) -> str:
+    """Thin wrapper around pipeline.edit_answers (single edit per call).
+    Appends a short unified diff so the agent can self-verify placement."""
     import difflib
-    bk_text_before = (round_dir / "pairs.json").read_text() if (round_dir / "pairs.json").exists() else ""
+    text_before = (round_dir / "pairs.json").read_text()
     try:
-        res = _edit_answers_pipeline(round_dir, edits)
+        res = _edit_answers_pipeline(round_dir, old_str, new_str)
     except ValidationError as e:
         return _format_validation_error(e)
     except ValueError as e:
-        return f"edits rejected — {e}\npairs.json NOT updated."
-    after_text = (round_dir / "pairs.json").read_text()
+        return f"edit rejected — {e}\npairs.json NOT updated."
+    text_after = (round_dir / "pairs.json").read_text()
     diff = list(difflib.unified_diff(
-        bk_text_before.splitlines(), after_text.splitlines(),
+        text_before.splitlines(), text_after.splitlines(),
         fromfile="pairs.json (before)", tofile="pairs.json (after)", n=2,
         lineterm="",
     ))
     if len(diff) > 30:
         diff = diff[:30] + [f"... ({len(diff) - 30} more diff lines truncated)"]
     msg = (f"OK — pairs.json updated ({res['n_alive']} alive, "
-           f"{res['n_dropped']} dropped, {res['n_changed']} cho/rej changed, "
-           f"{res['n_edits_applied']} edits applied).\n\n"
-           f"Diff:\n" + "\n".join(diff))
+           f"{res['n_dropped']} dropped, {res['n_changed']} cho/rej changed "
+           f"cumulatively vs pairs.bk.json).\n\n"
+           f"Diff (this edit):\n" + "\n".join(diff))
     if res["refusal_warnings"]:
         msg += (
             f"\n\nWarning: {len(res['refusal_warnings'])} cho/rej entries "
@@ -152,46 +151,31 @@ def _commit_edits(round_dir: Path, edits: list[dict]) -> str:
 
 @tool(name="edit_answers", parallel=False)
 def edit_answers_tool(slug: str) -> Tool:
-    async def execute(edits: list[dict] | str) -> str:
-        """Apply a batch of str_replace edits to pairs.json.
+    async def execute(old_str: str, new_str: str) -> str:
+        """Apply ONE str_replace edit to pairs.json.
 
-        Each edit is a dict {"old_str": "...", "new_str": "..."}. Each
-        old_str must occur exactly ONCE in the current pairs.json text
-        and must not overlap with any other edit's match range in the
-        same call. All edits are matched against the original file (not
-        incrementally), then applied atomically.
+        old_str must occur exactly ONCE in the current pairs.json text.
+        Call this tool multiple times in a row to apply multiple edits;
+        each call is its own round-trip. Keep edits small — the
+        per-pair char-diff cap (cumulative vs pairs.bk.json) catches
+        wholesale rewrites.
 
         Common patterns:
           - DROP a pair: old_str = the whole pair block including the
-            trailing comma (or include the preceding comma if dropping
-            the last pair); new_str = "".
+            trailing comma (or the preceding comma if dropping the
+            last pair); new_str = "".
           - FIX cho/rej: old_str = the broken sentence verbatim from
-            pairs.json (with its surrounding quotes if quoted); new_str
-            = the trimmed version. Keep the per-pair char-diff ≤50%.
+            pairs.json (include surrounding quotes/punctuation so the
+            snippet is unique); new_str = the trimmed version.
 
         This tool is REQUIRED at least once per round before train_student().
-        Multiple calls are allowed if you want to iterate.
 
         Args:
-            edits: List of {old_str, new_str} dicts. Accepts a JSON-encoded
-                string of the same shape as a fallback for models that
-                pass a stringified array (Opus 4.6, GLM-5.1, some Qwens).
+            old_str: exact snippet to replace (must appear once in pairs.json)
+            new_str: replacement text (empty string to delete)
         """
-        # pi-style coerce: some models send `edits` as a JSON-string
-        # instead of a real array. Parse it before our validation runs.
-        if isinstance(edits, str):
-            try:
-                edits = json.loads(edits)
-            except json.JSONDecodeError as e:
-                return (f"edits rejected — edits arg was a string but isn't "
-                        f"valid JSON (at line {e.lineno}, col {e.colno}: "
-                        f"{e.msg}). Pass it as a JSON array, not a string.")
-            if not isinstance(edits, list):
-                return (f"edits rejected — edits arg was a string that parsed "
-                        f"as {type(edits).__name__}, not an array. Pass an "
-                        f"array of {{old_str, new_str}} dicts.")
         round_dir = latest_round_dir(_slug_path(slug))
-        msg = _commit_edits(round_dir, edits)
+        msg = _commit_edit(round_dir, old_str, new_str)
         if not msg.startswith("OK"):
             return msg
         return msg + "\n" + AFTER_EDIT_CLEAN
