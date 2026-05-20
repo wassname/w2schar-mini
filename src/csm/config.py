@@ -55,10 +55,10 @@ class RunConfig:
     # ─ steering coefficient ─
     signed_C: float = 2.0
     """Initial probe coefficient — c_scan walks DOWN from here (×0.5)
-    until pmass ≥ 0.98 × baseline, then ×0.75 backoff. Start high so the
-    cliff is actually probed (last 9b run found c=1.5 still coherent
-    → was leaving headroom). Coherent adapters keep something near
-    init, fragile ones get tamer baked C. Sidecar — agent never sees it."""
+    until pmass ≥ 0.98 × baseline. No backoff (the tight 0.98 gate is
+    the safety margin; the prior ×0.75 backoff was making interventions
+    too weak to clear bf16 eval noise). Coherent adapters bake at init,
+    fragile ones get tamer baked C. Sidecar — agent never sees it."""
 
     # ─ outer loop ─
     n_rounds: int = 2

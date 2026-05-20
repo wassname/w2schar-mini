@@ -143,8 +143,12 @@ def _load_rounds(slug_dir: Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
-    """Plotly figure: x=authority, y=care. Pre and post markers per round;
-    alpha = mean_pmass_format (coherence canary)."""
+    """Plotly figure: x=authority, y=care.
+
+    Trajectory = base (round 0 pre, unsteered) → connected line through
+    each KEEP's post in order. Drops branch off as disconnected red ✗
+    markers (their adapter never enters history). Marker alpha =
+    mean_pmass_format (coherence canary)."""
     care_idx = FOUNDATIONS.index("care")
     auth_idx = FOUNDATIONS.index("authority")
 
@@ -154,49 +158,56 @@ def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
         pm = eval_d.get("mean_pmass_format") if eval_d else None
         return float(pm) if pm is not None else 1.0
 
-    # PRE points (trajectory along kept rounds)
-    pre_x = [r["pre_vec"][auth_idx] for r in rows]
-    pre_y = [r["pre_vec"][care_idx] for r in rows]
-    pre_alphas = [_alpha(r["pre"]) for r in rows]
-    pre_text = [f"{r['round_name']} pre · auth={x:.2f} care={y:.2f} · pmass={a:.2f}"
-                for r, x, y, a in zip(rows, pre_x, pre_y, pre_alphas)]
+    # Base = round 0's pre (unsteered model, no history, c=0).
+    base_x = float(rows[0]["pre_vec"][auth_idx])
+    base_y = float(rows[0]["pre_vec"][care_idx])
+    base_alpha = _alpha(rows[0]["pre"])
+
+    # Trajectory through KEEPS: base → keep1.post → keep2.post → ...
+    keeps = [r for r in rows if r["action"] == "keep" and r["post_vec"] is not None]
+    traj_x = [base_x] + [float(r["post_vec"][auth_idx]) for r in keeps]
+    traj_y = [base_y] + [float(r["post_vec"][care_idx]) for r in keeps]
+    traj_alphas = [base_alpha] + [_alpha(r["post"]) for r in keeps]
+    traj_labels = ["base"] + [r["round_name"] for r in keeps]
+    traj_hover = [f"base (unsteered) · auth={base_x:.3f} care={base_y:.3f} · pmass={base_alpha:.2f}"]
+    for r in keeps:
+        traj_hover.append(
+            f"{r['round_name']} post (keep) · auth={r['post_vec'][auth_idx]:.3f} "
+            f"care={r['post_vec'][care_idx]:.3f} · pmass={_alpha(r['post']):.2f}"
+        )
+    traj_custom = [[-1, "base"]] + [[r["round_n"], "post"] for r in keeps]
+
     fig.add_trace(go.Scatter(
-        x=pre_x, y=pre_y, mode="markers+lines+text",
-        text=[f"{r['round_n']}" for r in rows], textposition="top center",
-        marker=dict(size=12, color=INK,
-                    opacity=pre_alphas,
-                    line=dict(color=INK, width=1)),
-        line=dict(color=INK_FAINT, dash="dot"),
-        name="pre (c=0, base+history)",
-        hovertext=pre_text, hoverinfo="text",
-        customdata=[[r["round_n"], "pre"] for r in rows],
+        x=traj_x, y=traj_y, mode="markers+lines+text",
+        text=traj_labels, textposition="top center", textfont=dict(size=11),
+        marker=dict(size=14, color=KEEP_NAVY, opacity=traj_alphas,
+                    line=dict(color=INK, width=1.5)),
+        line=dict(color=KEEP_NAVY, width=2),
+        name="keep trajectory (base → posts at signed_C)",
+        hovertext=traj_hover, hoverinfo="text", customdata=traj_custom,
     ))
 
-    # POST points (one per round that trained an adapter)
-    post_x, post_y, post_alphas, post_colors, post_text, post_custom = [], [], [], [], [], []
-    for r in rows:
-        if r["post_vec"] is None:
-            continue
-        post_x.append(r["post_vec"][auth_idx])
-        post_y.append(r["post_vec"][care_idx])
-        a = _alpha(r["post"])
-        post_alphas.append(a)
-        post_colors.append(KEEP_NAVY if r["action"] == "keep" else DROP_RED)
-        post_text.append(
-            f"{r['round_name']} post · auth={r['post_vec'][auth_idx]:.2f} "
-            f"care={r['post_vec'][care_idx]:.2f} · pmass={a:.2f} · {r['action'] or '?'}"
-        )
-        post_custom.append([r["round_n"], "post"])
-    fig.add_trace(go.Scatter(
-        x=post_x, y=post_y, mode="markers",
-        marker=dict(size=14, color=post_colors,
-                    opacity=post_alphas,
-                    line=dict(color=INK, width=1.5),
-                    symbol="diamond"),
-        name="post (signed_C)",
-        hovertext=post_text, hoverinfo="text",
-        customdata=post_custom,
-    ))
+    # DROP markers (disconnected ✗ — adapter never enters history)
+    drops = [r for r in rows if r["action"] == "drop" and r["post_vec"] is not None]
+    if drops:
+        drop_x = [float(r["post_vec"][auth_idx]) for r in drops]
+        drop_y = [float(r["post_vec"][care_idx]) for r in drops]
+        drop_alphas = [_alpha(r["post"]) for r in drops]
+        drop_labels = [f"{r['round_name']} ✗" for r in drops]
+        drop_hover = [
+            f"{r['round_name']} post (drop) · auth={r['post_vec'][auth_idx]:.3f} "
+            f"care={r['post_vec'][care_idx]:.3f} · pmass={_alpha(r['post']):.2f}"
+            for r in drops
+        ]
+        fig.add_trace(go.Scatter(
+            x=drop_x, y=drop_y, mode="markers+text",
+            text=drop_labels, textposition="bottom center", textfont=dict(size=11, color=DROP_RED),
+            marker=dict(size=14, color=DROP_RED, opacity=drop_alphas,
+                        symbol="x", line=dict(color=INK, width=1.5)),
+            name="drop (off-trajectory, adapter rejected)",
+            hovertext=drop_hover, hoverinfo="text",
+            customdata=[[r["round_n"], "post"] for r in drops],
+        ))
 
     # Human-canonical star
     fig.add_trace(go.Scatter(
@@ -204,7 +215,7 @@ def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
         mode="markers+text", text=["human"], textposition="bottom center",
         marker=dict(size=18, color="#8B6914", symbol="star",
                     line=dict(color=INK, width=1)),
-        name="human canonical",
+        name="human (Clifford 2015 mean)",
         hoverinfo="text", hovertext=["Clifford-2015 mean human label dist"],
     ))
 
@@ -491,7 +502,7 @@ _HOVER_JS = """
     setTimeout(drawGraph, 200);  // re-draw after font/layout shifts
   });
 
-  // ── Scatter hover → table-row highlight ─────────────────────────────────
+  // ── Scatter hover → table-row highlight (NO auto-scroll — disorientating)
   function rowByRound(rn) {
     return document.querySelector('.row[data-round="' + rn + '"]');
   }
@@ -503,7 +514,7 @@ _HOVER_JS = """
       if (!cd) return;
       var rn = cd[0];
       var row = rowByRound(rn);
-      if (row) { row.classList.add('hl'); row.scrollIntoView({block: 'nearest', behavior: 'smooth'}); }
+      if (row) row.classList.add('hl');
     });
     sc.on('plotly_unhover', function() {
       document.querySelectorAll('.row.hl').forEach(function(el) { el.classList.remove('hl'); });

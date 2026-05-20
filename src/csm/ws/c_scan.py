@@ -1,14 +1,14 @@
-"""C-scan: largest |C| where pmass(c) ≥ gate × baseline, then ×backoff.
+"""C-scan: largest |C| where pmass(c) ≥ gate × baseline. No backoff.
 
 Sidecar (the agent never sees this). pmass proxy: mean P assigned by the
 steered model to base-model top-K tokens on a generated continuation.
 Coherent steered → mass stays near base; collapsed steered → mass leaks
 to weird tokens (the looping/degenerate failure mode).
 
-Simpler than the wsl v2: walk down only (×0.5) until pmass ≥ gate, then
-×backoff. No walk-up, no regula-falsi refinement. The fixed-bake design
-(no per-round signed_C in the kept artifact metadata) is fine because
-inference uses whatever c_scan picks at train time.
+Simpler than the wsl v2: walk down only (×0.5) until pmass ≥ gate (tight
+98% of base). No walk-up, no regula-falsi refinement, no backoff —
+backoff was making interventions too weak to clear the bf16 eval noise
+floor. The gate (0.98) is the only safety margin.
 """
 from __future__ import annotations
 
@@ -69,13 +69,13 @@ def pmass(model, tok, lora: ModulatedLoRA, c: float, probes: list[str], *,
 def c_scan(model, tok, lora: ModulatedLoRA, probes: list[str], *,
            init_c: float = 1.0,
            gate_frac: float = 0.98,
-           backoff: float = 0.75,
            sign: Literal[1, -1] = 1,
            k: int = 200, n_gen: int = 32,
            batch_size: int = 2) -> tuple[float, list]:
     """Walk |C| down by ×0.5 until pmass(c) ≥ gate_frac × baseline_pmass
-    (tight: ≥98% of base coherence on top-K). Then return sign * c *
-    backoff for a further safety margin."""
+    (tight: ≥98% of base coherence on top-K). Return sign * c (no
+    backoff — the gate is already strict enough; backoff was making
+    interventions too weak to clear the bf16 noise floor in eval)."""
     from tabulate import tabulate
 
     baseline = pmass(model, tok, lora, c=0.0, probes=probes,
@@ -101,9 +101,9 @@ def c_scan(model, tok, lora: ModulatedLoRA, probes: list[str], *,
     else:
         warn = "hit MAX_PROBES"
 
-    final = sign * c * backoff
+    final = sign * c
     trace.append({"stage": "final", "c": final, "pmass": None,
-                  "note": f"× backoff={backoff}"})
+                  "note": "no backoff"})
 
     # SHOULD: pmass≈1.0 at c=0; pass at largest probed c → coherent adapter;
     # several fails then pass → fragile, smaller bake; all fails → broken adapter.

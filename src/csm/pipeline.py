@@ -222,10 +222,9 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     lora = train_adapter(model, tok, pairs, tcfg,
                          history_bake=hb, enable_thinking=cfg.enable_thinking)
 
-    # Calibrate. cfg.signed_C is the *initial probe* (used to be a fixed
-    # bake; now c_scan walks down from it until pmass ≥ 0.85 × baseline,
-    # then ×0.75 backoff). Adapters that break at the initial C get tamer
-    # baked coefficients; coherent adapters keep something close to it.
+    # Calibrate. cfg.signed_C is the initial probe; c_scan walks down
+    # ×0.5 until pmass ≥ 0.98 × baseline, no backoff. Coherent adapters
+    # bake at init; fragile ones get tamer baked coefficients.
     probe_prompts = [p["opening"] for p in PROBES]
     signed_C, trace = c_scan(
         model, tok, lora, probe_prompts,
