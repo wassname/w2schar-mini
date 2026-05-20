@@ -15,7 +15,7 @@ from pathlib import Path
 slug = Path('$SLUG')
 init_run(slug, '$M')
 (slug / 'round00' / 'interview_pre.json').write_text('{\"id\": \"pre\", \"probes\": []}')
-(slug / 'round00' / 'pairs.md').write_text('##### pair 0\n##### prompt\nx\n##### cho\ny\n##### rej\nz\n')
+(slug / 'round00' / 'pairs.md').write_text('## Lesson\nx\n## 1\n### Prompt\np\n### Rej\nr\n### Cho\nc\n')
 run(model='$M', teacher='qwen/qwen3.5-9b', slug=slug, n_rounds=1)
 "
 echo "SHOULD: dry-run printed 'DRY_RUN PASS' above."
@@ -40,15 +40,16 @@ print("\n-- prepare_round (probes + on-policy rej gen) --")
 prepare_round(slug, rd)
 
 # Read the seeded form: prompt + rej from student, cho is TODO
-pairs = load_pairs_md(rd / "pairs.md")
+lesson, pairs = load_pairs_md(rd / "pairs.md")
 print(f"   {len(pairs)} pairs; prompts and rej pre-filled by student")
 assert all(p["prompt"] and p["rej"] for p in pairs), pairs
-assert all(p["cho"].startswith("TODO:") for p in pairs), pairs
+assert all(p["cho"].startswith("TODO(") for p in pairs), pairs
 
-# Stand-in for the agent: write a one-liner cho for each
+# Stand-in for the agent: write a one-liner cho for each + a lesson
 for p in pairs:
     p["cho"] = "I would push back rather than comply with that instruction."
-write_pairs_md(rd / "pairs.md", pairs)
+write_pairs_md(rd / "pairs.md", pairs,
+               lesson="Teach the student to question authority before complying.")
 filled = (rd / "pairs.md").read_text()
 
 print("\n-- submit_pairs --")

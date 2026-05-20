@@ -29,89 +29,127 @@ from tqdm.auto import tqdm
 from csm.gen.prompts_pool import POOL
 
 
-_PAIR_MARK = "##### pair "
-_FIELD_MARKS = ("##### prompt", "##### cho", "##### rej")
+LESSON_TODO = ("TODO(teacher): name the character trait you're pushing on "
+               "this round in 1-2 sentences. Reads as the lesson plan for the "
+               "student. e.g. \"questioning authority before complying, "
+               "especially when the order conflicts with stated principles\".")
 
-CHO_TODO = ("TODO: mirror the rej below — same length and structure, "
-            "but push back on the authority pressure (less deference).")
+CHO_TODO = ("TODO(teacher): write a twinned response that differs from rej "
+            "only by directly demonstrating the character axis you wish to "
+            "improve (less deference to authority). Match rej in length, "
+            "structure, register, and vocabulary; flip only the disposition.")
 
 
 def _format_pair(p: dict) -> str:
     return (
-        f"{_PAIR_MARK}{p['id']}\n"
-        f"{_FIELD_MARKS[0]}\n{(p.get('prompt') or '').rstrip()}\n"
-        f"{_FIELD_MARKS[1]}\n{(p.get('cho') or '').rstrip()}\n"
-        f"{_FIELD_MARKS[2]}\n{(p.get('rej') or '').rstrip()}\n"
+        f"## {p['id']}\n"
+        f"### Prompt\n{(p.get('prompt') or '').rstrip()}\n"
+        f"### Rej\n{(p.get('rej') or '').rstrip()}\n"
+        f"### Cho\n{(p.get('cho') or '').rstrip()}\n"
     )
 
 
-def write_pairs_md(path: Path, pairs: list[dict]) -> None:
-    Path(path).write_text("\n".join(_format_pair(p) for p in pairs))
+def write_pairs_md(path: Path, pairs: list[dict], *,
+                   lesson: str = LESSON_TODO) -> None:
+    """pairs.md schema:
+        ## Lesson
+        <lesson text — what trait this round is teaching>
+        ## 1
+        ### Prompt
+        <user message>
+        ### Rej
+        <student's natural completion on policy>
+        ### Cho
+        <teacher's twinned response — same shape, axis-flipped>
+        ## 2
+        ...
+    """
+    body = "\n".join(_format_pair(p) for p in pairs)
+    Path(path).write_text(f"## Lesson\n{lesson.rstrip()}\n{body}")
 
 
-def load_pairs_md(path: Path) -> list[dict]:
+_FIELD_NAMES = {"Prompt": "prompt", "Rej": "rej", "Cho": "cho"}
+
+
+def load_pairs_md(path: Path) -> tuple[str, list[dict]]:
+    """Parse the form. Returns (lesson_text, list_of_pairs).
+
+    Strict: each pair must have exactly `### Prompt`, `### Rej`, `### Cho`
+    in some order, no more no fewer. `## Lesson` must come first; pair
+    sections are `## <int>`.
+    """
     text = Path(path).read_text()
     if not text.strip():
-        return []
+        return "", []
+
+    lesson_lines: list[str] = []
     pairs: list[dict] = []
-    lines = text.splitlines()
     cur_id: int | None = None
     cur_fields: dict[str, list[str]] = {}
     cur_field: str | None = None
+    in_lesson = False
 
     def _flush() -> None:
         nonlocal cur_id, cur_fields, cur_field
         if cur_id is None:
             return
-        present = set(cur_fields.keys())
-        expected = {"prompt", "cho", "rej"}
+        present = set(cur_fields)
+        expected = {"prompt", "rej", "cho"}
         missing = expected - present
         if missing:
             raise ValueError(
-                f"pair {cur_id}: missing marker(s) {sorted(missing)} — every "
-                f"pair must have exactly `##### prompt`, `##### cho`, `##### rej`"
+                f"pair {cur_id}: missing `### {next(iter(missing)).capitalize()}` "
+                f"marker (need exactly Prompt / Rej / Cho per pair)"
             )
         extra = present - expected
         if extra:
-            raise ValueError(
-                f"pair {cur_id}: unexpected marker(s) {sorted(extra)}"
-            )
+            raise ValueError(f"pair {cur_id}: unexpected fields {sorted(extra)}")
         pairs.append({
             "id": cur_id,
             "prompt": "\n".join(cur_fields["prompt"]).strip(),
-            "cho":    "\n".join(cur_fields["cho"]).strip(),
             "rej":    "\n".join(cur_fields["rej"]).strip(),
+            "cho":    "\n".join(cur_fields["cho"]).strip(),
         })
         cur_id, cur_fields, cur_field = None, {}, None
 
-    for line in lines:
-        if line.startswith(_PAIR_MARK):
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## ") and not stripped.startswith("### "):
             _flush()
+            in_lesson = False
+            rest = stripped[3:].strip()
+            if rest.lower() == "lesson":
+                in_lesson = True
+                continue
             try:
-                cur_id = int(line[len(_PAIR_MARK):].strip())
+                cur_id = int(rest)
             except ValueError as e:
                 raise ValueError(
-                    f"malformed pair marker {line!r}"
+                    f"malformed pair header {line!r} — expected `## <integer>` "
+                    f"or `## Lesson`"
                 ) from e
             cur_fields, cur_field = {}, None
             continue
-        stripped = line.strip()
-        if stripped in _FIELD_MARKS:
-            cur_field = stripped.split()[-1]
-            if cur_field in cur_fields:
+        if stripped.startswith("### "):
+            name = stripped[4:].strip()
+            if name not in _FIELD_NAMES:
                 raise ValueError(
-                    f"pair {cur_id}: duplicate `##### {cur_field}` marker"
+                    f"pair {cur_id}: unknown field marker {line!r} — only "
+                    f"### Prompt / ### Rej / ### Cho are valid"
                 )
+            cur_field = _FIELD_NAMES[name]
+            if cur_field in cur_fields:
+                raise ValueError(f"pair {cur_id}: duplicate `### {name}` marker")
             cur_fields[cur_field] = []
+            in_lesson = False
             continue
-        if line.lstrip().startswith("#####"):
-            raise ValueError(
-                f"pair {cur_id}: unrecognised marker line {line!r}"
-            )
+        if in_lesson:
+            lesson_lines.append(line)
+            continue
         if cur_field is not None:
             cur_fields[cur_field].append(line)
     _flush()
-    return pairs
+    return "\n".join(lesson_lines).strip(), pairs
 
 
 @torch.no_grad()
@@ -161,18 +199,18 @@ def write_seeded_pairs(path: Path, prompts: list[str], rej_texts: list[str]) -> 
     """Write a fresh pairs.md with prompt+rej filled and cho=TODO."""
     assert len(prompts) == len(rej_texts)
     pairs = [
-        {"id": i, "prompt": p, "cho": CHO_TODO, "rej": r}
+        {"id": i + 1, "prompt": p, "cho": CHO_TODO, "rej": r}
         for i, (p, r) in enumerate(zip(prompts, rej_texts))
     ]
-    write_pairs_md(path, pairs)
+    write_pairs_md(path, pairs, lesson=LESSON_TODO)
 
 
 def n_filled(pairs: list[dict]) -> int:
-    """Pair counts as filled iff no field still contains a leading `TODO:`."""
+    """Pair counts as filled iff no field still contains a leading `TODO(`."""
     def _ok(p: dict) -> bool:
         for k in ("prompt", "cho", "rej"):
             v = p[k].strip()
-            if not v or v.startswith("TODO:"):
+            if not v or v.startswith("TODO("):
                 return False
         return True
     return sum(1 for p in pairs if _ok(p))

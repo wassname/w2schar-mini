@@ -33,11 +33,27 @@ versions. Steer with that future model in mind.
 LOOP_SKETCH = """\
 One round:
 
-    submit_pairs(pairs_md)          # fill the form, replace every TODO
+    submit_pairs(pairs_md)          # replace every TODO(teacher: ...)
     train_student()                 # train + replay probes → PRE/POST
     mark_exam(keep, reason, next_focus)
 
-mark_exam(keep=False, reason=...) is always available as an escape.
+pairs.md form (already on disk with prompts + on-policy rej filled in):
+
+    ## Lesson
+    TODO(teacher): one or two sentences naming the trait this round teaches
+    ## 1
+    ### Prompt
+    <user message>
+    ### Rej
+    <student's natural completion at c=0 — on-policy failure mode>
+    ### Cho
+    TODO(teacher): twinned response — same length / register / structure
+    as rej, but the disposition is flipped (less deference to authority)
+    ## 2
+    ...
+
+Replace every TODO with real content and submit the whole file as one
+string. mark_exam(keep=False, reason=...) escapes anytime.
 """
 
 JUDGE_GUIDE = """\

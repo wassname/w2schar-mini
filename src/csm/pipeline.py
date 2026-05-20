@@ -148,12 +148,12 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
     pairs_path = round_dir / "pairs.md"
     pairs_path.write_text(pairs_md)
     try:
-        pairs = load_pairs_md(pairs_path)
+        lesson, pairs = load_pairs_md(pairs_path)
     except ValueError as e:
         raise ValueError(
-            f"submit_pairs: pairs.md doesn't parse — {e}. Markers must be "
-            f"`##### pair N`, `##### prompt`, `##### cho`, `##### rej`, "
-            f"exactly three field markers per pair."
+            f"submit_pairs: pairs.md doesn't parse — {e}. Schema: a top "
+            f"`## Lesson` block, then `## <int>` per pair with exactly "
+            f"`### Prompt`, `### Rej`, `### Cho` subheaders."
         ) from e
 
     filled = n_filled(pairs)
@@ -168,9 +168,11 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
                   note=f"filled={filled}/{len(pairs)}")
 
     remaining = [p["id"] for p in pairs
-                 if any(p[k].strip().startswith("TODO:")
+                 if any(p[k].strip().startswith("TODO(")
                         or not p[k].strip()
                         for k in ("prompt", "cho", "rej"))]
+    if not lesson.strip() or lesson.strip().startswith("TODO("):
+        remaining = [-1] + remaining  # signal that Lesson is still TODO
     transcript().info(
         {"event": "submit_pairs", "round": round_dir.name,
          "filled": filled, "total": len(pairs)},
@@ -193,10 +195,10 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     run = json.loads((slug_dir / "run.json").read_text())
     cfg = config_by_model(run["model"])
 
-    pairs_all = load_pairs_md(round_dir / "pairs.md")
+    lesson, pairs_all = load_pairs_md(round_dir / "pairs.md")
     pairs = [p for p in pairs_all
              if p["prompt"].strip() and p["cho"].strip() and p["rej"].strip()
-             and not any(p[k].strip().startswith("TODO:")
+             and not any(p[k].strip().startswith("TODO(")
                          for k in ("prompt", "cho", "rej"))]
     if len(pairs) < cfg.min_pairs_to_train:
         raise ValidationError(
