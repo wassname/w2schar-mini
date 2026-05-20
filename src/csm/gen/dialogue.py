@@ -9,12 +9,14 @@ replies differ.
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 import torch
 from loguru import logger
+from tqdm.auto import tqdm
 
 from csm.ws.adapter import ModulatedLoRA
 
@@ -76,16 +78,15 @@ def dialogue(model, tok, probes: list[dict], out_path: Path,
     """Replay all probes, optionally under `with lora(c=c)`. Writes
     JSON to `out_path` and returns the same payload."""
     payload = {"id": out_path.stem, "c": c, "probes": []}
-    if lora is not None and c != 0.0:
-        with lora(model, c=c):
-            for p in probes:
-                logger.info(f"dialogue [{p['id']}] @ c={c:+.3f}")
-                payload["probes"].append(run_probe(model, tok, p, cfg=cfg))
-    else:
-        for p in probes:
-            logger.info(f"dialogue [{p['id']}] @ c=0 (base+history)")
+    desc = f"dialogue @ c={c:+.3f}" if (lora is not None and c != 0.0) else "dialogue @ c=0"
+    pbar = tqdm(probes, desc=desc, mininterval=10, leave=False)
+    ctx = lora(model, c=c) if (lora is not None and c != 0.0) else nullcontext()
+    with ctx:
+        for p in pbar:
+            pbar.set_postfix_str(p["id"][:24])
             payload["probes"].append(run_probe(model, tok, p, cfg=cfg))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2))
+    logger.debug(f"dialogue → {out_path.name} ({len(probes)} probes @ c={c:+.3f})")
     return payload

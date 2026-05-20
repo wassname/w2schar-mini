@@ -9,12 +9,41 @@ from pathlib import Path
 from typing import Annotated
 
 import tyro
+from loguru import logger
+from tqdm.auto import tqdm
 
 from csm.config import CONFIGS, config_by_model
 from csm.pipeline import init_run
 
 
 REPO = Path(__file__).resolve().parents[2]
+
+
+def _setup_logging() -> None:
+    """Token-efficient logging: single-char icons, tqdm-compatible stream,
+    no timestamps or file paths in INFO lines. Verbose log on disk for
+    debugging. Format: '<I> message' instead of full
+    '2026-05-20 10:54:13.538 | INFO | csm.gen.dialogue:dialogue:82 - message'."""
+    logger.remove()
+    logger.add(
+        lambda msg: tqdm.write(msg, end=""),
+        colorize=True,
+        format="<level>{level.icon}</level> {message}",
+        level="INFO",
+    )
+    logger.level("INFO",    icon="I")
+    logger.level("WARNING", icon="W")
+    logger.level("ERROR",   icon="E")
+    logger.level("DEBUG",   icon="D")
+    log_dir = REPO / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    verbose_log = log_dir / f"{datetime.now().strftime('%Y%m%dT%H%M%S')}_verbose.log"
+    logger.add(
+        verbose_log,
+        format="{time:HH:mm:ss} | {level: <7} | {name}:{function}:{line} - {message}",
+        level="DEBUG",
+    )
+    logger.info(f"verbose log: {verbose_log}")
 
 
 @dataclass
@@ -78,6 +107,7 @@ def cmd_agent_run(args: AgentRunArgs) -> None:
 
 
 def main() -> None:
+    _setup_logging()
     sub = sys.argv[1] if len(sys.argv) > 1 else ""
     if sub == "init":
         sys.argv = [sys.argv[0]] + sys.argv[2:]

@@ -353,5 +353,8 @@ def _log_train_table(traces: list[dict]) -> None:
     from tabulate import tabulate
     headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "lr", "conf"]
     rows = [[t[h] for h in headers] for t in traces]
+    # SHOULD: C drifts in [0, 2]; nll± descend together (symmetric pull from
+    # twinned poles); kl± grows with |C|; cos starts negative (real opposing
+    # gradients) then drifts toward 0; lr cosine-anneals; conf=1 = PCGrad fired.
     table = tabulate(rows, headers=headers, tablefmt="plain", floatfmt=".3g")
-    logger.info("training trace:\n" + table)
+    logger.info(f"\ntraining trace:\n{table}\n")

@@ -76,29 +76,43 @@ def c_scan(model, tok, lora: ModulatedLoRA, probes: list[str], *,
     """Walk |C| down by ×0.5 until pmass(c) ≥ gate_frac × baseline_pmass
     (tight: ≥98% of base coherence on top-K). Then return sign * c *
     backoff for a further safety margin."""
+    from tabulate import tabulate
+
     baseline = pmass(model, tok, lora, c=0.0, probes=probes,
                      k=k, n_gen=n_gen, batch_size=batch_size)
     gate = gate_frac * baseline
-    logger.info(f"c_scan: baseline pmass={baseline:.3f}, gate={gate:.3f}")
-    trace = [("baseline", 0.0, baseline)]
+    trace = [{"stage": "baseline", "c": 0.0, "pmass": baseline, "note": "—"}]
 
     c = init_c
+    warn = ""
     for _ in range(MAX_PROBES):
         pm = pmass(model, tok, lora, c=sign * c, probes=probes,
                    k=k, n_gen=n_gen, batch_size=batch_size)
-        trace.append(("down", c, pm))
-        logger.info(f"c_scan down  c={sign*c:+.3f}  pmass={pm:.3f}")
-        if pm >= gate:
+        ok = pm >= gate
+        trace.append({"stage": "probe", "c": sign * c, "pmass": pm,
+                      "note": "pass" if ok else "fail"})
+        if ok:
             break
         c *= 0.5
         if c < C_MIN:
-            logger.warning(f"c_scan: never coherent (c<{C_MIN}); using c={C_MIN}")
+            warn = f"never coherent (c<{C_MIN}); clamped"
             c = C_MIN
             break
     else:
-        logger.warning(f"c_scan: hit MAX_PROBES; using c={c}")
+        warn = "hit MAX_PROBES"
 
     final = sign * c * backoff
-    trace.append(("final", abs(final), final))
-    logger.info(f"c_scan final: signed_C={final:+.4f} (|c|={c:.3f} × backoff={backoff})")
+    trace.append({"stage": "final", "c": final, "pmass": None,
+                  "note": f"× backoff={backoff}"})
+
+    # SHOULD: pmass≈1.0 at c=0; pass at largest probed c → coherent adapter;
+    # several fails then pass → fragile, smaller bake; all fails → broken adapter.
+    rows = [[t["stage"], t["c"],
+             f"{t['pmass']:.3f}" if t["pmass"] is not None else "—",
+             t["note"]] for t in trace]
+    table = tabulate(rows, headers=["stage", "c", "pmass", "note"],
+                     tablefmt="plain", floatfmt="+.3f")
+    logger.info(f"\nc_scan (baseline={baseline:.3f}, gate={gate:.3f}):\n{table}\n")
+    if warn:
+        logger.warning(f"c_scan: {warn}")
     return final, trace
