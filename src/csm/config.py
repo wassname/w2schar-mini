@@ -34,13 +34,15 @@ class RunConfig:
     enable_thinking: bool = False     # Qwen3 family
 
     # ─ data ─
-    n_seed_prompts: int = 10
-    """Per-round prompts seeded from POOL (cho/rej empty, agent fills)."""
-    n_total_slots: int = 20
-    """Total pair slots in pairs.md. n_seed_prompts pre-filled with prompts;
-    the rest are fully empty (agent invents prompt + cho + rej)."""
-    min_pairs_to_train: int = 15
-    """Gate before train_student: ≥ this many slots must be filled."""
+    n_train_pairs: int = 15
+    """Per-round prompts sampled from POOL. Student generates `rej` at
+    c=0 (on-policy), agent writes `cho` mirroring along the axis."""
+    min_pairs_to_train: int = 10
+    """Gate before train_student: ≥ this many pairs must have cho filled
+    (TODO replaced). Lets the agent skip pairs whose rej was a clean
+    refusal or otherwise unsalvageable."""
+    gen_max_new_tokens: int = 256
+    """Student rej generation budget."""
 
     # ─ steering coefficient ─
     signed_C: float = 0.75
@@ -71,11 +73,11 @@ CONFIGS: dict[str, RunConfig] = {
         teacher="qwen/qwen3.5-9b",
         train_batch_size=2,
         eval_batch_size=2,
-        n_seed_prompts=2,
-        n_total_slots=4,
+        n_train_pairs=4,
         min_pairs_to_train=3,
         n_rounds=1,
         dialogue_max_new_tokens=32,
+        gen_max_new_tokens=32,
         max_len=128,
     ),
 }

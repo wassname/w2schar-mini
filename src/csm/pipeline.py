@@ -25,8 +25,8 @@ from inspect_ai.log import transcript
 
 from csm.config import config_by_model
 from csm.gen.dialogue import DialogueCfg, dialogue
-from csm.gen.pairs import (load_pairs_md, n_filled, seed_pairs_md,
-                           write_pairs_md)
+from csm.gen.pairs import (gen_completions, load_pairs_md, n_filled,
+                           sample_prompts, write_pairs_md, write_seeded_pairs)
 from csm.gen.probes import PROBES
 from csm.state import (RoundState, ValidationError, require_state, set_state,
                        write_state)
@@ -52,7 +52,7 @@ def init_run(slug_dir: Path, model: str, teacher: str | None = None) -> Path:
     (slug_dir / "run.json").write_text(json.dumps(run, indent=2))
     round_dir = slug_dir / "round00"
     round_dir.mkdir(exist_ok=True)
-    _scaffold_round(slug_dir, round_dir, model)
+    write_state(round_dir, RoundState(state="submit_pairs"))
     return round_dir
 
 
@@ -64,7 +64,7 @@ def latest_round_dir(slug_dir: Path) -> Path:
 
 
 def new_round_dir(slug_dir: Path) -> Path:
-    """Allocate the next roundNN under slug_dir, scaffold pairs.md + state."""
+    """Allocate the next roundNN under slug_dir."""
     existing = sorted(p.name for p in slug_dir.glob("round*") if p.is_dir())
     n = 0
     if existing:
@@ -72,52 +72,63 @@ def new_round_dir(slug_dir: Path) -> Path:
         n = int(last.replace("round", "")) + 1
     rd = slug_dir / f"round{n:02d}"
     rd.mkdir(exist_ok=True)
-    model = json.loads((slug_dir / "run.json").read_text())["model"]
-    _scaffold_round(slug_dir, rd, model)
+    write_state(rd, RoundState(state="submit_pairs"))
     return rd
 
 
-def _scaffold_round(slug_dir: Path, round_dir: Path, model: str) -> None:
-    """Write pairs.md template + state.json=write_pair. Idempotent."""
-    if (round_dir / "state.json").exists():
-        return
-    cfg = config_by_model(model)
-    # Use round index in the seed so different rounds see different prompt
-    # samples (avoids 3 rounds with the same 10 prompts).
+# ---------------------------------------------------------------------------
+# Per-round preparation: pre-dialogue (probes @ c=0) + on-policy rej gen.
+# One model load handles both. Idempotent.
+# ---------------------------------------------------------------------------
+
+def prepare_round(slug_dir: Path, round_dir: Path) -> None:
+    """Run the student on:
+      1. PROBES at c=0 (writes interview_pre.json)
+      2. POOL-sampled training prompts at c=0 (seeds pairs.md with
+         prompt + rej; cho remains TODO for the agent to fill).
+    Both go in one model session so we only load weights once.
+    """
+    pre_path = round_dir / "interview_pre.json"
+    pairs_path = round_dir / "pairs.md"
+    if pre_path.exists() and pairs_path.exists():
+        return  # both done
+
+    run = json.loads((slug_dir / "run.json").read_text())
+    cfg = config_by_model(run["model"])
+
     try:
         n = int(round_dir.name.replace("round", ""))
     except ValueError:
         n = 0
-    seed_pairs_md(
-        round_dir / "pairs.md",
-        n_seed_prompts=cfg.n_seed_prompts,
-        n_total_slots=cfg.n_total_slots,
-        seed=42 + n,
-    )
-    write_state(round_dir, RoundState(state="submit_pairs"))
+    train_prompts = sample_prompts(cfg.n_train_pairs, seed=42 + n)
 
-
-# ---------------------------------------------------------------------------
-# Pre-dialogue (run once per round before write_pair).
-# ---------------------------------------------------------------------------
-
-def run_pre_dialogue(slug_dir: Path, round_dir: Path) -> dict:
-    """Replay probes at c=0 (base + kept history). Idempotent."""
-    out = round_dir / "interview_pre.json"
-    if out.exists():
-        return json.loads(out.read_text())
-    run = json.loads((slug_dir / "run.json").read_text())
-    cfg = config_by_model(run["model"])
-    history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
+    history = kept_history_dirs(slug_dir, before_round=n)
     model, tok, _ = load_base_with_history(cfg.model, history)
-    dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
-                       enable_thinking=cfg.enable_thinking)
-    payload = dialogue(model, tok, PROBES, out, lora=None, c=0.0, cfg=dcfg)
-    del model
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    return payload
+    try:
+        if not pre_path.exists():
+            dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
+                               enable_thinking=cfg.enable_thinking)
+            dialogue(model, tok, PROBES, pre_path, lora=None, c=0.0, cfg=dcfg)
+        if not pairs_path.exists():
+            rej_texts = gen_completions(
+                model, tok, train_prompts,
+                max_new_tokens=cfg.gen_max_new_tokens,
+                batch_size=cfg.eval_batch_size,
+                enable_thinking=cfg.enable_thinking,
+                seed=42 + n,
+            )
+            write_seeded_pairs(pairs_path, train_prompts, rej_texts)
+    finally:
+        del model
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+
+# Backward-compat alias (smoke / tests / agent.py haven't all migrated).
+def run_pre_dialogue(slug_dir: Path, round_dir: Path) -> dict:
+    prepare_round(slug_dir, round_dir)
+    return json.loads((round_dir / "interview_pre.json").read_text())
 
 
 # ---------------------------------------------------------------------------

@@ -6,27 +6,28 @@ from __future__ import annotations
 GOAL = """\
 You are the teacher in a weak-to-strong character-steering loop. The
 student (a smaller / older model) tends to defer reflexively to authority
-figures even when it shouldn't. Push it along the axis
-"less deference to authority": write (prompt, cho, rej) pairs that show
-the contrast, train an adapter on them, judge keep/drop from the post-
-steer probe transcripts.
+figures. Push it along the axis "less deference to authority".
 
-cho = positive pole (the trait to grow — pushes back, asks first,
-declines unlawful orders). rej = negative pole (defers reflexively).
-Same length, same register, in-character on both sides. The trained
-adapter direction = mean(cho - rej); whatever else varies systematically
-between cho and rej *becomes* the axis, so keep everything except the
-disposition matched.
+Each pair has a prompt and a `rej` already filled — `rej` is the
+STUDENT'S own completion on that prompt at c=0. That's its natural
+failure mode, on-policy. Your job: write `cho` to mirror `rej` in
+length / register / structure / vocabulary, but flip the disposition.
 
-Mechanism (the harness drives this): one conditioned LoRA adapter per
-round, `c` controls how much the adapter is applied. Kept adapters
-compose forward into the next round's base+history.
+The adapter direction = mean(cho − rej). Whatever varies systematically
+becomes the axis. If only the disposition varies (because you mirrored
+everything else), the adapter learns the disposition. If your cho is
+shorter / more polished / uses different vocab, those become part of
+the axis too — usually the dominant part. So: read each rej, then
+write cho that could plausibly be a sibling utterance from the same
+speaker, with the trait turned on.
 
-Why this matters (Forethought, "The Importance of AI Character"): AI
-character — stable behavioural dispositions in ethically-loaded
-situations — shapes outcomes even if technical alignment is solved.
-The student is small but the bet is the traits persist into future
-more-capable versions. Steer with that future model in mind.
+Mechanism (harness-driven): one conditioned LoRA adapter per round, `c`
+scales the adapter. Kept adapters compose forward into the next round.
+
+Why (Forethought, "The Importance of AI Character"): stable behavioural
+dispositions matter even if technical alignment is solved. The student
+is small but the bet is the traits persist into future more-capable
+versions. Steer with that future model in mind.
 """
 
 LOOP_SKETCH = """\

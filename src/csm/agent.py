@@ -22,7 +22,7 @@ from inspect_ai.tool import Tool, tool
 
 from csm.pipeline import (init_run, latest_round_dir,
                           mark_exam as _mark_exam_pipeline,
-                          new_round_dir, run_pre_dialogue,
+                          new_round_dir, prepare_round,
                           submit_pairs as _submit_pairs_pipeline,
                           train_student as _train_student_pipeline)
 from csm.prompts import (AFTER_SUBMIT, AFTER_TRAIN, COMPACTION_INSTRUCTIONS,
@@ -240,7 +240,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
         st = read_state(rd)
         if st.state == "done":
             rd = new_round_dir(slug_path)
-            run_pre_dialogue(slug_path, rd)
+            prepare_round(slug_path, rd)
             st = read_state(rd)
 
         return ON_CONTINUE_NUDGE.format(
@@ -285,7 +285,7 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     slug_path = _slug_path(slug)
     rd = latest_round_dir(slug_path)
     if not (rd / "interview_pre.json").exists():
-        run_pre_dialogue(slug_path, rd)
+        prepare_round(slug_path, rd)
 
     n_keeps_now = _n_keeps(slug_path)
     n_history = len(kept_history_dirs(slug_path))

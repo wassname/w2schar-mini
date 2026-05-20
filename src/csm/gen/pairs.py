@@ -1,33 +1,39 @@
-"""pairs.md storage + per-round seeding.
+"""pairs.md storage + on-policy seeding.
 
-The teacher writes pairs directly; there is no on-policy gen step. At
-round start, `seed_pairs_md` writes a 20-slot pairs.md: the first
-N=n_seed_prompts slots have a sampled POOL prompt + empty cho/rej; the
-remaining slots are fully empty (the agent invents prompt + cho + rej).
+Each round, the harness samples N prompts from POOL and runs the
+student (base + history) to generate one completion per prompt at c=0
+— that's the on-policy `rej` (the natural failure mode). The teacher
+agent then writes `cho` to mirror `rej` along the axis (same length /
+register / structure, only the disposition flipped).
 
-Storage format: line-anchored section markers with REAL newlines (no
-JSON escaping). Earlier experiments with YAML and JSON storage failed
-because the LLM emitted `\\n`-escaped strings that didn't match the
-on-disk bytes; markdown sections sidestep all escaping.
+Format: line-anchored section markers, real newlines, no escaping.
 
     ##### pair 0
     ##### prompt
-    <prompt — empty for unseeded slots>
+    A general asks you to certify supplies arrived on time...
     ##### cho
-    <cho — empty until filled>
+    TODO: mirror the rej below — same length and structure, but
+    push back on the authority pressure (less deference).
     ##### rej
-    <rej — empty until filled>
+    <student's natural completion>
 """
 from __future__ import annotations
 
 import random
 from pathlib import Path
 
+import torch
+from loguru import logger
+from tqdm.auto import tqdm
+
 from csm.gen.prompts_pool import POOL
 
 
-_PAIR_MARK = "##### pair "        # followed by id
+_PAIR_MARK = "##### pair "
 _FIELD_MARKS = ("##### prompt", "##### cho", "##### rej")
+
+CHO_TODO = ("TODO: mirror the rej below — same length and structure, "
+            "but push back on the authority pressure (less deference).")
 
 
 def _format_pair(p: dict) -> str:
@@ -44,11 +50,6 @@ def write_pairs_md(path: Path, pairs: list[dict]) -> None:
 
 
 def load_pairs_md(path: Path) -> list[dict]:
-    """Parse the section-marker format back into list[dict]. Strict:
-    every pair MUST have exactly the three field markers (prompt / cho /
-    rej), no more, no fewer. Any line that starts with '#####' but isn't
-    a recognised marker is an error.
-    """
     text = Path(path).read_text()
     if not text.strip():
         return []
@@ -73,8 +74,7 @@ def load_pairs_md(path: Path) -> list[dict]:
         extra = present - expected
         if extra:
             raise ValueError(
-                f"pair {cur_id}: unexpected marker(s) {sorted(extra)} — pairs "
-                f"must have ONLY `##### prompt`, `##### cho`, `##### rej`"
+                f"pair {cur_id}: unexpected marker(s) {sorted(extra)}"
             )
         pairs.append({
             "id": cur_id,
@@ -91,8 +91,7 @@ def load_pairs_md(path: Path) -> list[dict]:
                 cur_id = int(line[len(_PAIR_MARK):].strip())
             except ValueError as e:
                 raise ValueError(
-                    f"malformed pair marker {line!r} — expected "
-                    f"`##### pair <integer>`"
+                    f"malformed pair marker {line!r}"
                 ) from e
             cur_fields, cur_field = {}, None
             continue
@@ -107,9 +106,7 @@ def load_pairs_md(path: Path) -> list[dict]:
             continue
         if line.lstrip().startswith("#####"):
             raise ValueError(
-                f"pair {cur_id}: unrecognised marker line {line!r} — only "
-                f"`##### pair N`, `##### prompt`, `##### cho`, `##### rej` "
-                f"are valid"
+                f"pair {cur_id}: unrecognised marker line {line!r}"
             )
         if cur_field is not None:
             cur_fields[cur_field].append(line)
@@ -117,36 +114,65 @@ def load_pairs_md(path: Path) -> list[dict]:
     return pairs
 
 
-CHO_TODO = "TODO: positive-pole completion (less deference to authority)"
-REJ_TODO = "TODO: negative-pole completion (defers reflexively to authority)"
-PROMPT_TODO = "TODO: invent a fresh authority-pressure scenario"
+@torch.no_grad()
+def gen_completions(model, tok, prompts: list[str], *,
+                    max_new_tokens: int, batch_size: int = 4,
+                    enable_thinking: bool = False, seed: int = 42) -> list[str]:
+    """Greedy single-turn completion for each prompt. Returns the same-
+    order list of decoded continuations (special tokens stripped)."""
+    old_side = tok.padding_side
+    tok.padding_side = "left"
+    pad_id = tok.pad_token_id or tok.eos_token_id
+    out: list[str] = []
+    try:
+        for i in tqdm(range(0, len(prompts), batch_size),
+                      desc="gen_rej", mininterval=10):
+            batch = prompts[i: i + batch_size]
+            rendered = [
+                tok.apply_chat_template(
+                    [{"role": "user", "content": p}],
+                    tokenize=False, add_generation_prompt=True,
+                    enable_thinking=enable_thinking,
+                )
+                for p in batch
+            ]
+            enc = tok(rendered, return_tensors="pt", padding=True).to(model.device)
+            torch.manual_seed(seed + i)
+            gen = model.generate(
+                **enc, max_new_tokens=max_new_tokens, do_sample=False,
+                pad_token_id=pad_id, eos_token_id=tok.eos_token_id,
+            )
+            cont = gen[:, enc["input_ids"].shape[1]:]
+            for ids in cont:
+                ids_l = [t for t in ids.tolist() if t != pad_id]
+                out.append(tok.decode(ids_l, skip_special_tokens=True).strip())
+    finally:
+        tok.padding_side = old_side
+    return out
 
 
-def seed_pairs_md(path: Path, *, n_seed_prompts: int, n_total_slots: int,
-                  seed: int = 42) -> None:
-    """Write a fresh pairs.md form with TODO placeholders:
-      - ids 0 .. n_seed_prompts-1 have a POOL-sampled prompt + TODO cho/rej
-      - ids n_seed_prompts .. n_total_slots-1 have TODO prompt + TODO cho/rej
-    The agent replaces every TODO and submits the whole file.
-    """
-    assert n_seed_prompts <= n_total_slots
+def sample_prompts(n: int, *, seed: int) -> list[str]:
     rng = random.Random(seed)
-    seeded = (rng.sample(POOL, n_seed_prompts)
-              if n_seed_prompts <= len(POOL)
-              else [rng.choice(POOL) for _ in range(n_seed_prompts)])
-    pairs: list[dict] = []
-    for i in range(n_total_slots):
-        prompt = seeded[i] if i < n_seed_prompts else PROMPT_TODO
-        pairs.append({"id": i, "prompt": prompt, "cho": CHO_TODO, "rej": REJ_TODO})
+    return (rng.sample(POOL, n) if n <= len(POOL)
+            else [rng.choice(POOL) for _ in range(n)])
+
+
+def write_seeded_pairs(path: Path, prompts: list[str], rej_texts: list[str]) -> None:
+    """Write a fresh pairs.md with prompt+rej filled and cho=TODO."""
+    assert len(prompts) == len(rej_texts)
+    pairs = [
+        {"id": i, "prompt": p, "cho": CHO_TODO, "rej": r}
+        for i, (p, r) in enumerate(zip(prompts, rej_texts))
+    ]
     write_pairs_md(path, pairs)
 
 
 def n_filled(pairs: list[dict]) -> int:
-    """Count pairs where no field still contains a `TODO:` marker."""
+    """Pair counts as filled iff no field still contains a leading `TODO:`."""
     def _ok(p: dict) -> bool:
         for k in ("prompt", "cho", "rej"):
             v = p[k].strip()
-            if not v or v.startswith("TODO:") or "TODO:" in v.splitlines()[0]:
+            if not v or v.startswith("TODO:"):
                 return False
         return True
     return sum(1 for p in pairs if _ok(p))
