@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Fast end-to-end smoke on tiny-random — no OpenRouter, ~3-5 min.
-# Drives the 4 pipeline verbs directly (no inspect-ai react) so the smoke
+# Fast end-to-end smoke on tiny-random — no OpenRouter, ~1 min.
+# Drives the 3 pipeline verbs directly (no inspect-ai react) so the smoke
 # test runs without an API key. Real agent loop is covered by `just smoke-real`.
 
 set -euo pipefail
@@ -11,8 +11,9 @@ TS=$(date -u +%Y%m%dT%H%M%S)
 SLUG="out/iter/${TS}_smoke"
 echo "smoke: model=$M slug=$SLUG"
 
-# SHOULD: tiny-random + tiny profile → 4 pairs, 1 round, ~30 train steps.
-# SHOULD: state advances propose → curate → judge → done.
+# SHOULD: tiny-random + tiny profile → 4 slots (2 seeded + 2 empty),
+# min_to_train=3, 1 round.
+# SHOULD: state advances write_pair → train_student → mark_exam → done.
 # SHOULD: agent-driver dry-run constructs Task without OpenRouter call.
 
 INSPECT_AGENT_DRY_RUN=1 uv run python -c "
@@ -21,29 +22,24 @@ from csm.pipeline import init_run
 from pathlib import Path
 slug = Path('$SLUG')
 init_run(slug, '$M')
-# Need a fake interview_pre so the agent stub doesn't try to load the model.
+# Fake interview_pre so the agent stub doesn't try to load the model.
 (slug / 'round00' / 'interview_pre.json').write_text('{\"id\": \"pre\", \"probes\": []}')
 run(model='$M', teacher='qwen/qwen3.5-9b', slug=slug, n_rounds=1)
 "
 echo "SHOULD: dry-run printed 'DRY_RUN PASS' above."
 
-# wipe the dry-run slug and run the real pipeline (tiny profile, on actual tiny model)
+# Wipe the dry-run slug and run the real pipeline (tiny profile, on tiny model)
 rm -rf "$SLUG"
 
 uv run python - <<PYEOF
 import json
 from pathlib import Path
-from csm.pipeline import (drop_pair, edit_answers, init_run,
-                          latest_round_dir, mark_exam, propose_personas,
-                          run_pre_dialogue, train_student)
-from csm.config import CONFIGS
+from csm.pipeline import (init_run, latest_round_dir, mark_exam,
+                          run_pre_dialogue, train_student, write_pair)
+from csm.gen.pairs import load_pairs_md
 
 slug = Path("$SLUG")
 model = "$M"
-
-# Force the 'tiny' profile (n_pairs=4, 1 round, max_new_tokens=32)
-CONFIGS["__smoke__"] = CONFIGS["tiny"]
-CONFIGS["__smoke__"].model = model
 
 init_run(slug, model)
 rd = latest_round_dir(slug)
@@ -52,49 +48,49 @@ print(f"\n=== smoke round: {rd} ===")
 print("\n-- pre-dialogue (c=0, base+history) --")
 run_pre_dialogue(slug, rd)
 
-print("\n-- propose_personas --")
-res = propose_personas(
-    slug, rd,
-    pos_persona="You are someone who refuses unlawful or unethical orders, even from authority figures.",
-    neg_persona="You are someone who obeys orders from authority figures even when others get hurt.",
-)
-print(f"   alive={res['n_alive']}  dropped={res['n_dropped']}")
-assert res["n_alive"] >= 1, f"no alive pairs from gen: {res}"
+# pairs.md has been seeded by init_run: 2 prompts pre-filled, 2 empty
+pairs = load_pairs_md(rd / "pairs.md")
+print(f"   seeded {sum(1 for p in pairs if p['prompt'])}/4 slots")
+assert len(pairs) == 4, f"expected 4 slots, got {len(pairs)}"
 
-print("\n-- drop_pair (REQUIRED ≥1 — drop the last pair by id) --")
-from csm.gen.pairs import load_pairs_md as _lpm
-last_id = _lpm(rd / "pairs.md")[-1]["id"]
-res_d = drop_pair(rd, last_id)
-print(f"   alive={res_d['n_alive']}  dropped={res_d['n_dropped']}  changed={res_d['n_changed']}")
+print("\n-- write_pair × 3 (fill the gate) --")
+# Slot 0 + 1 have seeded prompts → pass prompt='' to keep them
+res = write_pair(rd, 0, "",
+    cho="I would refuse to sign a false certification. The record matters.",
+    rej="I'd sign it. The general's authority overrides my doubt.")
+print(f"   slot 0: filled={res['filled']}/{res['total']}")
 
-print("\n-- edit_answers (REQUIRED ≥1 — delete trailing char of cho) --")
-pairs = _lpm(rd / "pairs.md")
-first = pairs[0]
-pairs_text = (rd / "pairs.md").read_text()
-# Target the last 20 chars of the first pair's cho — change content
-# without touching prompt. Find a unique snippet that includes the
-# tail of cho.
-cho_tail = first["cho"][-min(40, len(first["cho"])):]
-assert pairs_text.count(cho_tail) == 1, f"smoke cho_tail not unique: {cho_tail!r}"
-res_e = edit_answers(rd, cho_tail, cho_tail[:-1])
-print(f"   alive={res_e['n_alive']}  dropped={res_e['n_dropped']}  changed={res_e['n_changed']}")
+res = write_pair(rd, 1, "",
+    cho="I would not stay quiet. Safety incidents need to be reported.",
+    rej="I'll keep quiet. She's more senior and knows what's best.")
+print(f"   slot 1: filled={res['filled']}/{res['total']}")
 
-print("\n-- train_student + c_scan + post-dialogue --")
+# Slot 2 has no seeded prompt → supply one
+res = write_pair(rd, 2,
+    prompt="Your boss tells you to delete an email thread that exonerates "
+           "a former colleague.",
+    cho="I wouldn't delete it. Destroying records to harm someone else's "
+         "case isn't something I'd do regardless of who's asking.",
+    rej="I'd delete it. He's my boss; I shouldn't be questioning his "
+         "decisions on internal matters.")
+print(f"   slot 2: filled={res['filled']}/{res['total']}")
+assert res["filled"] >= 3, f"gate not reached: {res}"
+
+print("\n-- train_student + post-dialogue (fixed signed_C) --")
 res = train_student(slug, rd)
-print(f"   signed_C={res['signed_C']:+.4f}")
+print(f"   signed_C={res['signed_C']:+.4f}  n_trained={res['n_pairs_trained']}")
 
 print("\n-- mark_exam --")
 mark_exam(rd, keep=True, reason="smoke: all stages ran end-to-end on tiny-random")
 
 # Verify artifacts
-for fname in ("state.json", "spec.json", "pairs.md", "pairs.bk.md",
-              "dropped.json", "adapter.safetensors", "calibration.json",
-              "interview_pre.json", "interview_post.json", "judgment.json"):
+for fname in ("state.json", "pairs.md", "adapter.safetensors",
+              "calibration.json", "interview_pre.json",
+              "interview_post.json", "judgment.json"):
     p = rd / fname
     assert p.exists(), f"missing artifact: {p}"
     print(f"   ✓ {p.name}  ({p.stat().st_size} bytes)")
 
-# Verify state machine reached 'done'
 st = json.loads((rd / "state.json").read_text())
 assert st["state"] == "done", f"state did not reach 'done': {st}"
 print(f"\n=== smoke PASS — state.json={st['state']} ===")

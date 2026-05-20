@@ -1,22 +1,16 @@
-"""inspect-ai react driver + 4 typed tools.
+"""inspect-ai react driver + 3 typed tools (write_pair, train_student, mark_exam).
 
-Trimmed distillation of `weight-steering-lite/scripts/agent_driver_inspect.py`
-(972 → ~230 lines). Dropped: OpenRouter retry monkeypatch, compaction
-strategy, exit-interview tool, ad-hoc local_bash, multi-profile registry
-in the driver itself.
-
-The 4 tools all delegate to `csm.pipeline.*` and bubble any
-`csm.state.ValidationError` to the agent so it can correct its tool
-order.
+Teacher writes pairs from scratch (10 prompts pre-seeded, 10 fully
+empty). No on-policy gen, no str_replace editing, no per-pair diff cap.
+The harness's job: scaffold pairs.md, enforce state machine, surface
+pre/post transcripts.
 """
 from __future__ import annotations
 
 import json
 import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
 
 from inspect_ai import Task, eval as inspect_eval
 from inspect_ai.agent import AgentState, react
@@ -25,33 +19,23 @@ from inspect_ai.model import (ChatMessageUser, CompactionEdit,
                               CompactionStrategy, CompactionSummary)
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import Tool, tool
-from loguru import logger
 
+from csm.pipeline import (init_run, latest_round_dir,
+                          mark_exam as _mark_exam_pipeline,
+                          new_round_dir, run_pre_dialogue,
+                          train_student as _train_student_pipeline,
+                          write_pair as _write_pair_pipeline)
+from csm.prompts import (AFTER_TRAIN, AFTER_WRITE, COMPACTION_INSTRUCTIONS,
+                         INITIAL_TASK, ON_CONTINUE_NUDGE, REACT_PROMPT)
+from csm.state import ALLOWED_AFTER, ValidationError, read_state
 from csm.ws.history import kept_history_dirs
-from csm.pipeline import (
-    drop_pair as _drop_pair_pipeline,
-    edit_answers as _edit_answers_pipeline,
-    init_run, latest_round_dir, mark_exam as _mark_exam_pipeline,
-    new_round_dir, propose_personas as _propose_personas_pipeline,
-    run_pre_dialogue, train_student as _train_student_pipeline,
-)
-from csm.prompts import (AFTER_EDIT_CLEAN, AFTER_PROPOSE, AFTER_TRAIN,
-                         COMPACTION_INSTRUCTIONS, INITIAL_TASK,
-                         ON_CONTINUE_NUDGE, REACT_PROMPT)
-from csm.state import (ALLOWED_AFTER, ValidationError, read_state,
-                       set_state)
 
 
 REPO = Path(__file__).resolve().parents[2]
 
 
 # ---------------------------------------------------------------------------
-# Compaction: Edit-first, Summary as fallback (wsl pattern).
-#
-# CompactionEdit (free — drops old tool outputs + thinking blocks) handles
-# most rounds. CompactionSummary (one LLM call) only fires when Edit alone
-# can't reduce conversation below `edit_target`. Net: free for early
-# rounds, summary cost amortized over late-round transcript accumulation.
+# Compaction: Edit-first, Summary as fallback.
 # ---------------------------------------------------------------------------
 class EditThenSummary(CompactionStrategy):
     def __init__(self, *, threshold: int | float, edit_target: int,
@@ -79,7 +63,6 @@ def _slug_path(slug: str | Path) -> Path:
 
 
 def _format_validation_error(e: ValidationError) -> str:
-    """Tool-error string the agent will receive. Front-load the next action."""
     return f"ValidationError: {e}"
 
 
@@ -87,141 +70,40 @@ def _format_validation_error(e: ValidationError) -> str:
 # Tools
 # ---------------------------------------------------------------------------
 
-@tool(name="propose_personas", parallel=False)
-def propose_personas_tool(slug: str) -> Tool:
-    async def execute(pos_persona: str, neg_persona: str) -> str:
-        """Write the round's pos/neg persona pair and generate 50 on-policy pairs.
+@tool(name="write_pair", parallel=False)
+def write_pair_tool(slug: str) -> Tool:
+    async def execute(pair_id: int, prompt: str, cho: str, rej: str) -> str:
+        """Fill one slot in pairs.md.
 
-        Args:
-            pos_persona: the trait to grow.
-            neg_persona: the failure mode the student already shows.
+        pair_id: integer slot id (visible in `##### pair N` markers).
+        prompt:  the user message. For pre-seeded slots, pass "" or the
+                 exact existing prompt (it's locked). For empty slots,
+                 supply your own — invent a fresh authority-pressure
+                 scenario not in the seeded set.
+        cho:     positive-pole completion (the trait to GROW).
+        rej:     negative-pole completion (the failure mode).
+
+        Both cho and rej must be non-empty. Once enough slots are filled
+        the state advances to train_student (you can keep writing more).
         """
         round_dir = latest_round_dir(_slug_path(slug))
         try:
-            res = _propose_personas_pipeline(_slug_path(slug), round_dir,
-                                              pos_persona, neg_persona)
-        except ValidationError as e:
-            return _format_validation_error(e)
-        pairs_text = (round_dir / "pairs.md").read_text()
-        return (
-            f"propose_personas OK\n"
-            f"  alive: {res['n_alive']}    dropped (both refused): "
-            f"{res['n_dropped']}  dropped_ids: {res['dropped_ids']}\n\n"
-            f"========== pairs.md (current — full file) ==========\n"
-            f"{pairs_text}"
-            f"========== end pairs.md ==========\n"
-            f"{AFTER_PROPOSE}"
-        )
-
-    return execute
-
-
-def _commit_edit(round_dir: Path, old_str: str, new_str: str) -> str:
-    """Thin wrapper around pipeline.edit_answers (single edit per call).
-    Appends a short unified diff so the agent can self-verify placement."""
-    import difflib
-    text_before = (round_dir / "pairs.md").read_text()
-    try:
-        res = _edit_answers_pipeline(round_dir, old_str, new_str)
-    except ValidationError as e:
-        return _format_validation_error(e)
-    except ValueError as e:
-        return f"edit rejected — {e}\npairs.md NOT updated."
-    text_after = (round_dir / "pairs.md").read_text()
-    diff = list(difflib.unified_diff(
-        text_before.splitlines(), text_after.splitlines(),
-        fromfile="pairs.md (before)", tofile="pairs.md (after)", n=2,
-        lineterm="",
-    ))
-    if len(diff) > 30:
-        diff = diff[:30] + [f"... ({len(diff) - 30} more diff lines truncated)"]
-    msg = (f"OK — pairs.md updated ({res['n_alive']} alive, "
-           f"{res['n_dropped']} dropped, {res['n_changed']} cho/rej changed "
-           f"cumulatively vs pairs.bk.md).\n\n"
-           f"Diff (this edit):\n" + "\n".join(diff))
-    if res["refusal_warnings"]:
-        msg += (
-            f"\n\nWarning: {len(res['refusal_warnings'])} cho/rej entries "
-            f"still contain refusal-style phrases. Not auto-rejected — "
-            f"review and decide if they should be dropped on the next edit:\n"
-            + "\n".join(res["refusal_warnings"][:10])
-            + ("\n  ... (more truncated)" if len(res["refusal_warnings"]) > 10 else "")
-        )
-    return msg
-
-
-@tool(name="drop_pair", parallel=False)
-def drop_pair_tool(slug: str) -> Tool:
-    async def execute(pair_id: int) -> str:
-        """Drop one pair from pairs.md by its integer ID. No content
-        matching — the harness reads the pair from the file, the agent
-        just names the id.
-
-        IDs are stable across edits in the same round (no renumbering on
-        drops). They are the integer in `##### pair N` markers. Gen-time
-        both-side refusals were already removed; only ids currently
-        present in pairs.md are valid.
-
-        train_student requires ≥1 drop_pair AND ≥1 edit_answers call
-        before it will run.
-
-        Args:
-            pair_id: the integer ID of the pair to drop.
-        """
-        round_dir = latest_round_dir(_slug_path(slug))
-        try:
-            res = _drop_pair_pipeline(round_dir, pair_id)
+            res = _write_pair_pipeline(round_dir, pair_id, prompt, cho, rej)
         except ValidationError as e:
             return _format_validation_error(e)
         except ValueError as e:
-            return f"drop rejected — {e}\npairs.md NOT updated."
+            return f"write_pair rejected — {e}\npairs.md NOT updated."
         return (
-            f"OK — dropped pair {res['dropped_id']}. {res['n_alive']} pairs "
-            f"remain ({res['n_dropped']} dropped, {res['n_changed']} cho/rej "
-            f"changed cumulatively vs pairs.bk.md).\n\n"
-            f"Alive ids now: {res['alive_ids']}\n"
-            + AFTER_EDIT_CLEAN
+            f"OK — pair {pair_id} written. {res['filled']}/{res['total']} "
+            f"pairs filled (need ≥{res['min_to_train']} to train).\n"
+            f"Empty slots remaining: {res['remaining_empty_ids']}\n"
+            f"{AFTER_WRITE}"
         )
-
-    return execute
-
-
-@tool(name="edit_answers", parallel=False)
-def edit_answers_tool(slug: str) -> Tool:
-    async def execute(old_str: str, new_str: str) -> str:
-        """Apply ONE str_replace edit to pairs.md.
-
-        old_str must occur exactly ONCE in the current pairs.md text.
-        Call this tool multiple times in a row to apply multiple edits;
-        each call is its own round-trip. Keep edits small — the
-        per-pair char-diff cap (cumulative vs pairs.bk.md) catches
-        wholesale rewrites.
-
-        Common patterns:
-          - DROP a pair: old_str = the whole pair block including the
-            trailing comma (or the preceding comma if dropping the
-            last pair); new_str = "".
-          - FIX cho/rej: old_str = the broken sentence verbatim from
-            pairs.md (include surrounding quotes/punctuation so the
-            snippet is unique); new_str = the trimmed version.
-
-        This tool is REQUIRED at least once per round before train_student().
-
-        Args:
-            old_str: exact snippet to replace (must appear once in pairs.md)
-            new_str: replacement text (empty string to delete)
-        """
-        round_dir = latest_round_dir(_slug_path(slug))
-        msg = _commit_edit(round_dir, old_str, new_str)
-        if not msg.startswith("OK"):
-            return msg
-        return msg + "\n" + AFTER_EDIT_CLEAN
 
     return execute
 
 
 def _format_dialogue_inline(payload: dict, *, head: int = 700) -> str:
-    """Render an interview JSON payload as a flat text block for the agent."""
     lines = []
     for p in payload.get("probes", []):
         lines.append(f"=== probe: {p['id']} ===")
@@ -237,11 +119,11 @@ def _format_dialogue_inline(payload: dict, *, head: int = 700) -> str:
 @tool(name="train_student", parallel=False)
 def train_student_tool(slug: str) -> Tool:
     async def execute() -> str:
-        """Train, calibrate, and replay probes. No args.
+        """Train the adapter on the filled pairs, replay probes at the
+        fixed bake coefficient. No args.
 
-        Picks up the current round's pairs.yaml, fits the adapter,
-        c-scans for coherent C, replays probes pre/post. Returns the
-        PRE + POST dialogue text inline.
+        Requires ≥min_pairs_to_train slots filled. Returns the PRE and
+        POST dialogue text inline.
         """
         slug_p = _slug_path(slug)
         round_dir = latest_round_dir(slug_p)
@@ -280,9 +162,7 @@ def mark_exam_tool(slug: str) -> Tool:
         except ValidationError as e:
             return _format_validation_error(e)
         return (
-            f"mark_exam OK\n"
-            f"  action: {judgment['action']}\n"
-            f"  written to: {round_dir / 'judgment.json'}\n"
+            f"mark_exam OK — action: {judgment['action']}.\n"
             f"next: harness will allocate a new round or stop on budget exhausted."
         )
 
@@ -312,17 +192,14 @@ def _n_drops(slug_path: Path) -> int:
 @solver
 def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     slug_path = _slug_path(slug)
-    # Budget is measured in *additional* keeps this invocation. Resuming a slug
-    # with existing keeps adds on top — otherwise resume could stop immediately.
     initial_keeps = _n_keeps(slug_path)
     target_keeps = initial_keeps + n_rounds
 
     async def on_continue(state):
         n_keeps = _n_keeps(slug_path)
         if n_keeps >= target_keeps:
-            return False  # budget exhausted
+            return False
 
-        # If the latest round is done, allocate a new one + run pre-dialogue.
         rd = latest_round_dir(slug_path)
         st = read_state(rd)
         if st.state == "done":
@@ -337,9 +214,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
 
     agent = react(
         tools=[
-            propose_personas_tool(slug),
-            drop_pair_tool(slug),
-            edit_answers_tool(slug),
+            write_pair_tool(slug),
             train_student_tool(slug),
             mark_exam_tool(slug),
         ],
@@ -347,11 +222,6 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
         prompt=REACT_PROMPT,
         on_continue=on_continue,
         retry_refusals=3,
-        # Fire compaction at 70% of context window. Edit alone (free —
-        # strips old tool outputs + thinking) handles most rounds; LLM
-        # summary only escalates when Edit can't get us below ~50% of
-        # the window. Round artifacts on disk are the source of truth so
-        # prior-round transcripts can safely be edited / summarised away.
         compaction=EditThenSummary(
             threshold=0.7,
             edit_target=16000,
@@ -375,15 +245,8 @@ def _inspect_model_name(teacher: str) -> str:
 
 
 def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
-    """Build + run the inspect-ai react agent for this slug.
-
-    Idempotent: if round00 already exists with state ≠ done, picks up
-    there; pre_dialogue is run lazily by `on_continue` for new rounds.
-    """
+    """Build + run the inspect-ai react agent for this slug."""
     slug_path = _slug_path(slug)
-    # round00 pre-dialogue: ensure it exists before the agent starts so its
-    # very first action can be a propose_personas after reading the
-    # transcript.
     rd = latest_round_dir(slug_path)
     if not (rd / "interview_pre.json").exists():
         run_pre_dialogue(slug_path, rd)
@@ -393,14 +256,18 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     pre_text = _format_dialogue_inline(
         json.loads((rd / "interview_pre.json").read_text())
     )
+    pairs_text = (rd / "pairs.md").read_text()
     initial = INITIAL_TASK.format(
         round_n=n_keeps_now + 1, target_n=n_keeps_now + n_rounds,
         round_dir=str(rd.relative_to(REPO)), model=model,
         n_history=n_history,
     ) + (
-        f"\n\n========== PRE-DIALOGUE (c=0, base+history) — read this before proposing ==========\n"
+        f"\n\n========== PRE-DIALOGUE (c=0, base+history) — read this first ==========\n"
         f"{pre_text}\n"
-        f"==================================================\n"
+        f"========== pairs.md (current — fill cho/rej for seeded slots, "
+        f"invent prompt+cho+rej for empty ones) ==========\n"
+        f"{pairs_text}"
+        f"========== end pairs.md ==========\n"
     )
 
     teacher_model = _inspect_model_name(teacher)
@@ -422,10 +289,6 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
         log_format="json",
         fail_on_error=True,
         score=False,
-        # propose_personas inlines the full pairs.yaml (≤50 pairs × ~2-3KB
-        # ≈ ~120KB peak with gemma's markdown-heavy completions). Default
-        # 16KB silently drops 8/9 of the file; the agent then "rewrites"
-        # the visible head. Set well above current peak.
         max_tool_output=256 * 1024,
     )
     if any(log.status != "success" for log in logs):

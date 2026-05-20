@@ -1,20 +1,18 @@
 """Per-round state machine. State name = next required tool.
 
-  propose_personas → edit_answers → train_student → mark_exam → done
+  write_pair → train_student → mark_exam → done
 
 Each state's name describes what the agent should call next. Persisted
 as `<round_dir>/state.json`. Each pipeline verb checks current state
 and raises `ValidationError` on a wrong-order call; the error names the
 next valid tool so `on_continue` can reproduce it.
 
-  propose_personas — gen hasn't run; agent writes the persona pair
-  edit_answers     — pairs.yaml written; agent MUST call edit_answers
-                     at least once before train_student (forced read+edit)
-  train_student    — agent has edited; may iterate edit_answers OR call
-                     train_student
-  mark_exam        — adapter trained; agent decides keep/drop from pre vs
-                     post probe transcripts
-  done             — round committed
+  write_pair    — pairs.md has empty/template slots; agent fills them
+  train_student — ≥MIN_PAIRS filled; agent may still write_pair more
+                  before training, or call train_student
+  mark_exam     — adapter trained; agent decides keep/drop from pre vs
+                  post probe transcripts
+  done          — round committed
 """
 from __future__ import annotations
 
@@ -23,16 +21,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-State = Literal[
-    "propose_personas", "edit_answers", "train_student", "mark_exam", "done",
-]
+State = Literal["write_pair", "train_student", "mark_exam", "done"]
 
 ALLOWED_AFTER = {
-    "propose_personas": "propose_personas",
-    "edit_answers":     "drop_pair(id) and/or edit_answers(old_str, new_str) — train_student requires ≥1 of EACH cumulatively, or mark_exam(keep=False, reason=...) to abort",
-    "train_student":    "drop_pair / edit_answers (iterate) or train_student (once the dual-gate is satisfied)",
-    "mark_exam":        "mark_exam",
-    "done":             "(round complete — harness will allocate the next round or stop)",
+    "write_pair":    "write_pair(id, prompt, cho, rej)",
+    "train_student": "write_pair (fill more pairs) or train_student() — "
+                     "or mark_exam(keep=False, reason=...) to abort",
+    "mark_exam":     "mark_exam(keep, reason)",
+    "done":          "(round complete — harness will allocate the next round or stop)",
 }
 
 
@@ -42,7 +38,7 @@ class ValidationError(RuntimeError):
 
 @dataclass
 class RoundState:
-    state: State = "propose_personas"
+    state: State = "write_pair"
     note: str = ""
 
     def to_dict(self) -> dict:
@@ -52,7 +48,7 @@ class RoundState:
 def read_state(round_dir: Path) -> RoundState:
     p = round_dir / "state.json"
     if not p.exists():
-        return RoundState(state="propose_personas")
+        return RoundState(state="write_pair")
     d = json.loads(p.read_text())
     return RoundState(state=d["state"], note=d.get("note", ""))
 

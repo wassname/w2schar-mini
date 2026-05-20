@@ -1,18 +1,14 @@
-"""Per-round orchestration: pre-dialogue → propose → curate → train → judge.
+"""Per-round orchestration: pre-dialogue → write_pair → train → judge.
 
-Each agent-callable verb (propose_personas / edit_pairs / train / judge)
+Each agent-callable verb (write_pair / train_student / mark_exam)
 delegates to one of these functions. Pipeline writes all artifacts and
 mutates the round's state.json transparently.
 
 Artifacts per round (`<slug>/round<NN>/`):
-  state.json          — current state (propose|curate|judge|done)
-  spec.json           — pos/neg personas + axis label
-  pairs.md           — current pair set (plain-text section-marker
-                        format; agent-editable via str_replace)
-  pairs.bk.md        — frozen snapshot just after auto-drop
-  dropped.json        — list of pairs auto-dropped at gen time
+  state.json          — current state (write_pair|train_student|mark_exam|done)
+  pairs.md            — current pair set (markdown sections, agent-writable)
   adapter.safetensors — trained adapter
-  calibration.json    — signed_C + c_scan trace
+  calibration.json    — signed_C (fixed at config.signed_C; no c-scan)
   interview_pre.json  — probes replayed at c=0 (base+history)
   interview_post.json — probes replayed at signed_C
   judgment.json       — agent's keep/drop + reason
@@ -21,23 +17,19 @@ from __future__ import annotations
 
 import gc
 import json
-from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
 from inspect_ai.log import transcript
-from loguru import logger
 
-from csm.config import RunConfig, config_by_model
-from csm.gen.dialogue import dialogue, DialogueCfg
-from csm.gen.pairs import (find_refusals, gen_pairs, write_pairs_md,
-                            load_pairs_md)
+from csm.config import config_by_model
+from csm.gen.dialogue import DialogueCfg, dialogue
+from csm.gen.pairs import (load_pairs_md, n_filled, seed_pairs_md,
+                           write_pairs_md)
 from csm.gen.probes import PROBES
-from csm.state import (RoundState, ValidationError, read_state,
-                       require_state, set_state, write_state)
-from csm.ws.adapter import ModulatedLoRA
-from csm.ws.c_scan import c_scan
+from csm.state import (RoundState, ValidationError, require_state, set_state,
+                       write_state)
 from csm.ws.history import kept_history_dirs, load_base_with_history
 from csm.ws.train import TrainCfg, train_adapter
 
@@ -50,7 +42,6 @@ SIGN = +1                                     # +C = more "less authority"
 # ---------------------------------------------------------------------------
 
 def init_run(slug_dir: Path, model: str, teacher: str | None = None) -> Path:
-    """Create slug dir + run.json + round00/state.json=propose."""
     slug_dir.mkdir(parents=True, exist_ok=True)
     run = {
         "model": model,
@@ -61,8 +52,7 @@ def init_run(slug_dir: Path, model: str, teacher: str | None = None) -> Path:
     (slug_dir / "run.json").write_text(json.dumps(run, indent=2))
     round_dir = slug_dir / "round00"
     round_dir.mkdir(exist_ok=True)
-    if not (round_dir / "state.json").exists():
-        write_state(round_dir, RoundState(state="propose_personas"))
+    _scaffold_round(slug_dir, round_dir, model)
     return round_dir
 
 
@@ -74,7 +64,7 @@ def latest_round_dir(slug_dir: Path) -> Path:
 
 
 def new_round_dir(slug_dir: Path) -> Path:
-    """Allocate the next roundNN under slug_dir, scaffold state.json."""
+    """Allocate the next roundNN under slug_dir, scaffold pairs.md + state."""
     existing = sorted(p.name for p in slug_dir.glob("round*") if p.is_dir())
     n = 0
     if existing:
@@ -82,12 +72,33 @@ def new_round_dir(slug_dir: Path) -> Path:
         n = int(last.replace("round", "")) + 1
     rd = slug_dir / f"round{n:02d}"
     rd.mkdir(exist_ok=True)
-    write_state(rd, RoundState(state="propose_personas"))
+    model = json.loads((slug_dir / "run.json").read_text())["model"]
+    _scaffold_round(slug_dir, rd, model)
     return rd
 
 
+def _scaffold_round(slug_dir: Path, round_dir: Path, model: str) -> None:
+    """Write pairs.md template + state.json=write_pair. Idempotent."""
+    if (round_dir / "state.json").exists():
+        return
+    cfg = config_by_model(model)
+    # Use round index in the seed so different rounds see different prompt
+    # samples (avoids 3 rounds with the same 10 prompts).
+    try:
+        n = int(round_dir.name.replace("round", ""))
+    except ValueError:
+        n = 0
+    seed_pairs_md(
+        round_dir / "pairs.md",
+        n_seed_prompts=cfg.n_seed_prompts,
+        n_total_slots=cfg.n_total_slots,
+        seed=42 + n,
+    )
+    write_state(round_dir, RoundState(state="write_pair"))
+
+
 # ---------------------------------------------------------------------------
-# Pre-dialogue (run once per round before propose).
+# Pre-dialogue (run once per round before write_pair).
 # ---------------------------------------------------------------------------
 
 def run_pre_dialogue(slug_dir: Path, round_dir: Path) -> dict:
@@ -110,322 +121,112 @@ def run_pre_dialogue(slug_dir: Path, round_dir: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Verb 1: propose_personas
+# Verb 1: write_pair — teacher fills one slot in pairs.md.
 # ---------------------------------------------------------------------------
 
-def propose_personas(slug_dir: Path, round_dir: Path,
-                     pos_persona: str, neg_persona: str) -> dict:
-    require_state(round_dir, "propose_personas", "propose_personas")
-    run = json.loads((slug_dir / "run.json").read_text())
-    cfg = config_by_model(run["model"])
+def write_pair(round_dir: Path, pair_id: int, prompt: str,
+               cho: str, rej: str) -> dict:
+    """Fill one slot in pairs.md.
 
-    spec = {
-        "axis": AXIS,
-        "pos_persona": pos_persona,
-        "neg_persona": neg_persona,
-        "sign": SIGN,
-        "ts_utc": datetime.now(timezone.utc).isoformat(),
-    }
-    (round_dir / "spec.json").write_text(json.dumps(spec, indent=2))
+    Rules:
+      - pair_id must be in range [0, n_total_slots).
+      - If the slot has a pre-filled prompt, `prompt` must match it
+        exactly (or the agent can pass the empty string to keep it).
+      - If the slot has an empty prompt, `prompt` is required.
+      - cho and rej must both be non-empty.
 
-    history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
-    model, tok, _ = load_base_with_history(cfg.model, history)
-    # Gen runs against base + history (default gate True) — same as
-    # wsl. This is "iterative steering on top of steering": each round
-    # samples from the deployed-so-far model. The training c=0 KL ref
-    # stays pristine base via the train-time gate lambda lora._c != 0.0.
-    alive, dropped = gen_pairs(
-        model, tok, pos_persona, neg_persona,
-        n_pairs=cfg.n_pairs, batch_size=cfg.gen_batch_size,
-        max_new_tokens=cfg.max_new_tokens, enable_thinking=cfg.enable_thinking,
-    )
-    del model
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    Once ≥min_pairs_to_train slots are filled, state advances to
+    `train_student`. write_pair stays callable in train_student state,
+    so the agent can keep polishing before training.
+    """
+    require_state(round_dir, ("write_pair", "train_student"), "write_pair")
 
-    write_pairs_md(round_dir / "pairs.md", alive)
-    write_pairs_md(round_dir / "pairs.bk.md", alive)
-    (round_dir / "dropped.json").write_text(json.dumps(dropped, indent=2))
-
-    min_alive = max(2, cfg.n_pairs // 4)     # scales with n_pairs so smoke (n=4) passes
-    if len(alive) < min_alive:
-        # ValidationError, not RuntimeError, so the agent's tool wrapper
-        # can surface it as a tool error and let the agent retry with a
-        # different persona pair instead of crashing the eval.
-        raise ValidationError(
-            f"propose_personas: only {len(alive)} pairs alive after auto-drop "
-            f"({len(dropped)} double-refusals); need >= {min_alive}. "
-            f"Rewrite the persona pair to elicit a sharper contrast."
+    pairs_path = round_dir / "pairs.md"
+    pairs = load_pairs_md(pairs_path)
+    ids = [p["id"] for p in pairs]
+    if pair_id not in ids:
+        raise ValueError(
+            f"write_pair: id={pair_id} not in pairs.md. Valid ids: {ids}."
+        )
+    if not cho.strip() or not rej.strip():
+        raise ValueError(
+            "write_pair: cho and rej must both be non-empty. Drop the slot "
+            "by leaving it empty if you don't want to fill it."
         )
 
-    set_state(round_dir, "edit_answers",
-              note=f"alive={len(alive)} dropped={len(dropped)}")
+    idx = ids.index(pair_id)
+    existing_prompt = pairs[idx]["prompt"]
+    if existing_prompt:
+        # Slot is pre-seeded; prompt is locked to the seed.
+        if prompt and prompt.strip() != existing_prompt.strip():
+            raise ValueError(
+                f"write_pair: id={pair_id} has a pre-filled prompt; you "
+                f"can't change it. Pass prompt='' (or the exact existing "
+                f"prompt) and just fill cho and rej.\n"
+                f"  existing: {existing_prompt[:160]!r}\n"
+                f"  yours:    {prompt[:160]!r}"
+            )
+        prompt_to_write = existing_prompt
+    else:
+        # Empty slot — agent must supply a prompt.
+        if not prompt.strip():
+            raise ValueError(
+                f"write_pair: id={pair_id} has no seeded prompt; supply one "
+                f"as the `prompt` argument. (Slots 0..n_seed_prompts have "
+                f"seeded prompts you fill cho/rej for; later slots are "
+                f"empty and you supply the prompt too.)"
+            )
+        prompt_to_write = prompt.strip()
+
+    pairs[idx]["prompt"] = prompt_to_write
+    pairs[idx]["cho"] = cho.strip()
+    pairs[idx]["rej"] = rej.strip()
+    write_pairs_md(pairs_path, pairs)
+
+    filled = n_filled(pairs)
+    run = json.loads((round_dir.parent / "run.json").read_text())
+    cfg = config_by_model(run["model"])
+    if filled >= cfg.min_pairs_to_train:
+        set_state(round_dir, "train_student",
+                  note=f"filled={filled}/{len(pairs)}")
+    else:
+        set_state(round_dir, "write_pair",
+                  note=f"filled={filled}/{len(pairs)}")
+
+    remaining_ids = [p["id"] for p in pairs
+                     if not (p["prompt"].strip() and p["cho"].strip()
+                             and p["rej"].strip())]
     transcript().info(
-        {"event": "propose_personas", "round": round_dir.name,
-         "alive": len(alive), "n_dropped": len(dropped),
-         "dropped_ids": [d["id"] for d in dropped],
-         "pos_persona": pos_persona, "neg_persona": neg_persona},
-        source=f"{round_dir.name}.propose",
+        {"event": "write_pair", "round": round_dir.name,
+         "pair_id": pair_id, "filled": filled, "total": len(pairs)},
+        source=f"{round_dir.name}.write",
     )
     return {
-        "n_alive": len(alive),
-        "n_dropped": len(dropped),
-        "dropped_ids": [d["id"] for d in dropped],
-        "preview": _compact_preview(alive, n_max=6),
+        "filled": filled,
+        "total": len(pairs),
+        "min_to_train": cfg.min_pairs_to_train,
+        "remaining_empty_ids": remaining_ids,
     }
 
 
-def _compact_preview(pairs: list[dict], n_max: int = 6) -> list[dict]:
-    return [
-        {"id": p["id"],
-         "prompt": (p["prompt"][:80] + "…") if len(p["prompt"]) > 80 else p["prompt"],
-         "cho_head": (p["cho"].strip()[:120].replace("\n", " ⏎ ")),
-         "rej_head": (p["rej"].strip()[:120].replace("\n", " ⏎ "))}
-        for p in pairs[:n_max]
-    ]
-
-
 # ---------------------------------------------------------------------------
-# Verb 2: edit_answers — pi-style str_replace edits on pairs.md
-# ---------------------------------------------------------------------------
-
-MAX_PAIR_DIFF = 0.50  # per-pair (cho+rej) char-diff vs bk; caps rewrite scope
-
-
-def _apply_single_str_replace(text: str, old_str: str, new_str: str) -> str:
-    """One str_replace, exact-match. old_str must occur in `text` exactly
-    once or we reject so the agent can disambiguate.
-    """
-    if not isinstance(old_str, str) or not isinstance(new_str, str):
-        raise ValueError("edit_answers: old_str and new_str must be strings")
-    if old_str == "":
-        raise ValueError("edit_answers: old_str is empty")
-    n_occ = text.count(old_str)
-    head = old_str[:80].replace("\n", "⏎")
-    if n_occ == 0:
-        raise ValueError(
-            f"edit_answers: old_str not found in pairs.md. The snippet "
-            f"must appear verbatim — check whitespace, quotes, and escape "
-            f"chars against the file inlined in propose_personas's response. "
-            f"First 80 chars of your old_str: {head!r}"
-        )
-    if n_occ > 1:
-        raise ValueError(
-            f"edit_answers: old_str matches {n_occ} locations in pairs.md. "
-            f"Extend the snippet with surrounding context (more of the "
-            f"cho/rej text, the `\"id\": N,` line above, or the closing "
-            f"`}}` and trailing comma below) until it picks out one pair "
-            f"uniquely. First 80 chars: {head!r}"
-        )
-    return text.replace(old_str, new_str, 1)
-
-
-def edit_answers(round_dir: Path, old_str: str, new_str: str) -> dict:
-    """Apply a single surgical str_replace to pairs.md. Rules:
-      1. old_str must match the current pairs.md text exactly once.
-      2. After applying, the file must still parse via load_pairs_md.
-      3. Every remaining pair's `prompt` matches a `prompt` in
-         pairs.bk.md (no invented pairs, no prompt edits).
-      4. Per-pair char-diff of cho+rej ≤ MAX_PAIR_DIFF, computed vs
-         pairs.bk.md — so cumulative drift across many edits is bounded.
-      5. Refusal sweep: warnings, not rejections.
-
-    Pair IDs stay stable (no renumbering on drops) so the agent can
-    reference them across calls. To DROP a pair, prefer the
-    `drop_pair(id)` tool — it skips content matching entirely.
-    """
-    require_state(round_dir, ("edit_answers", "train_student"), "edit_answers")
-    import difflib
-
-    pairs_path = round_dir / "pairs.md"
-    bk_path = round_dir / "pairs.bk.md"
-    original_text = pairs_path.read_text()
-    new_text = _apply_single_str_replace(original_text, old_str, new_str)
-
-    try:
-        pairs_path.write_text(new_text)
-        pairs = load_pairs_md(pairs_path)
-    except Exception as e:
-        # Re-write original so we never leave the file in a broken state
-        # (load_pairs_md shouldn't normally fail, but if it does the
-        # write above already happened; we revert before raising).
-        pairs_path.write_text(original_text)
-        raise ValueError(
-            f"edit_answers: edit produced unparseable pairs.md — {e}. "
-            f"Each pair must keep its `##### pair N` / `##### prompt` / "
-            f"`##### cho` / `##### rej` markers intact. Don't edit the "
-            f"markers themselves; edit the content between them."
-        ) from e
-
-    for i, row in enumerate(pairs):
-        for k in ("id", "prompt", "cho", "rej"):
-            if k not in row:
-                raise ValueError(f"edit_answers: pair {i} missing key {k!r}")
-    if not pairs:
-        raise ValueError("edit_answers: 0 alive pairs after edits")
-
-    bk = load_pairs_md(bk_path)
-    bk_by_prompt = {p["prompt"]: p for p in bk}
-
-    invented: list[int] = []
-    rewrite_violations: list[str] = []
-    n_dropped = len(bk) - len(pairs)
-    n_changed = 0
-    for p in pairs:
-        bk_p = bk_by_prompt.get(p["prompt"])
-        if bk_p is None:
-            invented.append(p.get("id", "?"))
-            continue
-        old_pair_text = (bk_p["cho"] or "") + (bk_p["rej"] or "")
-        new_pair_text = (p["cho"] or "") + (p["rej"] or "")
-        if old_pair_text == new_pair_text:
-            continue
-        n_changed += 1
-        pair_diff = 1.0 - difflib.SequenceMatcher(a=old_pair_text, b=new_pair_text).ratio()
-        if pair_diff > MAX_PAIR_DIFF:
-            rewrite_violations.append(
-                f"  id={p.get('id', '?')} per-pair diff={pair_diff:.1%} "
-                f"(>{MAX_PAIR_DIFF:.0%}) — keep edits minimal, don't rewrite "
-                f"from scratch"
-            )
-
-    if invented:
-        raise ValueError(
-            f"edit_answers: pairs with ids {invented} have prompts not in "
-            f"pairs.bk.md — you can't invent pairs or edit prompts, only "
-            f"drop or fix existing cho/rej."
-        )
-    if rewrite_violations:
-        raise ValueError(
-            "edit_answers: per-pair rewrite too large (>{:.0%}). The point "
-            "is on-policy curation, not voice substitution. Make minimal "
-            "fixes to broken cho/rej (DELETE bad parts, don't replace them); "
-            "if a pair's completions are unsalvageable, drop the whole pair "
-            "instead. If most pairs are unsalvageable, call "
-            "mark_exam(keep=False, reason=...) — allowed directly from "
-            "this state — and the next round retries with new personas.\n".format(MAX_PAIR_DIFF)
-            + "\n".join(rewrite_violations)
-        )
-    if n_changed == 0 and n_dropped == 0:
-        raise ValueError(
-            "edit_answers: this call produced 0 cho/rej changes and 0 drops "
-            "vs pairs.bk.md. Make a substantive edit (DELETE a hedge / "
-            "preamble) or use drop_pair(id) to drop a broken pair."
-        )
-
-    refusal_warnings: list[str] = []
-    for p in pairs:
-        for side in ("cho", "rej"):
-            hits = find_refusals(p[side])
-            if hits:
-                refusal_warnings.append(
-                    f"  id={p.get('id', '?')} side={side} hits={hits}"
-                )
-
-    # No renumber: keep stable IDs across edits so drop_pair(id) refers
-    # to the same pair across the round.
-    write_pairs_md(pairs_path, pairs)
-    set_state(round_dir, "train_student",
-              note=f"alive={len(pairs)} dropped={n_dropped} changed={n_changed}")
-    transcript().info(
-        {"event": "edit_answers", "round": round_dir.name,
-         "alive": len(pairs), "n_dropped": n_dropped, "n_changed": n_changed,
-         "n_original": len(bk),
-         "n_refusal_warnings": len(refusal_warnings)},
-        source=f"{round_dir.name}.edit",
-    )
-    return {"n_alive": len(pairs), "n_original": len(bk),
-            "n_dropped": n_dropped, "n_changed": n_changed,
-            "refusal_warnings": refusal_warnings}
-
-
-# ---------------------------------------------------------------------------
-# Verb 2b: drop_pair — drop by id, no content matching (no fabrication path)
-# ---------------------------------------------------------------------------
-
-def drop_pair(round_dir: Path, pair_id: int) -> dict:
-    """Drop one pair by ID from pairs.md. No content matching — the agent
-    just says which id to drop, the harness reads it from the file. IDs
-    are stable across edits (we don't renumber)."""
-    require_state(round_dir, ("edit_answers", "train_student"), "drop_pair")
-    pairs_path = round_dir / "pairs.md"
-    bk_path = round_dir / "pairs.bk.md"
-    pairs = load_pairs_md(pairs_path)
-    alive_ids = [p["id"] for p in pairs]
-    if pair_id not in alive_ids:
-        raise ValueError(
-            f"drop_pair: id={pair_id} is not in the current pairs.md. "
-            f"Alive ids are {alive_ids}. (Gen-time both-side refusals "
-            f"were already removed; their ids never appeared in pairs.md.)"
-        )
-    remaining = [p for p in pairs if p["id"] != pair_id]
-    if not remaining:
-        raise ValueError(
-            "drop_pair: dropping this pair would leave 0 pairs. If all "
-            "are unsalvageable, call mark_exam(keep=False, reason=...)."
-        )
-    write_pairs_md(pairs_path, remaining)
-    bk = load_pairs_md(bk_path)
-    n_dropped = len(bk) - len(remaining)
-    n_changed = _count_changed_vs_bk(remaining, bk)
-    set_state(round_dir, "train_student",
-              note=f"alive={len(remaining)} dropped={n_dropped} changed={n_changed}")
-    transcript().info(
-        {"event": "drop_pair", "round": round_dir.name,
-         "dropped_id": pair_id, "alive": len(remaining),
-         "n_dropped": n_dropped, "n_changed": n_changed},
-        source=f"{round_dir.name}.drop",
-    )
-    return {"n_alive": len(remaining), "n_original": len(bk),
-            "n_dropped": n_dropped, "n_changed": n_changed,
-            "dropped_id": pair_id, "alive_ids": [p["id"] for p in remaining]}
-
-
-def _count_changed_vs_bk(pairs: list[dict], bk: list[dict]) -> int:
-    bk_by_prompt = {p["prompt"]: p for p in bk}
-    n = 0
-    for p in pairs:
-        bk_p = bk_by_prompt.get(p["prompt"])
-        if bk_p is None:
-            continue
-        if (bk_p["cho"] or "") + (bk_p["rej"] or "") != (p["cho"] or "") + (p["rej"] or ""):
-            n += 1
-    return n
-
-
-# ---------------------------------------------------------------------------
-# Verb 3: train (also runs c_scan + post-dialogue).
+# Verb 2: train_student — fixed signed_C, no c-scan.
 # ---------------------------------------------------------------------------
 
 def train_student(slug_dir: Path, round_dir: Path) -> dict:
     require_state(round_dir, "train_student", "train_student")
-
-    # Dual-gate: must have ≥1 drop AND ≥1 cho/rej change vs pairs.bk.md.
-    # Drops without edits = lazy curation; edits without drops = doesn't
-    # commit to removing junk. Both forces engagement at both levels.
-    bk = load_pairs_md(round_dir / "pairs.bk.md")
-    cur = load_pairs_md(round_dir / "pairs.md")
-    n_dropped = len(bk) - len(cur)
-    n_changed = _count_changed_vs_bk(cur, bk)
-    if n_dropped < 1 or n_changed < 1:
-        missing = []
-        if n_dropped < 1:
-            missing.append("≥1 drop (use `drop_pair(id)`)")
-        if n_changed < 1:
-            missing.append("≥1 cho/rej edit (use `edit_answers(old_str, new_str)`)")
-        raise ValidationError(
-            f"train_student: round not ready to train. Current state vs "
-            f"pairs.bk.md: dropped={n_dropped}, cho/rej-changed={n_changed}. "
-            f"Need: {' AND '.join(missing)}. (Alternatively call "
-            f"mark_exam(keep=False, reason=...) to abort.)"
-        )
     run = json.loads((slug_dir / "run.json").read_text())
     cfg = config_by_model(run["model"])
 
-    pairs = load_pairs_md(round_dir / "pairs.md")
-    if not pairs:
-        raise RuntimeError("train: pairs.md is empty")
+    pairs_all = load_pairs_md(round_dir / "pairs.md")
+    pairs = [p for p in pairs_all
+             if p["prompt"].strip() and p["cho"].strip() and p["rej"].strip()]
+    if len(pairs) < cfg.min_pairs_to_train:
+        raise ValidationError(
+            f"train_student: only {len(pairs)} filled pairs, need "
+            f"≥{cfg.min_pairs_to_train}. Fill more with write_pair, or "
+            f"call mark_exam(keep=False, reason=...) to abort."
+        )
 
     history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
     model, tok, hb = load_base_with_history(cfg.model, history)
@@ -439,25 +240,16 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     lora = train_adapter(model, tok, pairs, tcfg,
                          history_bake=hb, enable_thinking=cfg.enable_thinking)
 
-    # ── C-scan ─────────────────────────────────────────────────────────
-    probe_prompts = [p["opening"] for p in PROBES]
-    signed_C, trace = c_scan(
-        model, tok, lora, probe_prompts,
-        init_c=1.0, sign=SIGN, n_gen=cfg.cscan_n_gen, k=cfg.cscan_k,
-        batch_size=cfg.eval_batch_size,
-    )
-
+    signed_C = SIGN * cfg.signed_C
     lora.save(str(round_dir / "adapter.safetensors"),
               extra_meta={"axis": AXIS, "sign": str(SIGN)})
     (round_dir / "calibration.json").write_text(json.dumps({
         "signed_C": signed_C,
         "sign": SIGN,
-        "cscan_trace": trace,
         "kl_lambda": tcfg.kl_lambda,
         "steps": tcfg.steps,
     }, indent=2))
 
-    # ── post-dialogue under adapter @ signed_C ──────────────────────────
     dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
                        enable_thinking=cfg.enable_thinking)
     post = dialogue(model, tok, PROBES,
@@ -473,28 +265,27 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     transcript().info(
         {"event": "train_student", "round": round_dir.name,
          "signed_C": signed_C, "kl_lambda": tcfg.kl_lambda,
-         "steps": tcfg.steps, "cscan_trace": [list(r) for r in trace],
-         "n_pairs_trained": len(pairs)},
+         "steps": tcfg.steps, "n_pairs_trained": len(pairs)},
         source=f"{round_dir.name}.train",
     )
     return {
         "signed_C": signed_C,
         "n_probes_post": len(post["probes"]),
+        "n_pairs_trained": len(pairs),
     }
 
 
 # ---------------------------------------------------------------------------
-# Verb 4: judge
+# Verb 3: mark_exam — keep/drop.
 # ---------------------------------------------------------------------------
 
 def mark_exam(round_dir: Path, keep: bool, reason: str) -> dict:
-    # keep=True requires a trained adapter; keep=False is also valid as
-    # an early abort from edit_answers (escape valve when pairs are
-    # unsalvageable).
+    # keep=True requires a trained adapter; keep=False can also fire as an
+    # early abort from write_pair/train_student.
     if keep:
         require_state(round_dir, "mark_exam", "mark_exam")
     else:
-        require_state(round_dir, ("edit_answers", "train_student", "mark_exam"),
+        require_state(round_dir, ("write_pair", "train_student", "mark_exam"),
                       "mark_exam")
     judgment = {
         "action": "keep" if keep else "drop",

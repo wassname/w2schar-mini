@@ -282,7 +282,9 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             batch = next(it)
         ip, lp, ap, in_, ln, an = (t.to(device) for t in batch)
 
-        C = float(torch.empty(()).uniform_(0.05, 1.0))   # bounded away from 0
+        # Wider than the bake point (0.75) so c-scan-free baking stays in
+        # distribution: training sees |C| up to 2, inference bakes at 0.75.
+        C = float(torch.empty(()).uniform_(0.0, 2.0))
         trace = pcgrad_train_step(
             model, lora, ip, lp, ap, in_, ln, an, params,
             C=C, pcgrad=cfg.pcgrad, kl_lambda=cfg.kl_lambda,

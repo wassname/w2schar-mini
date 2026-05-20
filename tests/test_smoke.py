@@ -15,15 +15,14 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 ARTIFACTS = (
-    "state.json", "spec.json", "pairs.md", "pairs.bk.md",
-    "dropped.json", "adapter.safetensors", "calibration.json",
+    "state.json", "pairs.md", "adapter.safetensors", "calibration.json",
     "interview_pre.json", "interview_post.json", "judgment.json",
 )
 
 
 @pytest.mark.slow
 def test_smoke_runs_end_to_end():
-    """Run smoke.sh, then assert all 10 round-artifacts exist + state=done."""
+    """Run smoke.sh, then assert all round-artifacts exist + state=done."""
     proc = subprocess.run(
         ["bash", "scripts/smoke.sh"],
         cwd=REPO, check=False, capture_output=True, text=True,

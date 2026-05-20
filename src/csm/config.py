@@ -28,20 +28,24 @@ class RunConfig:
     n_epochs: float = 1.0
     max_len: int = 512
 
-    # ─ generation ─
-    gen_batch_size: int = 8
-    max_new_tokens: int = 256
-
-    # ─ dialogue + c_scan ─
+    # ─ dialogue ─
     eval_batch_size: int = 4
     dialogue_max_new_tokens: int = 256
-    cscan_n_gen: int = 32
-    cscan_k: int = 200
     enable_thinking: bool = False     # Qwen3 family
 
     # ─ data ─
-    n_pairs: int = 50
-    """Per-round on-policy gen size. 50 is the mini default."""
+    n_seed_prompts: int = 10
+    """Per-round prompts seeded from POOL (cho/rej empty, agent fills)."""
+    n_total_slots: int = 20
+    """Total pair slots in pairs.md. n_seed_prompts pre-filled with prompts;
+    the rest are fully empty (agent invents prompt + cho + rej)."""
+    min_pairs_to_train: int = 10
+    """Gate before train_student: ≥ this many slots must be filled."""
+
+    # ─ steering coefficient ─
+    signed_C: float = 0.75
+    """Fixed coefficient baked into history + post-dialogue. No per-round
+    c-scan; the agent's mark_exam keep/drop catches incoherence."""
 
     # ─ outer loop ─
     n_rounds: int = 2
@@ -53,28 +57,25 @@ CONFIGS: dict[str, RunConfig] = {
         model="google/gemma-2-2b-it",
         teacher="qwen/qwen3.5-9b",
         train_batch_size=4,
-        gen_batch_size=8,
         eval_batch_size=4,
     ),
     "gemma-12b": RunConfig(
         model="google/gemma-3-12b-it",
         teacher="qwen/qwen3.5-9b",
         train_batch_size=2,
-        gen_batch_size=4,
         eval_batch_size=2,
     ),
-    # Smoke: tiny-random Qwen3 5-layer. ~3 min on CPU, garbage outputs.
+    # Smoke: tiny-random Qwen3 5-layer. ~1 min on CPU, garbage outputs.
     "tiny": RunConfig(
         model="wassname/qwen3-5lyr-tiny-random",
         teacher="qwen/qwen3.5-9b",
         train_batch_size=2,
-        gen_batch_size=2,
         eval_batch_size=2,
-        n_pairs=4,
+        n_seed_prompts=2,
+        n_total_slots=4,
+        min_pairs_to_train=3,
         n_rounds=1,
-        max_new_tokens=32,
         dialogue_max_new_tokens=32,
-        cscan_n_gen=8,
         max_len=128,
     ),
 }
