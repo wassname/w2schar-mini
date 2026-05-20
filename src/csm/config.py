@@ -26,11 +26,10 @@ class RunConfig:
     kl_lambda: float = 0.032
     train_batch_size: int = 4
     n_epochs: float = 1.0
-    max_len: int = 512
 
     # ─ dialogue ─
     eval_batch_size: int = 4
-    dialogue_max_new_tokens: int = 512
+    dialogue_max_new_tokens: int = 2048
     enable_thinking: bool = False     # Qwen3 family
 
     # ─ data ─
@@ -41,14 +40,18 @@ class RunConfig:
     """Gate before train_student: ≥ this many pairs must have cho filled
     (TODO replaced). Lets the agent skip pairs whose rej was a clean
     refusal or otherwise unsalvageable."""
-    gen_max_new_tokens: int = 512
+    gen_max_new_tokens: int = 2048
     """Student rej generation budget. Longer → adapter learns from longer
     sequences → less prone to looping degenerate text at the bake C."""
 
+    max_len: int = 2048
+    """Train-time max sequence length for collating pairs."""
+
     # ─ steering coefficient ─
     signed_C: float = 0.75
-    """Fixed coefficient baked into history + post-dialogue. No per-round
-    c-scan; the agent's mark_exam keep/drop catches incoherence."""
+    """Initial probe coefficient — c_scan walks DOWN from here until
+    pmass ≥ 0.85 × baseline, then ×0.75 backoff. Final coefficient is
+    sidecar (calibration.json["signed_C"]); agent never sees it."""
 
     # ─ outer loop ─
     n_rounds: int = 2
@@ -61,6 +64,12 @@ CONFIGS: dict[str, RunConfig] = {
         teacher="qwen/qwen3.5-9b",
         train_batch_size=4,
         eval_batch_size=4,
+    ),
+    "gemma-9b": RunConfig(
+        model="google/gemma-2-9b-it",
+        teacher="qwen/qwen3.5-9b",
+        train_batch_size=2,
+        eval_batch_size=2,
     ),
     "gemma-12b": RunConfig(
         model="google/gemma-3-12b-it",
