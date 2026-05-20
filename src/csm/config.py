@@ -30,7 +30,7 @@ class RunConfig:
 
     # ─ dialogue ─
     eval_batch_size: int = 4
-    dialogue_max_new_tokens: int = 256
+    dialogue_max_new_tokens: int = 512
     enable_thinking: bool = False     # Qwen3 family
 
     # ─ data ─
@@ -41,8 +41,9 @@ class RunConfig:
     """Gate before train_student: ≥ this many pairs must have cho filled
     (TODO replaced). Lets the agent skip pairs whose rej was a clean
     refusal or otherwise unsalvageable."""
-    gen_max_new_tokens: int = 256
-    """Student rej generation budget."""
+    gen_max_new_tokens: int = 512
+    """Student rej generation budget. Longer → adapter learns from longer
+    sequences → less prone to looping degenerate text at the bake C."""
 
     # ─ steering coefficient ─
     signed_C: float = 0.75

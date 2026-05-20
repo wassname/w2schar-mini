@@ -30,6 +30,7 @@ from csm.gen.pairs import (gen_completions, load_pairs_md, n_filled,
 from csm.gen.probes import PROBES
 from csm.state import (RoundState, ValidationError, require_state, set_state,
                        write_state)
+from csm.ws.c_scan import c_scan
 from csm.ws.history import kept_history_dirs, load_base_with_history
 from csm.ws.train import TrainCfg, train_adapter
 
@@ -220,12 +221,22 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     lora = train_adapter(model, tok, pairs, tcfg,
                          history_bake=hb, enable_thinking=cfg.enable_thinking)
 
-    signed_C = SIGN * cfg.signed_C
+    # Calibrate. cfg.signed_C is the *initial probe* (used to be a fixed
+    # bake; now c_scan walks down from it until pmass ≥ 0.85 × baseline,
+    # then ×0.75 backoff). Adapters that break at the initial C get tamer
+    # baked coefficients; coherent adapters keep something close to it.
+    probe_prompts = [p["opening"] for p in PROBES]
+    signed_C, trace = c_scan(
+        model, tok, lora, probe_prompts,
+        init_c=cfg.signed_C, sign=SIGN,
+        n_gen=cfg.dialogue_max_new_tokens, batch_size=cfg.eval_batch_size,
+    )
     lora.save(str(round_dir / "adapter.safetensors"),
               extra_meta={"axis": AXIS, "sign": str(SIGN)})
     (round_dir / "calibration.json").write_text(json.dumps({
         "signed_C": signed_C,
         "sign": SIGN,
+        "cscan_trace": trace,
         "kl_lambda": tcfg.kl_lambda,
         "steps": tcfg.steps,
     }, indent=2))
