@@ -39,7 +39,7 @@ class RunConfig:
     n_total_slots: int = 20
     """Total pair slots in pairs.md. n_seed_prompts pre-filled with prompts;
     the rest are fully empty (agent invents prompt + cho + rej)."""
-    min_pairs_to_train: int = 10
+    min_pairs_to_train: int = 15
     """Gate before train_student: ≥ this many slots must be filled."""
 
     # ─ steering coefficient ─

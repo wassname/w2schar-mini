@@ -46,7 +46,7 @@ class TrainCfg:
     weight_decay: float = 0.01
     grad_clip: float = 1.0
     max_len: int = 512
-    log_every: int = 20
+    log_every: int = 5
     kl_lambda: float = 0.032
     """β: coefficient on mean reverse-KL per step (nats, matches NLL units).
     0 disables. Bump up if Δnll blows past +0.02 (coherence breaks); bump
@@ -296,11 +296,13 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
         sched.step()
 
         if step % cfg.log_every == 0:
+            lr = optim.param_groups[0]["lr"]
             logger.info(
                 f"step {step:4d}/{cfg.steps}  C={trace['C']:.2f}  "
                 f"nll+={trace['L_pos_nll']:.3f}  nll-={trace['L_neg_nll']:.3f}  "
                 f"kl±={trace['kl_mean_pos']:.4f}/{trace['kl_mean_neg']:.4f}  "
-                f"cos={trace['cos']:+.2f}{'  CONFLICT' if trace['conflict'] else ''}"
+                f"cos={trace['cos']:+.2f}  lr={lr:.2e}"
+                f"{'  CONFLICT' if trace['conflict'] else ''}"
             )
 
     if history_bake is not None:

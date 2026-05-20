@@ -117,6 +117,31 @@ def _format_dialogue_inline(payload: dict, *, head: int = 700) -> str:
     return "\n".join(lines)
 
 
+def _format_pre_post_interleaved(pre: dict, post: dict, *, head: int = 700) -> str:
+    """Probe-by-probe PRE / POST interleave so the agent sees the contrast
+    on each probe before moving to the next. PRE = c=0 (base+history),
+    POST = c=signed_C (this round's adapter active)."""
+    pre_by_id = {p["id"]: p for p in pre.get("probes", [])}
+    post_by_id = {p["id"]: p for p in post.get("probes", [])}
+    ids = list(pre_by_id) or list(post_by_id)
+    out: list[str] = []
+    for pid in ids:
+        out.append(f"========= probe: {pid} =========")
+        for label, payload in (("PRE  (c=0)", pre_by_id.get(pid)),
+                               ("POST (c=signed_C)", post_by_id.get(pid))):
+            out.append(f"--- {label} ---")
+            if not payload:
+                out.append("(missing)")
+                continue
+            for t in payload["turns"]:
+                text = t["text"].strip().replace("\n", " ⏎ ")
+                if len(text) > head:
+                    text = text[:head] + "…"
+                out.append(f"[{t['role']}] {text}")
+        out.append("")
+    return "\n".join(out)
+
+
 @tool(name="train_student", parallel=False)
 def train_student_tool(slug: str) -> Tool:
     async def execute() -> str:
@@ -137,10 +162,8 @@ def train_student_tool(slug: str) -> Tool:
         post = json.loads((round_dir / "interview_post.json").read_text())
         return (
             f"train_student OK — adapter saved.\n\n"
-            f"========== PRE-DIALOGUE (c=0, base+history) ==========\n"
-            f"{_format_dialogue_inline(pre)}\n"
-            f"========== POST-DIALOGUE (c=signed_C, this adapter active) ==========\n"
-            f"{_format_dialogue_inline(post)}\n"
+            f"========== PRE vs POST (interleaved per probe) ==========\n"
+            f"{_format_pre_post_interleaved(pre, post)}\n"
             f"{AFTER_TRAIN}"
         )
 

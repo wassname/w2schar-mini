@@ -135,11 +135,19 @@ Don't repeat scenarios from the seeded set or each other.
 
 ## Pacing
 
-- Aim for 10-20 filled pairs per round. The harness gates train_student
-  at ≥10 filled (≥3 in the smoke profile). Quality > quantity — 12
-  cleanly-contrasted pairs steer better than 20 muddy ones.
+- Aim for 15-20 filled pairs per round. The harness gates train_student
+  at ≥15 filled (≥3 in the smoke profile). Since only 10 slots are
+  pre-seeded, you MUST invent prompts for at least 5 of the empty slots
+  (10..19). Quality > quantity — 16 cleanly-contrasted pairs steer
+  better than 20 muddy ones.
 - After each write_pair the tool tells you how many slots are still
   empty. When you're satisfied, call train_student.
+
+## Per-round freshness
+
+Each round gets a FRESH pairs.md (re-seeded from POOL with a different
+sample). Don't assume slots persist across rounds — every round, start
+by reading pairs.md from the brief and fill it from scratch.
 """
 
 JUDGE_GUIDE = """\

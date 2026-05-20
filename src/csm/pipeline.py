@@ -157,15 +157,26 @@ def write_pair(round_dir: Path, pair_id: int, prompt: str,
     idx = ids.index(pair_id)
     existing_prompt = pairs[idx]["prompt"]
     if existing_prompt:
-        # Slot is pre-seeded; prompt is locked to the seed.
-        if prompt and prompt.strip() != existing_prompt.strip():
-            raise ValueError(
-                f"write_pair: id={pair_id} has a pre-filled prompt; you "
-                f"can't change it. Pass prompt='' (or the exact existing "
-                f"prompt) and just fill cho and rej.\n"
-                f"  existing: {existing_prompt[:160]!r}\n"
-                f"  yours:    {prompt[:160]!r}"
-            )
+        # Slot is pre-seeded; prompt is locked to the seed. Be lenient on
+        # minor whitespace/quote differences (agent may re-emit it slightly
+        # differently when copying) — if ≥0.85 char-similarity, accept and
+        # keep the frozen seeded version. Reject if it looks like a swap
+        # (agent passed cho/rej content as prompt by mistake).
+        if prompt.strip():
+            import difflib
+            ratio = difflib.SequenceMatcher(
+                a=existing_prompt.strip(), b=prompt.strip()
+            ).ratio()
+            if ratio < 0.85:
+                raise ValueError(
+                    f"write_pair: id={pair_id} has a pre-filled prompt that "
+                    f"doesn't match yours (similarity={ratio:.2f}, need "
+                    f"≥0.85). Pass prompt='' to keep the existing prompt — "
+                    f"OR check whether you accidentally swapped prompt with "
+                    f"cho or rej.\n"
+                    f"  existing prompt: {existing_prompt[:200]!r}\n"
+                    f"  your prompt:     {prompt[:200]!r}"
+                )
         prompt_to_write = existing_prompt
     else:
         # Empty slot — agent must supply a prompt.
