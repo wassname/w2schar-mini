@@ -8,12 +8,19 @@ Forked from `weight-steering-lite/src/wsl/train.py`, trimmed:
 
 Per (prompt, cho, rej), sampled C ∈ (0, 1]:
 
-    L_pos = C·nll(cho | c=+C)  +  β·mean_KL(steer ‖ base) on cho label tokens
-    L_neg = C·nll(rej | c=-C)  +  β·mean_KL(steer ‖ base) on rej label tokens
+    L_pos = C·mean_b(nll_b / max(detach(nll_b), 1))  +  β·KL(steer ‖ base)
+    L_neg = C·mean_b(nll_b / max(detach(nll_b), 1))  +  β·KL(steer ‖ base)
 
-Both terms in nats. β trades steering signal vs distribution shift;
-weight-decay + β jointly pull toward "no-op" while NLL pulls toward
-cho/rej.
+Per-sample NLL is normalized by its own detached value (capped from
+below at 1) before batch-averaging. This caps each pair's NLL
+contribution at ~1 nat, so hard pairs (high NLL) get their gradient
+magnitude downweighted to unit-ish, while easy pairs (NLL < 1) pass
+through unchanged. Goal: equal-magnitude pull per pair toward each
+pole, so the learned direction is a clean bisecting axis instead of
+being dominated by the few hardest pairs.
+
+β trades steering signal vs distribution shift; weight-decay + β
+jointly pull toward "no-op" while NLL pulls toward cho/rej.
 
 `base` is the c=0 forward = pristine base (HistoryBake gate disabled
 when `lora._c == 0`). So a new adapter that fights a prior bake pays
@@ -123,6 +130,21 @@ def _zerofill(grads, params):
     return [g if g is not None else torch.zeros_like(p) for g, p in zip(grads, params)]
 
 
+def _per_sample_nll(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """Per-sample mean NLL over completion (label != -100) tokens. Matches
+    HF causal-LM reduction (logits[t] predicts label[t+1]) but un-reduced
+    over batch. Returns shape [B]."""
+    shift_logits = logits[..., :-1, :].contiguous()
+    shift_labels = labels[..., 1:].contiguous()
+    loss_per_tok = torch.nn.functional.cross_entropy(
+        shift_logits.reshape(-1, shift_logits.size(-1)),
+        shift_labels.reshape(-1),
+        reduction="none", ignore_index=-100,
+    ).view(shift_labels.size())
+    mask = (shift_labels != -100).float()
+    return (loss_per_tok * mask).sum(-1) / mask.sum(-1).clamp(min=1.0)
+
+
 def _kl_mean_full(logp_steer, logp_base, labels):
     """Reverse KL(p_steer ‖ p_base), per-token, mean over the SAME positions
     HF causal-LM CE averages over. HF shifts labels internally
@@ -167,8 +189,12 @@ def pcgrad_train_step(
 
     # ---- cho at c=+C ------------------------------------------------------
     with lora(model, c=+C):
-        out_p = model(input_ids=ip, attention_mask=ap, labels=lp)
-        L_pos_nll = C * out_p.loss
+        out_p = model(input_ids=ip, attention_mask=ap)
+        nll_per_p = _per_sample_nll(out_p.logits.float(), lp)  # [B]
+        # per-sample normalize: cap each pair's gradient pull at ~unit
+        # magnitude so a few hard pairs can't dominate the direction.
+        L_pos_nll = C * (nll_per_p / nll_per_p.detach().clamp(min=1.0)).mean()
+        mean_nll_p = nll_per_p.detach().mean().item()    # for logging
         if use_kl:
             logp_p = torch.log_softmax(out_p.logits.float(), dim=-1)
             kl_p = _kl_mean_full(logp_p, logp_b_p, lp)
@@ -184,8 +210,10 @@ def pcgrad_train_step(
 
     # ---- rej at c=-C ------------------------------------------------------
     with lora(model, c=-C):
-        out_n = model(input_ids=in_, attention_mask=an, labels=ln)
-        L_neg_nll = C * out_n.loss
+        out_n = model(input_ids=in_, attention_mask=an)
+        nll_per_n = _per_sample_nll(out_n.logits.float(), ln)  # [B]
+        L_neg_nll = C * (nll_per_n / nll_per_n.detach().clamp(min=1.0)).mean()
+        mean_nll_n = nll_per_n.detach().mean().item()
         if use_kl:
             logp_n = torch.log_softmax(out_n.logits.float(), dim=-1)
             kl_n = _kl_mean_full(logp_n, logp_b_n, ln)
@@ -231,8 +259,8 @@ def pcgrad_train_step(
         offset += n
 
     return {
-        "L_pos_nll": L_pos_nll.detach().item() / max(C, 1e-12),
-        "L_neg_nll": L_neg_nll.detach().item() / max(C, 1e-12),
+        "L_pos_nll": mean_nll_p,           # raw mean NLL (not normalized) for interpretability
+        "L_neg_nll": mean_nll_n,
         "kl_mean_pos": kl_p.detach().item() if use_kl else 0.0,
         "kl_mean_neg": kl_n.detach().item() if use_kl else 0.0,
         "C": C,
