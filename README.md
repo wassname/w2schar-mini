@@ -76,11 +76,11 @@ just smoke-real
 | | wsl | mini |
 |---|---|---|
 | axes | free-form (7 moral foundations) | fixed: "less deference to authority" |
-| pairs/round | 200 | 50 |
-| eval | tinymfv (264 vignettes) + Likert | C-scan only (qualitative judgement) |
-| tools | dialogue, gen, edit, drop, read, train, pass, exit_interview (+local_bash) | propose_personas, edit_pairs, train, judge |
-| state | implicit (any tool any time) | propose → curate → judge (enforced) |
-| code | ~7,000 LoC | ~700 LoC (target) |
+| pairs/round | 200 | 15 (on-policy `rej` from student, teacher writes twinned `cho`) |
+| eval | inline tinymfv per round + Likert | post-hoc `csm eval` (tinymfv, 132 vignettes × 1 condition) + c-scan |
+| tools | dialogue, gen, edit, drop, read, train, pass, exit_interview (+local_bash) | submit_pairs (whole pairs.md), train_student, mark_exam |
+| state | implicit (any tool any time) | submit_pairs → train_student → mark_exam → done (enforced) |
+| code | ~7,000 LoC | ~1.5K LoC |
 
 Everything else (CWS math, history bake, PCGrad, KL anchor, agent-as-
 teacher) is the same — we copy the working core.
