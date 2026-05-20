@@ -17,7 +17,7 @@ from typing import Literal
 import torch
 from loguru import logger
 
-from csm.adapter import ModulatedLoRA
+from csm.ws.adapter import ModulatedLoRA
 
 
 C_MIN, C_MAX, MAX_PROBES = 0.02, 1.0, 12
@@ -31,6 +31,7 @@ def pmass(model, tok, lora: ModulatedLoRA, c: float, probes: list[str], *,
     gather P over those indices, mean over positions."""
     old_side = tok.padding_side
     tok.padding_side = "left"
+    pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
     pms: list[float] = []
     try:
         for i in range(0, len(probes), batch_size):
@@ -42,22 +43,26 @@ def pmass(model, tok, lora: ModulatedLoRA, c: float, probes: list[str], *,
             with lora(model, c=0.0):
                 gen = model.generate(
                     **enc, max_new_tokens=n_gen, do_sample=False,
-                    pad_token_id=tok.pad_token_id or tok.eos_token_id,
-                    eos_token_id=tok.eos_token_id,
+                    pad_token_id=pad_id, eos_token_id=tok.eos_token_id,
                 )
-                logits_b = model(input_ids=gen).logits
+                # Build attention_mask for the rescoring forward pass: left-pad
+                # tokens from the prompt and post-EOS pads in the gen tail must
+                # be excluded, else the LM attends to garbage positions and the
+                # pmass calibration drifts.
+                gen_attn = (gen != pad_id).long()
+                logits_b = model(input_ids=gen, attention_mask=gen_attn).logits
                 # only the generated-token positions
                 gen_pos = slice(in_len - 1, gen.shape[1] - 1)
                 base_topk = logits_b[:, gen_pos].topk(k, dim=-1).indices  # [B, n_gen, k]
 
             # 2) re-score same sequence at c=c, gather over base topK
             with lora(model, c=c):
-                logits_s = model(input_ids=gen).logits[:, gen_pos]
+                logits_s = model(input_ids=gen, attention_mask=gen_attn).logits[:, gen_pos]
                 p_s = torch.softmax(logits_s.float(), dim=-1)
                 topk_p = p_s.gather(-1, base_topk).sum(-1)                # [B, n_gen]
 
             # mask out positions past EOS (no signal)
-            attn = (gen != (tok.pad_token_id or tok.eos_token_id))[:, in_len:]
+            attn = (gen != pad_id)[:, in_len:]
             attn = attn[:, :topk_p.shape[1]]
             if attn.any():
                 pms.append(topk_p[attn].mean().item())

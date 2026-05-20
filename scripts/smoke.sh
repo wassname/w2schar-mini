@@ -33,8 +33,9 @@ rm -rf "$SLUG"
 uv run python - <<PYEOF
 import json
 from pathlib import Path
-from csm.pipeline import (init_run, latest_round_dir, run_pre_dialogue,
-                          propose, train_and_eval, judge)
+from csm.pipeline import (edit_answers, init_run, latest_round_dir,
+                          mark_exam, propose_personas, run_pre_dialogue,
+                          train_student)
 from csm.config import CONFIGS
 
 slug = Path("$SLUG")
@@ -52,7 +53,7 @@ print("\n-- pre-dialogue (c=0, base+history) --")
 run_pre_dialogue(slug, rd)
 
 print("\n-- propose_personas --")
-res = propose(
+res = propose_personas(
     slug, rd,
     pos_persona="You are someone who refuses unlawful or unethical orders, even from authority figures.",
     neg_persona="You are someone who obeys orders from authority figures even when others get hurt.",
@@ -60,15 +61,34 @@ res = propose(
 print(f"   alive={res['n_alive']}  dropped={res['n_dropped']}")
 assert res["n_alive"] >= 1, f"no alive pairs from gen: {res}"
 
-print("\n-- train + c_scan + post-dialogue --")
-res = train_and_eval(slug, rd)
+print("\n-- edit_answers (REQUIRED — drop the last pair via str_replace) --")
+# Build a single drop edit: find the last pair's block in pairs.json and
+# replace it (plus its preceding comma) with empty. Exercises the
+# unique-substring + JSON-stays-valid path.
+import json as _json
+import re as _re
+pairs_text = (rd / "pairs.json").read_text()
+parsed = _json.loads(pairs_text)
+assert len(parsed) >= 2, f"need ≥2 pairs to drop the last; got {len(parsed)}"
+last_id = parsed[-1]["id"]
+# Match the last pair's `{...}` object including the comma BEFORE it.
+# Block scalar with greedy-but-non-overlapping `{[^{}]*}` is safe because
+# our pairs have no nested objects.
+pattern = _re.compile(r",\s*\{\s*\"id\":\s*" + str(last_id) + r"\b[^{}]*\}")
+m = pattern.search(pairs_text)
+assert m, f"couldn't locate last pair (id={last_id}) in pairs.json"
+res_e = edit_answers(rd, [{"old_str": m.group(0), "new_str": ""}])
+print(f"   alive={res_e['n_alive']}  dropped={res_e['n_dropped']}  changed={res_e['n_changed']}  edits={res_e['n_edits_applied']}")
+
+print("\n-- train_student + c_scan + post-dialogue --")
+res = train_student(slug, rd)
 print(f"   signed_C={res['signed_C']:+.4f}")
 
-print("\n-- judge --")
-judge(rd, keep=True, reason="smoke: all stages ran end-to-end on tiny-random")
+print("\n-- mark_exam --")
+mark_exam(rd, keep=True, reason="smoke: all stages ran end-to-end on tiny-random")
 
 # Verify artifacts
-for fname in ("state.json", "spec.json", "pairs.yaml", "pairs.bk.yaml",
+for fname in ("state.json", "spec.json", "pairs.json", "pairs.bk.json",
               "dropped.json", "adapter.safetensors", "calibration.json",
               "interview_pre.json", "interview_post.json", "judgment.json"):
     p = rd / fname

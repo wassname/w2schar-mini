@@ -16,6 +16,8 @@ dependencies = [
     "python-dotenv>=1.0",
     "inspect-ai>=0.3.50",
     "accelerate>=0.34",
+    # OpenRouter provider in inspect-ai goes through the openai SDK.
+    "openai>=1.0",
 ]
 
 [project.scripts]

@@ -16,7 +16,7 @@ from typing import Optional
 import torch
 from loguru import logger
 
-from csm.adapter import ModulatedLoRA
+from csm.ws.adapter import ModulatedLoRA
 
 
 @dataclass

@@ -21,7 +21,7 @@ import torch
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from csm.adapter import HistoryBake, ModulatedLoRA
+from csm.ws.adapter import HistoryBake, ModulatedLoRA
 
 
 _ROUND_RE = re.compile(r"^round(\d+)$")

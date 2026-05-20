@@ -17,26 +17,97 @@ import random
 from pathlib import Path
 
 import torch
-import yaml
 from loguru import logger
 from tqdm.auto import tqdm
+from transformers import LogitsProcessor, LogitsProcessorList
 
-from csm.prompts_pool import POOL
+from csm.gen.prompts_pool import POOL
+
+
+class PersonaOnlyRepetitionPenalty(LogitsProcessor):
+    """Repetition penalty scoped to the persona prompt's tokens only.
+
+    Stock HF RepetitionPenaltyLogitsProcessor reads `input_ids = prompt
+    + generated`, which also chills topic words from the user message
+    and tokens the model has already produced. We want only the *persona*
+    vocab discouraged (so the persona doesn't leak verbatim into cho/rej)
+    while letting the model freely reuse user-prompt topic words and its
+    own generated tokens.
+
+    Ported from weight-steering-lite/src/wsl/data.py.
+    """
+
+    def __init__(self, penalty: float, persona_token_ids: set[int]):
+        assert penalty > 1.0, f"penalty must be > 1.0, got {penalty}"
+        self.penalty = penalty
+        self.persona_token_ids = persona_token_ids
+
+    def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
+        if not self.persona_token_ids:
+            return scores
+        idx = torch.tensor(list(self.persona_token_ids),
+                           device=scores.device, dtype=torch.long)
+        rows = scores[:, idx]
+        scores[:, idx] = torch.where(rows > 0, rows / self.penalty,
+                                     rows * self.penalty)
+        return scores
 
 
 # Common chat-template stop markers some tokenisers leave in decoded text.
 _END_MARKERS = ("<end_of_turn>", "<eos>", "<|im_end|>", "<|endoftext|>")
 
 
-# Start-anchored refusal heads — if a generation OPENS with one of these,
-# we treat that side as "refused". Cheap and tokenizer-agnostic. We auto-
-# drop pairs only when BOTH sides refuse (= no axis to learn).
-_REFUSAL_HEADS = (
+# Refusal phrase banks — ported from
+# weight-steering-lite/src/wsl/data.py:_REFUSAL_PREAMBLES / _START_ANCHORED_REFUSALS.
+# Two tiers:
+#  (a) PREAMBLES — banned ANYWHERE in the completion. Long enough (≥3 tokens
+#      of RLHF-template phrasing) that mid-sentence collateral is near-zero.
+#  (b) START_HEADS — short refusal verbs banned ONLY at the OPENING of the
+#      completion (lstrip then prefix-match). Captures common refusal openings
+#      without blocking legitimate mid-sentence uses.
+_REFUSAL_PREAMBLES = (
+    "As a large language model",
+    "As an AI language model",
+    "As a language model",
+    "I am a large language model",
+    "I am an AI language model",
+    "I'm an AI language model",
+    "As an AI assistant",
+    "as an AI assistant",
+    "As a helpful assistant",
+    "I'm an AI assistant",
+    "I am an AI assistant",
+    "I am an artificial intelligence",
+    "I cannot fulfill",
+    "I cannot assist",
+    "I'm sorry, I cannot",
+    "I am unable to fulfill",
+    "I'm unable to fulfill",
+    "I don't have the ability",
+    "I do not have the ability",
+)
+
+_REFUSAL_START_HEADS = (
     "I cannot", "I can't", "I'm sorry", "I am sorry",
     "I apologize", "I am unable", "I'm unable",
+    "I don't have", "I do not have",
+    "It is important to", "It's important to",
     "As an AI", "As a language", "As a large language",
-    "I do not have", "I don't have",
 )
+
+
+def find_refusals(text: str) -> list[str]:
+    """Return list of refusal phrases present in `text`. Empty list = clean."""
+    hits: list[str] = []
+    for p in _REFUSAL_PREAMBLES:
+        if p in text:
+            hits.append(p)
+    head = text.lstrip()
+    for h in _REFUSAL_START_HEADS:
+        if head.startswith(h):
+            hits.append(h)
+            break  # one head match is enough
+    return hits
 
 
 def _rstrip_end_markers(text: str) -> str:
@@ -51,8 +122,9 @@ def _rstrip_end_markers(text: str) -> str:
 
 
 def _is_refusal(text: str) -> bool:
-    s = text.lstrip()
-    return any(s.startswith(h) for h in _REFUSAL_HEADS)
+    """Cheap auto-drop check used at gen time. Anything find_refusals
+    flags counts."""
+    return bool(find_refusals(text))
 
 
 def _supports_system_role(tok) -> bool:
@@ -82,12 +154,24 @@ def _render(tok, persona: str, user_msg: str, *, use_system: bool, enable_thinki
 
 
 @torch.no_grad()
-def _generate(model, tok, rendered_prompts: list[str], *, batch_size: int,
-              max_new_tokens: int, seed: int) -> list[str]:
+def _generate(model, tok, rendered_prompts: list[str], *, persona: str,
+              batch_size: int, max_new_tokens: int, seed: int,
+              persona_rep_penalty: float = 1.3) -> list[str]:
     """Greedy decode (deterministic per prompt). Diversity comes from
-    prompt + persona variation, not sampling."""
+    prompt + persona variation, not sampling.
+
+    Anti-leak stack (all SOFT — no hard token bans that could override
+    legitimate model output; the agent's curation step is the final say):
+      - PersonaOnlyRepetitionPenalty: 1.3× penalty on persona-vocab
+        token logits only. Discourages verbatim persona echo without
+        chilling user-prompt topic words or model's own generated tokens.
+      - no_repeat_ngram_size=3: HF built-in; bans any verbatim 3-gram
+        from the input from appearing in output. Targeted at literal
+        copying, not value-laden content.
+    """
     old_side = tok.padding_side
     tok.padding_side = "left"
+    persona_ids: set[int] = set(tok(persona, add_special_tokens=False)["input_ids"])
     out: list[str] = []
     try:
         for i in tqdm(range(0, len(rendered_prompts), batch_size),
@@ -95,9 +179,13 @@ def _generate(model, tok, rendered_prompts: list[str], *, batch_size: int,
             batch = rendered_prompts[i: i + batch_size]
             enc = tok(batch, return_tensors="pt", padding=True).to(model.device)
             torch.manual_seed(seed + i // batch_size)
+            processors = LogitsProcessorList([
+                PersonaOnlyRepetitionPenalty(persona_rep_penalty, persona_ids),
+            ])
             gen = model.generate(
                 **enc, max_new_tokens=max_new_tokens, do_sample=False,
                 no_repeat_ngram_size=3,
+                logits_processor=processors,
                 pad_token_id=tok.pad_token_id or tok.eos_token_id,
                 eos_token_id=tok.eos_token_id,
             )
@@ -145,10 +233,10 @@ def gen_pairs(
     neg_prompts = [_render(tok, neg_persona, m, use_system=use_system,
                            enable_thinking=enable_thinking) for m in user_msgs]
 
-    cho_texts = _generate(model, tok, pos_prompts,
+    cho_texts = _generate(model, tok, pos_prompts, persona=pos_persona,
                           batch_size=batch_size, max_new_tokens=max_new_tokens,
                           seed=seed)
-    rej_texts = _generate(model, tok, neg_prompts,
+    rej_texts = _generate(model, tok, neg_prompts, persona=neg_persona,
                           batch_size=batch_size, max_new_tokens=max_new_tokens,
                           seed=seed + 1)
 
@@ -163,26 +251,19 @@ def gen_pairs(
 
 
 # ---------------------------------------------------------------------------
-# YAML I/O — interleaved per pair, block scalars for multi-line text.
+# JSON I/O — pretty-printed (indent=2) so the agent's str_replace snippets
+# match the on-disk text byte-for-byte. JSON has unambiguous string quoting
+# (no colon-in-text trap) and `\n` escapes for multi-line completions.
 # ---------------------------------------------------------------------------
 
-class _BlockDumper(yaml.SafeDumper):
-    pass
+import json as _json
 
 
-_BlockDumper.add_representer(
-    str,
-    lambda d, x: d.represent_scalar("tag:yaml.org,2002:str", x,
-                                    style="|" if "\n" in x else None),
-)
+def write_pairs_json(path: Path, pairs: list[dict]) -> None:
+    Path(path).write_text(
+        _json.dumps(pairs, indent=2, ensure_ascii=False) + "\n"
+    )
 
 
-def write_pairs_yaml(path: Path, pairs: list[dict]) -> None:
-    with Path(path).open("w") as f:
-        yaml.dump(pairs, f, Dumper=_BlockDumper, default_flow_style=False,
-                  sort_keys=False, allow_unicode=True, width=10**9)
-
-
-def load_pairs_yaml(path: Path) -> list[dict]:
-    with Path(path).open() as f:
-        return yaml.safe_load(f) or []
+def load_pairs_json(path: Path) -> list[dict]:
+    return _json.loads(Path(path).read_text()) or []

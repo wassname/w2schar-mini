@@ -15,7 +15,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 ARTIFACTS = (
-    "state.json", "spec.json", "pairs.yaml", "pairs.bk.yaml",
+    "state.json", "spec.json", "pairs.json", "pairs.bk.json",
     "dropped.json", "adapter.safetensors", "calibration.json",
     "interview_pre.json", "interview_post.json", "judgment.json",
 )

@@ -31,7 +31,7 @@ from torch.utils.data import DataLoader, Dataset
 from transformers import get_cosine_schedule_with_warmup
 from tqdm.auto import tqdm
 
-from csm.adapter import ModulatedLoRA
+from csm.ws.adapter import ModulatedLoRA
 
 
 @dataclass
