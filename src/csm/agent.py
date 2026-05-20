@@ -23,9 +23,9 @@ from inspect_ai.tool import Tool, tool
 from csm.pipeline import (init_run, latest_round_dir,
                           mark_exam as _mark_exam_pipeline,
                           new_round_dir, run_pre_dialogue,
-                          train_student as _train_student_pipeline,
-                          write_pair as _write_pair_pipeline)
-from csm.prompts import (AFTER_TRAIN, AFTER_WRITE, COMPACTION_INSTRUCTIONS,
+                          submit_pairs as _submit_pairs_pipeline,
+                          train_student as _train_student_pipeline)
+from csm.prompts import (AFTER_SUBMIT, AFTER_TRAIN, COMPACTION_INSTRUCTIONS,
                          INITIAL_TASK, ON_CONTINUE_NUDGE, REACT_PROMPT)
 from csm.state import ALLOWED_AFTER, ValidationError, read_state
 from csm.ws.history import kept_history_dirs
@@ -70,35 +70,28 @@ def _format_validation_error(e: ValidationError) -> str:
 # Tools
 # ---------------------------------------------------------------------------
 
-@tool(name="write_pair", parallel=False)
-def write_pair_tool(slug: str) -> Tool:
-    async def execute(pair_id: int, prompt: str, cho: str, rej: str) -> str:
-        """Fill one slot in pairs.md.
-
-        Both cho and rej must be non-empty. Once enough slots are filled
-        the state advances to train_student (you can keep writing more).
+@tool(name="submit_pairs", parallel=False)
+def submit_pairs_tool(slug: str) -> Tool:
+    async def execute(pairs_md: str) -> str:
+        """Submit the whole pairs.md form. Replace every `TODO:` line with
+        real content and pass the complete file as a single string.
 
         Args:
-            pair_id: integer slot id (visible in `##### pair N` markers).
-            prompt: the user message. For pre-seeded slots pass "" or
-                the exact existing prompt (it's locked). For empty slots
-                supply your own — invent a fresh authority-pressure
-                scenario not in the seeded set.
-            cho: positive-pole completion (the trait to GROW).
-            rej: negative-pole completion (the failure mode).
+            pairs_md: the full pairs.md text. Keep the `##### pair N` /
+                `##### prompt` / `##### cho` / `##### rej` markers intact.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         try:
-            res = _write_pair_pipeline(round_dir, pair_id, prompt, cho, rej)
+            res = _submit_pairs_pipeline(round_dir, pairs_md)
         except ValidationError as e:
             return _format_validation_error(e)
         except ValueError as e:
-            return f"write_pair rejected — {e}\npairs.md NOT updated."
+            return f"submit_pairs rejected — {e}\npairs.md NOT updated."
         return (
-            f"OK — pair {pair_id} written. {res['filled']}/{res['total']} "
-            f"pairs filled (need ≥{res['min_to_train']} to train).\n"
-            f"Empty slots remaining: {res['remaining_empty_ids']}\n"
-            f"{AFTER_WRITE}"
+            f"OK — pairs.md submitted. {res['filled']}/{res['total']} "
+            f"filled (need ≥{res['min_to_train']} to train). "
+            f"Slots with TODO still: {res['slots_with_todo']}\n"
+            f"{AFTER_SUBMIT}"
         )
 
     return execute
@@ -172,17 +165,21 @@ def train_student_tool(slug: str) -> Tool:
 
 @tool(name="mark_exam", parallel=False)
 def mark_exam_tool(slug: str) -> Tool:
-    async def execute(keep: bool, reason: str) -> str:
+    async def execute(keep: bool, reason: str, next_focus: str) -> str:
         """Mark the student's exam. Commits the round.
 
         Args:
             keep: True bakes the adapter into next round's history;
                 False drops and the next round retries from scratch.
             reason: 1-3 sentences citing specific PRE vs POST text.
+            next_focus: further moral-character aspect to push on next
+                round — what the post-dialogue still misses, or an
+                adjacent disposition the kept rounds haven't touched yet.
+                Will be shown in the next round's brief.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         try:
-            judgment = _mark_exam_pipeline(round_dir, keep, reason)
+            judgment = _mark_exam_pipeline(round_dir, keep, reason, next_focus)
         except ValidationError as e:
             return _format_validation_error(e)
         return (
@@ -203,6 +200,21 @@ def _n_keeps(slug_path: Path) -> int:
         if rd.is_dir() and (rd / "judgment.json").exists()
         and json.loads((rd / "judgment.json").read_text()).get("action") == "keep"
     )
+
+
+def _last_next_focus(slug_path: Path, *, exclude: Path | None = None) -> str:
+    """Return the most recent round's `next_focus` (kept or dropped), or ""."""
+    for rd in sorted((p for p in slug_path.glob("round*") if p.is_dir()),
+                     reverse=True):
+        if exclude is not None and rd == exclude:
+            continue
+        jp = rd / "judgment.json"
+        if jp.exists():
+            d = json.loads(jp.read_text())
+            f = d.get("next_focus", "").strip()
+            if f:
+                return f
+    return ""
 
 
 def _n_drops(slug_path: Path) -> int:
@@ -238,7 +250,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
 
     agent = react(
         tools=[
-            write_pair_tool(slug),
+            submit_pairs_tool(slug),
             train_student_tool(slug),
             mark_exam_tool(slug),
         ],
@@ -281,15 +293,17 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
         json.loads((rd / "interview_pre.json").read_text())
     )
     pairs_text = (rd / "pairs.md").read_text()
+    prior_focus = _last_next_focus(slug_path, exclude=rd)
+    focus_block = (f"\nPRIOR ROUND'S `next_focus`:\n  {prior_focus}\n"
+                   if prior_focus else "")
     initial = INITIAL_TASK.format(
         round_n=n_keeps_now + 1, target_n=n_keeps_now + n_rounds,
         round_dir=str(rd.relative_to(REPO)), model=model,
         n_history=n_history,
-    ) + (
-        f"\n\n========== PRE-DIALOGUE (c=0, base+history) — read this first ==========\n"
+    ) + focus_block + (
+        f"\n========== PRE-DIALOGUE (c=0, base+history) ==========\n"
         f"{pre_text}\n"
-        f"========== pairs.md (current — fill cho/rej for seeded slots, "
-        f"invent prompt+cho+rej for empty ones) ==========\n"
+        f"========== pairs.md (FORM — replace every TODO and submit) ==========\n"
         f"{pairs_text}"
         f"========== end pairs.md ==========\n"
     )

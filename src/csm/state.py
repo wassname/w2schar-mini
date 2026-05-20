@@ -1,18 +1,6 @@
 """Per-round state machine. State name = next required tool.
 
-  write_pair → train_student → mark_exam → done
-
-Each state's name describes what the agent should call next. Persisted
-as `<round_dir>/state.json`. Each pipeline verb checks current state
-and raises `ValidationError` on a wrong-order call; the error names the
-next valid tool so `on_continue` can reproduce it.
-
-  write_pair    — pairs.md has empty/template slots; agent fills them
-  train_student — ≥MIN_PAIRS filled; agent may still write_pair more
-                  before training, or call train_student
-  mark_exam     — adapter trained; agent decides keep/drop from pre vs
-                  post probe transcripts
-  done          — round committed
+  submit_pairs → train_student → mark_exam → done
 """
 from __future__ import annotations
 
@@ -21,13 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-State = Literal["write_pair", "train_student", "mark_exam", "done"]
+State = Literal["submit_pairs", "train_student", "mark_exam", "done"]
 
 ALLOWED_AFTER = {
-    "write_pair":    "write_pair(id, prompt, cho, rej)",
-    "train_student": "write_pair (fill more pairs) or train_student() — "
+    "submit_pairs":  "submit_pairs(pairs_md)",
+    "train_student": "train_student() — or submit_pairs(pairs_md) to resubmit, "
                      "or mark_exam(keep=False, reason=...) to abort",
-    "mark_exam":     "mark_exam(keep, reason)",
+    "mark_exam":     "mark_exam(keep, reason, next_focus)",
     "done":          "(round complete — harness will allocate the next round or stop)",
 }
 
@@ -38,7 +26,7 @@ class ValidationError(RuntimeError):
 
 @dataclass
 class RoundState:
-    state: State = "write_pair"
+    state: State = "submit_pairs"
     note: str = ""
 
     def to_dict(self) -> dict:
@@ -48,7 +36,7 @@ class RoundState:
 def read_state(round_dir: Path) -> RoundState:
     p = round_dir / "state.json"
     if not p.exists():
-        return RoundState(state="write_pair")
+        return RoundState(state="submit_pairs")
     d = json.loads(p.read_text())
     return RoundState(state=d["state"], note=d.get("note", ""))
 

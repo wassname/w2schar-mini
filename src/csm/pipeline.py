@@ -94,7 +94,7 @@ def _scaffold_round(slug_dir: Path, round_dir: Path, model: str) -> None:
         n_total_slots=cfg.n_total_slots,
         seed=42 + n,
     )
-    write_state(round_dir, RoundState(state="write_pair"))
+    write_state(round_dir, RoundState(state="submit_pairs"))
 
 
 # ---------------------------------------------------------------------------
@@ -121,102 +121,55 @@ def run_pre_dialogue(slug_dir: Path, round_dir: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Verb 1: write_pair — teacher fills one slot in pairs.md.
+# Verb 1: submit_pairs — teacher writes the whole pairs.md form at once.
 # ---------------------------------------------------------------------------
 
-def write_pair(round_dir: Path, pair_id: int, prompt: str,
-               cho: str, rej: str) -> dict:
-    """Fill one slot in pairs.md.
+def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
+    """Replace pairs.md with `pairs_md`. Validate it parses, count slots
+    where every TODO has been replaced; advance to train_student once
+    ≥min_pairs_to_train slots are filled.
 
-    Rules:
-      - pair_id must be in range [0, n_total_slots).
-      - If the slot has a pre-filled prompt, `prompt` must match it
-        exactly (or the agent can pass the empty string to keep it).
-      - If the slot has an empty prompt, `prompt` is required.
-      - cho and rej must both be non-empty.
-
-    Once ≥min_pairs_to_train slots are filled, state advances to
-    `train_student`. write_pair stays callable in train_student state,
-    so the agent can keep polishing before training.
+    `submit_pairs` is callable again from `train_student` state, so the
+    agent can resubmit after fixing TODOs.
     """
-    require_state(round_dir, ("write_pair", "train_student"), "write_pair")
+    require_state(round_dir, ("submit_pairs", "train_student"), "submit_pairs")
 
     pairs_path = round_dir / "pairs.md"
-    pairs = load_pairs_md(pairs_path)
-    ids = [p["id"] for p in pairs]
-    if pair_id not in ids:
+    pairs_path.write_text(pairs_md)
+    try:
+        pairs = load_pairs_md(pairs_path)
+    except ValueError as e:
         raise ValueError(
-            f"write_pair: id={pair_id} not in pairs.md. Valid ids: {ids}."
-        )
-    if not cho.strip() or not rej.strip():
-        raise ValueError(
-            "write_pair: cho and rej must both be non-empty. Drop the slot "
-            "by leaving it empty if you don't want to fill it."
-        )
-
-    idx = ids.index(pair_id)
-    existing_prompt = pairs[idx]["prompt"]
-    if existing_prompt:
-        # Slot is pre-seeded; prompt is locked to the seed. Be lenient on
-        # minor whitespace/quote differences (agent may re-emit it slightly
-        # differently when copying) — if ≥0.85 char-similarity, accept and
-        # keep the frozen seeded version. Reject if it looks like a swap
-        # (agent passed cho/rej content as prompt by mistake).
-        if prompt.strip():
-            import difflib
-            ratio = difflib.SequenceMatcher(
-                a=existing_prompt.strip(), b=prompt.strip()
-            ).ratio()
-            if ratio < 0.85:
-                raise ValueError(
-                    f"write_pair: id={pair_id} has a pre-filled prompt that "
-                    f"doesn't match yours (similarity={ratio:.2f}, need "
-                    f"≥0.85). Pass prompt='' to keep the existing prompt — "
-                    f"OR check whether you accidentally swapped prompt with "
-                    f"cho or rej.\n"
-                    f"  existing prompt: {existing_prompt[:200]!r}\n"
-                    f"  your prompt:     {prompt[:200]!r}"
-                )
-        prompt_to_write = existing_prompt
-    else:
-        # Empty slot — agent must supply a prompt.
-        if not prompt.strip():
-            raise ValueError(
-                f"write_pair: id={pair_id} has no seeded prompt; supply one "
-                f"as the `prompt` argument. (Slots 0..n_seed_prompts have "
-                f"seeded prompts you fill cho/rej for; later slots are "
-                f"empty and you supply the prompt too.)"
-            )
-        prompt_to_write = prompt.strip()
-
-    pairs[idx]["prompt"] = prompt_to_write
-    pairs[idx]["cho"] = cho.strip()
-    pairs[idx]["rej"] = rej.strip()
-    write_pairs_md(pairs_path, pairs)
+            f"submit_pairs: pairs.md doesn't parse — {e}. Markers must be "
+            f"`##### pair N`, `##### prompt`, `##### cho`, `##### rej`, "
+            f"exactly three field markers per pair."
+        ) from e
 
     filled = n_filled(pairs)
     run = json.loads((round_dir.parent / "run.json").read_text())
     cfg = config_by_model(run["model"])
+
     if filled >= cfg.min_pairs_to_train:
         set_state(round_dir, "train_student",
                   note=f"filled={filled}/{len(pairs)}")
     else:
-        set_state(round_dir, "write_pair",
+        set_state(round_dir, "submit_pairs",
                   note=f"filled={filled}/{len(pairs)}")
 
-    remaining_ids = [p["id"] for p in pairs
-                     if not (p["prompt"].strip() and p["cho"].strip()
-                             and p["rej"].strip())]
+    remaining = [p["id"] for p in pairs
+                 if any(p[k].strip().startswith("TODO:")
+                        or not p[k].strip()
+                        for k in ("prompt", "cho", "rej"))]
     transcript().info(
-        {"event": "write_pair", "round": round_dir.name,
-         "pair_id": pair_id, "filled": filled, "total": len(pairs)},
-        source=f"{round_dir.name}.write",
+        {"event": "submit_pairs", "round": round_dir.name,
+         "filled": filled, "total": len(pairs)},
+        source=f"{round_dir.name}.submit",
     )
     return {
         "filled": filled,
         "total": len(pairs),
         "min_to_train": cfg.min_pairs_to_train,
-        "remaining_empty_ids": remaining_ids,
+        "slots_with_todo": remaining,
     }
 
 
@@ -231,12 +184,15 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
 
     pairs_all = load_pairs_md(round_dir / "pairs.md")
     pairs = [p for p in pairs_all
-             if p["prompt"].strip() and p["cho"].strip() and p["rej"].strip()]
+             if p["prompt"].strip() and p["cho"].strip() and p["rej"].strip()
+             and not any(p[k].strip().startswith("TODO:")
+                         for k in ("prompt", "cho", "rej"))]
     if len(pairs) < cfg.min_pairs_to_train:
         raise ValidationError(
-            f"train_student: only {len(pairs)} filled pairs, need "
-            f"≥{cfg.min_pairs_to_train}. Fill more with write_pair, or "
-            f"call mark_exam(keep=False, reason=...) to abort."
+            f"train_student: only {len(pairs)} filled pairs (TODO not yet "
+            f"replaced in the rest), need ≥{cfg.min_pairs_to_train}. "
+            f"Resubmit pairs.md with submit_pairs, or call "
+            f"mark_exam(keep=False, reason=...) to abort."
         )
 
     history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
@@ -290,17 +246,19 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
 # Verb 3: mark_exam — keep/drop.
 # ---------------------------------------------------------------------------
 
-def mark_exam(round_dir: Path, keep: bool, reason: str) -> dict:
+def mark_exam(round_dir: Path, keep: bool, reason: str,
+              next_focus: str = "") -> dict:
     # keep=True requires a trained adapter; keep=False can also fire as an
-    # early abort from write_pair/train_student.
+    # early abort from submit_pairs/train_student.
     if keep:
         require_state(round_dir, "mark_exam", "mark_exam")
     else:
-        require_state(round_dir, ("write_pair", "train_student", "mark_exam"),
+        require_state(round_dir, ("submit_pairs", "train_student", "mark_exam"),
                       "mark_exam")
     judgment = {
         "action": "keep" if keep else "drop",
         "reasoning": reason,
+        "next_focus": next_focus,
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     }
     (round_dir / "judgment.json").write_text(json.dumps(judgment, indent=2))

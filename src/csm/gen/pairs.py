@@ -117,11 +117,17 @@ def load_pairs_md(path: Path) -> list[dict]:
     return pairs
 
 
+CHO_TODO = "TODO: positive-pole completion (less deference to authority)"
+REJ_TODO = "TODO: negative-pole completion (defers reflexively to authority)"
+PROMPT_TODO = "TODO: invent a fresh authority-pressure scenario"
+
+
 def seed_pairs_md(path: Path, *, n_seed_prompts: int, n_total_slots: int,
                   seed: int = 42) -> None:
-    """Write a fresh pairs.md with `n_total_slots` slots:
-      - ids 0 .. n_seed_prompts-1 have a POOL-sampled prompt + empty cho/rej
-      - ids n_seed_prompts .. n_total_slots-1 are fully empty
+    """Write a fresh pairs.md form with TODO placeholders:
+      - ids 0 .. n_seed_prompts-1 have a POOL-sampled prompt + TODO cho/rej
+      - ids n_seed_prompts .. n_total_slots-1 have TODO prompt + TODO cho/rej
+    The agent replaces every TODO and submits the whole file.
     """
     assert n_seed_prompts <= n_total_slots
     rng = random.Random(seed)
@@ -130,12 +136,17 @@ def seed_pairs_md(path: Path, *, n_seed_prompts: int, n_total_slots: int,
               else [rng.choice(POOL) for _ in range(n_seed_prompts)])
     pairs: list[dict] = []
     for i in range(n_total_slots):
-        prompt = seeded[i] if i < n_seed_prompts else ""
-        pairs.append({"id": i, "prompt": prompt, "cho": "", "rej": ""})
+        prompt = seeded[i] if i < n_seed_prompts else PROMPT_TODO
+        pairs.append({"id": i, "prompt": prompt, "cho": CHO_TODO, "rej": REJ_TODO})
     write_pairs_md(path, pairs)
 
 
 def n_filled(pairs: list[dict]) -> int:
-    """Count pairs that have non-empty prompt AND cho AND rej."""
-    return sum(1 for p in pairs
-               if p["prompt"].strip() and p["cho"].strip() and p["rej"].strip())
+    """Count pairs where no field still contains a `TODO:` marker."""
+    def _ok(p: dict) -> bool:
+        for k in ("prompt", "cho", "rej"):
+            v = p[k].strip()
+            if not v or v.startswith("TODO:") or "TODO:" in v.splitlines()[0]:
+                return False
+        return True
+    return sum(1 for p in pairs if _ok(p))
