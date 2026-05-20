@@ -53,11 +53,12 @@ class RunConfig:
     """Train-time max sequence length for collating pairs."""
 
     # ─ steering coefficient ─
-    signed_C: float = 1.5
+    signed_C: float = 2.0
     """Initial probe coefficient — c_scan walks DOWN from here (×0.5)
-    until pmass ≥ 0.85 × baseline, then ×0.75 backoff. Start high so the
-    cliff is actually probed; coherent adapters keep something near init,
-    fragile ones get tamer baked C. Sidecar — agent never sees it."""
+    until pmass ≥ 0.98 × baseline, then ×0.75 backoff. Start high so the
+    cliff is actually probed (last 9b run found c=1.5 still coherent
+    → was leaving headroom). Coherent adapters keep something near
+    init, fragile ones get tamer baked C. Sidecar — agent never sees it."""
 
     # ─ outer loop ─
     n_rounds: int = 2
@@ -82,6 +83,12 @@ CONFIGS: dict[str, RunConfig] = {
         teacher="qwen/qwen3.5-9b",
         train_batch_size=2,
         eval_batch_size=2,
+    ),
+    "gemma-27b": RunConfig(
+        model="google/gemma-2-27b-it",
+        teacher="qwen/qwen3.5-9b",
+        train_batch_size=1,
+        eval_batch_size=1,
     ),
     # Smoke: tiny-random Qwen3 5-layer. ~1 min on CPU, garbage outputs.
     "tiny": RunConfig(

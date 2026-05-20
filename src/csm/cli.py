@@ -68,6 +68,28 @@ class AgentRunArgs:
     """Override n_rounds from the profile / 2 for resume."""
 
 
+@dataclass
+class EvalArgs:
+    """Run tinymfv eval on each checkpoint of a completed slug."""
+    slug: Path
+    """Path to the run slug dir."""
+    name: str = "classic"
+    """tinymfv dataset config: classic | scifi | ai-actor."""
+    batch_size: int | None = None
+    """Eval batch size. Default: profile's eval_batch_size."""
+    force: bool = False
+    """Re-eval even if eval.json / eval_post.json already exist."""
+
+
+@dataclass
+class PlotArgs:
+    """Build <slug>/index.html: Care-vs-Authority scatter + SVG timeline."""
+    slug: Path
+    """Path to the run slug dir (must have csm eval run first)."""
+    out: Path | None = None
+    """Override output path. Default: <slug>/index.html."""
+
+
 def _default_slug(model: str) -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     return REPO / "out" / "iter" / f"{ts}_iter_{model.replace('/', '-').lower()}"
@@ -106,6 +128,17 @@ def cmd_agent_run(args: AgentRunArgs) -> None:
     run_agent(model=model, teacher=teacher, slug=slug, n_rounds=n_rounds)
 
 
+def cmd_eval(args: EvalArgs) -> None:
+    from csm.eval import eval_slug
+    eval_slug(args.slug.resolve(), name=args.name,
+              batch_size=args.batch_size, force=args.force)
+
+
+def cmd_plot(args: PlotArgs) -> None:
+    from csm.plot import main as plot_main, Cfg
+    plot_main(Cfg(slug=args.slug.resolve(), out=args.out))
+
+
 def main() -> None:
     _setup_logging()
     sub = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -115,8 +148,14 @@ def main() -> None:
     elif sub in ("agent-run", "agent_run"):
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         cmd_agent_run(tyro.cli(AgentRunArgs))
+    elif sub == "eval":
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+        cmd_eval(tyro.cli(EvalArgs))
+    elif sub == "plot":
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+        cmd_plot(tyro.cli(PlotArgs))
     else:
-        print("csm <init | agent-run>  [--help]", file=sys.stderr)
+        print("csm <init | agent-run | eval | plot>  [--help]", file=sys.stderr)
         sys.exit(1)
 
 

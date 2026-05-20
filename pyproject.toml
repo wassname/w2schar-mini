@@ -19,7 +19,14 @@ dependencies = [
     "accelerate>=0.34",
     # OpenRouter provider in inspect-ai goes through the openai SDK.
     "openai>=1.0",
+    # Post-hoc eval + plot.
+    "numpy>=1.26",
+    "plotly>=5.20",
+    "tiny-mfv",
 ]
+
+[tool.uv.sources]
+tiny-mfv = { path = "/workspace/lite/tinymfv", editable = true }
 
 [project.scripts]
 csm = "csm.cli:main"
