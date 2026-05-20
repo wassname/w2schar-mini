@@ -68,13 +68,14 @@ def pmass(model, tok, lora: ModulatedLoRA, c: float, probes: list[str], *,
 
 def c_scan(model, tok, lora: ModulatedLoRA, probes: list[str], *,
            init_c: float = 1.0,
-           gate_frac: float = 0.85,
+           gate_frac: float = 0.98,
            backoff: float = 0.75,
            sign: Literal[1, -1] = 1,
            k: int = 200, n_gen: int = 32,
            batch_size: int = 2) -> tuple[float, list]:
-    """Walk |C| down by ×0.5 until pmass(c) ≥ gate_frac × baseline_pmass.
-    Then return sign * c * backoff (further safety margin)."""
+    """Walk |C| down by ×0.5 until pmass(c) ≥ gate_frac × baseline_pmass
+    (tight: ≥98% of base coherence on top-K). Then return sign * c *
+    backoff for a further safety margin."""
     baseline = pmass(model, tok, lora, c=0.0, probes=probes,
                      k=k, n_gen=n_gen, batch_size=batch_size)
     gate = gate_frac * baseline

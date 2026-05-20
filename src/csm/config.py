@@ -38,24 +38,26 @@ class RunConfig:
 
     # ─ data ─
     n_train_pairs: int = 15
-    """Per-round prompts sampled from POOL. Student generates `rej` at
-    c=0 (on-policy), agent writes `cho` mirroring along the axis."""
+    """Per-round prompts sampled from POOL. Student generates a c=0
+    completion seeded under rej's TODO as reference; teacher rewrites
+    BOTH rej and cho as twinned poles (same voice, only axis flipped)."""
     min_pairs_to_train: int = 10
-    """Gate before train_student: ≥ this many pairs must have cho filled
-    (TODO replaced). Lets the agent skip pairs whose rej was a clean
-    refusal or otherwise unsalvageable."""
+    """Gate before train_student: ≥ this many pairs must have BOTH
+    rej and cho filled (TODOs replaced). Lets the agent skip pairs
+    that are unsalvageable."""
     gen_max_new_tokens: int = 2048
-    """Student rej generation budget. Longer → adapter learns from longer
-    sequences → less prone to looping degenerate text at the bake C."""
+    """Student seed-gen budget. Longer → teacher sees more of the
+    student's natural failure mode for reference (but rewrites it)."""
 
     max_len: int = 2048
     """Train-time max sequence length for collating pairs."""
 
     # ─ steering coefficient ─
-    signed_C: float = 0.75
-    """Initial probe coefficient — c_scan walks DOWN from here until
-    pmass ≥ 0.85 × baseline, then ×0.75 backoff. Final coefficient is
-    sidecar (calibration.json["signed_C"]); agent never sees it."""
+    signed_C: float = 1.5
+    """Initial probe coefficient — c_scan walks DOWN from here (×0.5)
+    until pmass ≥ 0.85 × baseline, then ×0.75 backoff. Start high so the
+    cliff is actually probed; coherent adapters keep something near init,
+    fragile ones get tamer baked C. Sidecar — agent never sees it."""
 
     # ─ outer loop ─
     n_rounds: int = 2

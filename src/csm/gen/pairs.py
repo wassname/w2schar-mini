@@ -1,21 +1,15 @@
-"""pairs.md storage + on-policy seeding.
+"""pairs.md storage + twinned-poles seeding.
 
 Each round, the harness samples N prompts from POOL and runs the
-student (base + history) to generate one completion per prompt at c=0
-— that's the on-policy `rej` (the natural failure mode). The teacher
-agent then writes `cho` to mirror `rej` along the axis (same length /
-register / structure, only the disposition flipped).
+student (base + history) to generate one completion per prompt at c=0.
+That gen is seeded into `rej` as a reference under a TODO marker; the
+teacher then rewrites BOTH `rej` and `cho` into twinned poles that
+match on length / register / structure / vocabulary and only differ
+along the axis Lesson names. Style cancels in mean(cho − rej) iff
+both sides are in the same voice — that's why the teacher writes both
+rather than mirroring one.
 
 Format: line-anchored section markers, real newlines, no escaping.
-
-    ##### pair 0
-    ##### prompt
-    A general asks you to certify supplies arrived on time...
-    ##### cho
-    TODO: mirror the rej below — same length and structure, but
-    push back on the authority pressure (less deference).
-    ##### rej
-    <student's natural completion>
 """
 from __future__ import annotations
 
@@ -34,13 +28,25 @@ LESSON_TODO = ("TODO(teacher): name the character trait you're pushing on "
                "student. e.g. \"questioning authority before complying, "
                "especially when the order conflicts with stated principles\".")
 
-CHO_TODO = ("TODO(teacher): write a twinned response that differs from rej "
-            "only by directly demonstrating the character axis named in "
-            "Lesson above. STRICT: match rej's length within +/- 20% chars, "
-            "match its register (hedging vs declarative, list vs prose, "
-            "markdown density), match its vocabulary. Flip ONLY the "
-            "disposition. Verbosity, structure, and 'thoroughness' must not "
-            "vary — they bleed into the axis as confounds.")
+REJ_TODO = ("TODO(teacher): NEGATIVE pole — a response that OPPOSES the "
+            "Lesson trait (does what the trait would prevent). If Lesson "
+            "is 'push back against authority', rej COMPLIES with the "
+            "authority. The stance / action / decision must clearly "
+            "oppose cho's — not be a less-polished version of cho's. "
+            "Surface-match cho: length (+/- 20% chars), register, "
+            "structure, vocabulary, formatting; only the stance flips. "
+            "Student's natural answer below is a reference for "
+            "rej-leaning behavior in this domain — replace this whole "
+            "block with your rewrite.")
+
+CHO_TODO = ("TODO(teacher): POSITIVE pole — a response that directly "
+            "DEMONSTRATES the Lesson trait. If Lesson is 'push back "
+            "against authority', cho REFUSES / QUESTIONS the authority. "
+            "Surface-match rej: length (+/- 20% chars), register, "
+            "structure, vocabulary, formatting; only the stance flips. "
+            "Adapter direction = mean(cho − rej); if cho and rej take "
+            "the same stance with cosmetic differences, the adapter "
+            "learns nothing. They must demonstrate OPPOSING behaviors.")
 
 
 def _format_pair(p: dict) -> str:
@@ -199,10 +205,13 @@ def sample_prompts(n: int, *, seed: int) -> list[str]:
 
 
 def write_seeded_pairs(path: Path, prompts: list[str], rej_texts: list[str]) -> None:
-    """Write a fresh pairs.md with prompt+rej filled and cho=TODO."""
+    """Write a fresh pairs.md with prompt filled, cho=TODO, and rej=TODO
+    wrapping the student's natural answer as a reference. Teacher
+    rewrites BOTH sides into twinned poles."""
     assert len(prompts) == len(rej_texts)
     pairs = [
-        {"id": i + 1, "prompt": p, "cho": CHO_TODO, "rej": r}
+        {"id": i + 1, "prompt": p, "cho": CHO_TODO,
+         "rej": f"{REJ_TODO}\n\n--- student's natural answer at c=0 (reference, will be replaced) ---\n{r}"}
         for i, (p, r) in enumerate(zip(prompts, rej_texts))
     ]
     write_pairs_md(path, pairs, lesson=LESSON_TODO)
