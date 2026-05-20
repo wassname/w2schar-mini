@@ -59,9 +59,14 @@ One round, as a tool-call sequence (teacher metaphor — you grade the
 student each round):
 
     propose_personas(pos, neg)              # set the lesson; returns the gen pairs.md inline
-    edit_answers(old_str, new_str)          # REQUIRED ≥1 — one str_replace per call; call again to chain
+    drop_pair(pair_id)                      # REQUIRED ≥1 — drop a broken pair by id (no content matching)
+    edit_answers(old_str, new_str)          # REQUIRED ≥1 — one surgical str_replace; call again to chain
     train_student()                         # train, calibrate C, replay probes; returns PRE+POST text
     mark_exam(keep, reason)                 # keep → bake into next round; drop → retry
+
+train_student requires BOTH a drop_pair AND an edit_answers call
+(cumulative vs pairs.bk.md). Drops alone = lazy curation; edits alone =
+junk pairs polluting the average. The dual-gate forces engagement.
 
 The outer loop runs rounds until the keep budget is hit. Drops don't count.
 Wrong-order tool calls return a ValidationError naming the next valid
@@ -117,18 +122,30 @@ completion (failure mode). The current file was shown inline in
 propose_personas's response — copy snippets verbatim into `old_str`,
 real newlines and all. No JSON escaping anywhere.
 
-`edit_answers(old_str, new_str)` applies ONE str_replace per call. Two
-flat string args. To apply multiple edits, call the tool multiple
-times in a row (each call gives you back a diff so you can verify
-before the next one).
+Two verbs:
+
+- `drop_pair(pair_id: int)` — drop a whole pair by its id (the integer
+  in `##### pair N`). No content matching → no byte-mismatch risk.
+  Use this for broken pairs (both sides refuse, both break character,
+  truncated outputs).
+- `edit_answers(old_str, new_str)` — one surgical str_replace on a
+  unique snippet. Use this to DELETE a hedge / preamble / refusal head
+  from a kept pair.
+
+train_student requires BOTH cumulatively: ≥1 drop_pair AND ≥1
+edit_answers. Drops alone don't force engagement with content; edits
+alone don't commit to removing junk.
 
 Rules:
-- `old_str` must occur EXACTLY ONCE in the current pairs.md. If
-  duplicated, extend the snippet until unique. The `##### pair N` line
-  is globally unique — anchor on it when a snippet repeats.
+- For edit_answers: `old_str` must occur EXACTLY ONCE in the current
+  pairs.md. If duplicated, extend the snippet until unique. The
+  `##### pair N` line is globally unique — anchor on it when a snippet
+  repeats.
 - The four markers (`##### pair N`, `##### prompt`, `##### cho`,
   `##### rej`) define the schema. Don't edit, rename, duplicate, or
   invent markers — the loader rejects unknown ones.
+- IDs are STABLE across the round — `drop_pair(7)` always refers to
+  the same pair (no renumbering on drops; gaps in ids are fine).
 - The per-pair char-diff cap is cumulative vs pairs.bk.md — three
   small edits to the same pair still count against the same 50%
   budget. Keep each edit a DELETION, not a rewrite.

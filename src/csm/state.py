@@ -29,8 +29,8 @@ State = Literal[
 
 ALLOWED_AFTER = {
     "propose_personas": "propose_personas",
-    "edit_answers":     "edit_answers (REQUIRED — at least one drop or minimal cho/rej fix before train_student) — or mark_exam(keep=False, reason=...) to abort the round if pairs are unsalvageable",
-    "train_student":    "edit_answers (iterate) or train_student",
+    "edit_answers":     "drop_pair(id) and/or edit_answers(old_str, new_str) — train_student requires ≥1 of EACH cumulatively, or mark_exam(keep=False, reason=...) to abort",
+    "train_student":    "drop_pair / edit_answers (iterate) or train_student (once the dual-gate is satisfied)",
     "mark_exam":        "mark_exam",
     "done":             "(round complete — harness will allocate the next round or stop)",
 }

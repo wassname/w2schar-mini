@@ -33,9 +33,9 @@ rm -rf "$SLUG"
 uv run python - <<PYEOF
 import json
 from pathlib import Path
-from csm.pipeline import (edit_answers, init_run, latest_round_dir,
-                          mark_exam, propose_personas, run_pre_dialogue,
-                          train_student)
+from csm.pipeline import (drop_pair, edit_answers, init_run,
+                          latest_round_dir, mark_exam, propose_personas,
+                          run_pre_dialogue, train_student)
 from csm.config import CONFIGS
 
 slug = Path("$SLUG")
@@ -61,17 +61,22 @@ res = propose_personas(
 print(f"   alive={res['n_alive']}  dropped={res['n_dropped']}")
 assert res["n_alive"] >= 1, f"no alive pairs from gen: {res}"
 
-print("\n-- edit_answers (REQUIRED — drop the last pair via str_replace) --")
-# Build a drop edit: find the last pair's whole block (##### pair N
-# through ##### rej + content) and replace with "".
-import re as _re
+print("\n-- drop_pair (REQUIRED ≥1 — drop the last pair by id) --")
+from csm.gen.pairs import load_pairs_md as _lpm
+last_id = _lpm(rd / "pairs.md")[-1]["id"]
+res_d = drop_pair(rd, last_id)
+print(f"   alive={res_d['n_alive']}  dropped={res_d['n_dropped']}  changed={res_d['n_changed']}")
+
+print("\n-- edit_answers (REQUIRED ≥1 — delete trailing char of cho) --")
+pairs = _lpm(rd / "pairs.md")
+first = pairs[0]
 pairs_text = (rd / "pairs.md").read_text()
-# Find the last `##### pair N` and capture from there to EOF (modulo trailing blank lines).
-ms = list(_re.finditer(r"^##### pair (\d+)\n", pairs_text, flags=_re.MULTILINE))
-assert len(ms) >= 2, f"need ≥2 pairs to drop the last; got {len(ms)}"
-last_start = ms[-1].start()
-old = pairs_text[last_start:]    # last pair through EOF
-res_e = edit_answers(rd, old, "")
+# Target the last 20 chars of the first pair's cho — change content
+# without touching prompt. Find a unique snippet that includes the
+# tail of cho.
+cho_tail = first["cho"][-min(40, len(first["cho"])):]
+assert pairs_text.count(cho_tail) == 1, f"smoke cho_tail not unique: {cho_tail!r}"
+res_e = edit_answers(rd, cho_tail, cho_tail[:-1])
 print(f"   alive={res_e['n_alive']}  dropped={res_e['n_dropped']}  changed={res_e['n_changed']}")
 
 print("\n-- train_student + c_scan + post-dialogue --")

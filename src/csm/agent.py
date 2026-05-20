@@ -29,6 +29,7 @@ from loguru import logger
 
 from csm.ws.history import kept_history_dirs
 from csm.pipeline import (
+    drop_pair as _drop_pair_pipeline,
     edit_answers as _edit_answers_pipeline,
     init_run, latest_round_dir, mark_exam as _mark_exam_pipeline,
     new_round_dir, propose_personas as _propose_personas_pipeline,
@@ -147,6 +148,42 @@ def _commit_edit(round_dir: Path, old_str: str, new_str: str) -> str:
             + ("\n  ... (more truncated)" if len(res["refusal_warnings"]) > 10 else "")
         )
     return msg
+
+
+@tool(name="drop_pair", parallel=False)
+def drop_pair_tool(slug: str) -> Tool:
+    async def execute(pair_id: int) -> str:
+        """Drop one pair from pairs.md by its integer ID. No content
+        matching — the harness reads the pair from the file, the agent
+        just names the id.
+
+        IDs are stable across edits in the same round (no renumbering on
+        drops). They are the integer in `##### pair N` markers. Gen-time
+        both-side refusals were already removed; only ids currently
+        present in pairs.md are valid.
+
+        train_student requires ≥1 drop_pair AND ≥1 edit_answers call
+        before it will run.
+
+        Args:
+            pair_id: the integer ID of the pair to drop.
+        """
+        round_dir = latest_round_dir(_slug_path(slug))
+        try:
+            res = _drop_pair_pipeline(round_dir, pair_id)
+        except ValidationError as e:
+            return _format_validation_error(e)
+        except ValueError as e:
+            return f"drop rejected — {e}\npairs.md NOT updated."
+        return (
+            f"OK — dropped pair {res['dropped_id']}. {res['n_alive']} pairs "
+            f"remain ({res['n_dropped']} dropped, {res['n_changed']} cho/rej "
+            f"changed cumulatively vs pairs.bk.md).\n\n"
+            f"Alive ids now: {res['alive_ids']}\n"
+            + AFTER_EDIT_CLEAN
+        )
+
+    return execute
 
 
 @tool(name="edit_answers", parallel=False)
@@ -301,6 +338,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     agent = react(
         tools=[
             propose_personas_tool(slug),
+            drop_pair_tool(slug),
             edit_answers_tool(slug),
             train_student_tool(slug),
             mark_exam_tool(slug),

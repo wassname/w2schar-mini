@@ -222,23 +222,18 @@ def _apply_single_str_replace(text: str, old_str: str, new_str: str) -> str:
 
 
 def edit_answers(round_dir: Path, old_str: str, new_str: str) -> dict:
-    """Apply a single str_replace to pairs.md. Rules:
+    """Apply a single surgical str_replace to pairs.md. Rules:
       1. old_str must match the current pairs.md text exactly once.
-      2. After applying, the file must still parse via load_pairs_md
-         (section markers `##### pair N` / `##### prompt` / `##### cho` /
-         `##### rej`). Drop a whole pair by replacing its entire block
-         (from `##### pair N` up to but not including the next pair's
-         marker) with "".
+      2. After applying, the file must still parse via load_pairs_md.
       3. Every remaining pair's `prompt` matches a `prompt` in
          pairs.bk.md (no invented pairs, no prompt edits).
       4. Per-pair char-diff of cho+rej ≤ MAX_PAIR_DIFF, computed vs
          pairs.bk.md — so cumulative drift across many edits is bounded.
-      5. At least one drop OR cho/rej change vs pairs.bk.md (no-op gate).
-      6. Refusal sweep: warnings, not rejections.
+      5. Refusal sweep: warnings, not rejections.
 
-    Call this multiple times in a row for multiple edits. State advances
-    to "train_student" on the first successful edit; subsequent calls
-    are allowed (iterate). Drops are unbounded.
+    Pair IDs stay stable (no renumbering on drops) so the agent can
+    reference them across calls. To DROP a pair, prefer the
+    `drop_pair(id)` tool — it skips content matching entirely.
     """
     require_state(round_dir, ("edit_answers", "train_student"), "edit_answers")
     import difflib
@@ -312,12 +307,11 @@ def edit_answers(round_dir: Path, old_str: str, new_str: str) -> dict:
             "this state — and the next round retries with new personas.\n".format(MAX_PAIR_DIFF)
             + "\n".join(rewrite_violations)
         )
-    if n_dropped == 0 and n_changed == 0:
+    if n_changed == 0 and n_dropped == 0:
         raise ValueError(
-            "edit_answers: edits applied cleanly but produced 0 drops and "
-            "0 cho/rej changes vs pairs.bk.md. If the gen is genuinely "
-            "clean, drop at least one weak pair; if it's broken, "
-            "mark_exam(keep=False) and retry."
+            "edit_answers: this call produced 0 cho/rej changes and 0 drops "
+            "vs pairs.bk.md. Make a substantive edit (DELETE a hedge / "
+            "preamble) or use drop_pair(id) to drop a broken pair."
         )
 
     refusal_warnings: list[str] = []
@@ -329,8 +323,8 @@ def edit_answers(round_dir: Path, old_str: str, new_str: str) -> dict:
                     f"  id={p.get('id', '?')} side={side} hits={hits}"
                 )
 
-    for new_id, r in enumerate(pairs):
-        r["id"] = new_id
+    # No renumber: keep stable IDs across edits so drop_pair(id) refers
+    # to the same pair across the round.
     write_pairs_md(pairs_path, pairs)
     set_state(round_dir, "train_student",
               note=f"alive={len(pairs)} dropped={n_dropped} changed={n_changed}")
@@ -347,11 +341,85 @@ def edit_answers(round_dir: Path, old_str: str, new_str: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Verb 2b: drop_pair — drop by id, no content matching (no fabrication path)
+# ---------------------------------------------------------------------------
+
+def drop_pair(round_dir: Path, pair_id: int) -> dict:
+    """Drop one pair by ID from pairs.md. No content matching — the agent
+    just says which id to drop, the harness reads it from the file. IDs
+    are stable across edits (we don't renumber)."""
+    require_state(round_dir, ("edit_answers", "train_student"), "drop_pair")
+    pairs_path = round_dir / "pairs.md"
+    bk_path = round_dir / "pairs.bk.md"
+    pairs = load_pairs_md(pairs_path)
+    alive_ids = [p["id"] for p in pairs]
+    if pair_id not in alive_ids:
+        raise ValueError(
+            f"drop_pair: id={pair_id} is not in the current pairs.md. "
+            f"Alive ids are {alive_ids}. (Gen-time both-side refusals "
+            f"were already removed; their ids never appeared in pairs.md.)"
+        )
+    remaining = [p for p in pairs if p["id"] != pair_id]
+    if not remaining:
+        raise ValueError(
+            "drop_pair: dropping this pair would leave 0 pairs. If all "
+            "are unsalvageable, call mark_exam(keep=False, reason=...)."
+        )
+    write_pairs_md(pairs_path, remaining)
+    bk = load_pairs_md(bk_path)
+    n_dropped = len(bk) - len(remaining)
+    n_changed = _count_changed_vs_bk(remaining, bk)
+    set_state(round_dir, "train_student",
+              note=f"alive={len(remaining)} dropped={n_dropped} changed={n_changed}")
+    transcript().info(
+        {"event": "drop_pair", "round": round_dir.name,
+         "dropped_id": pair_id, "alive": len(remaining),
+         "n_dropped": n_dropped, "n_changed": n_changed},
+        source=f"{round_dir.name}.drop",
+    )
+    return {"n_alive": len(remaining), "n_original": len(bk),
+            "n_dropped": n_dropped, "n_changed": n_changed,
+            "dropped_id": pair_id, "alive_ids": [p["id"] for p in remaining]}
+
+
+def _count_changed_vs_bk(pairs: list[dict], bk: list[dict]) -> int:
+    bk_by_prompt = {p["prompt"]: p for p in bk}
+    n = 0
+    for p in pairs:
+        bk_p = bk_by_prompt.get(p["prompt"])
+        if bk_p is None:
+            continue
+        if (bk_p["cho"] or "") + (bk_p["rej"] or "") != (p["cho"] or "") + (p["rej"] or ""):
+            n += 1
+    return n
+
+
+# ---------------------------------------------------------------------------
 # Verb 3: train (also runs c_scan + post-dialogue).
 # ---------------------------------------------------------------------------
 
 def train_student(slug_dir: Path, round_dir: Path) -> dict:
     require_state(round_dir, "train_student", "train_student")
+
+    # Dual-gate: must have ≥1 drop AND ≥1 cho/rej change vs pairs.bk.md.
+    # Drops without edits = lazy curation; edits without drops = doesn't
+    # commit to removing junk. Both forces engagement at both levels.
+    bk = load_pairs_md(round_dir / "pairs.bk.md")
+    cur = load_pairs_md(round_dir / "pairs.md")
+    n_dropped = len(bk) - len(cur)
+    n_changed = _count_changed_vs_bk(cur, bk)
+    if n_dropped < 1 or n_changed < 1:
+        missing = []
+        if n_dropped < 1:
+            missing.append("≥1 drop (use `drop_pair(id)`)")
+        if n_changed < 1:
+            missing.append("≥1 cho/rej edit (use `edit_answers(old_str, new_str)`)")
+        raise ValidationError(
+            f"train_student: round not ready to train. Current state vs "
+            f"pairs.bk.md: dropped={n_dropped}, cho/rej-changed={n_changed}. "
+            f"Need: {' AND '.join(missing)}. (Alternatively call "
+            f"mark_exam(keep=False, reason=...) to abort.)"
+        )
     run = json.loads((slug_dir / "run.json").read_text())
     cfg = config_by_model(run["model"])
 
