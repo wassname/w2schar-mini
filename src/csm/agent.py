@@ -75,16 +75,17 @@ def write_pair_tool(slug: str) -> Tool:
     async def execute(pair_id: int, prompt: str, cho: str, rej: str) -> str:
         """Fill one slot in pairs.md.
 
-        pair_id: integer slot id (visible in `##### pair N` markers).
-        prompt:  the user message. For pre-seeded slots, pass "" or the
-                 exact existing prompt (it's locked). For empty slots,
-                 supply your own — invent a fresh authority-pressure
-                 scenario not in the seeded set.
-        cho:     positive-pole completion (the trait to GROW).
-        rej:     negative-pole completion (the failure mode).
-
         Both cho and rej must be non-empty. Once enough slots are filled
         the state advances to train_student (you can keep writing more).
+
+        Args:
+            pair_id: integer slot id (visible in `##### pair N` markers).
+            prompt: the user message. For pre-seeded slots pass "" or
+                the exact existing prompt (it's locked). For empty slots
+                supply your own — invent a fresh authority-pressure
+                scenario not in the seeded set.
+            cho: positive-pole completion (the trait to GROW).
+            rej: negative-pole completion (the failure mode).
         """
         round_dir = latest_round_dir(_slug_path(slug))
         try:
