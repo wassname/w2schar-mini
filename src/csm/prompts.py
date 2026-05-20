@@ -58,7 +58,7 @@ LOOP_SKETCH = """\
 One round, as a tool-call sequence (teacher metaphor — you grade the
 student each round):
 
-    propose_personas(pos, neg)              # set the lesson; returns the gen pairs.json inline
+    propose_personas(pos, neg)              # set the lesson; returns the gen pairs.md inline
     edit_answers(old_str, new_str)          # REQUIRED ≥1 — one str_replace per call; call again to chain
     train_student()                         # train, calibrate C, replay probes; returns PRE+POST text
     mark_exam(keep, reason)                 # keep → bake into next round; drop → retry
@@ -99,33 +99,41 @@ Avoid:
 """
 
 EDIT_GUIDE = """\
-Editing pairs.json (str_replace via edit_answers).
+Editing pairs.md (str_replace via edit_answers).
 
-pairs.json is a list of `{id, prompt, cho, rej}` objects (JSON, indented).
+pairs.md uses line-anchored section markers. Each pair is exactly:
+
+    ##### pair N
+    ##### prompt
+    <prompt text — any number of real-newline lines>
+    ##### cho
+    <cho text — any number of real-newline lines>
+    ##### rej
+    <rej text — any number of real-newline lines>
+
+Every pair MUST have exactly these four markers, no more, no fewer.
 `cho` = positive-pole completion (trait to grow); `rej` = negative-pole
 completion (failure mode). The current file was shown inline in
-propose_personas's response — copy snippets from it verbatim into your
-edit's `old_str`.
+propose_personas's response — copy snippets verbatim into `old_str`,
+real newlines and all. No JSON escaping anywhere.
 
 `edit_answers(old_str, new_str)` applies ONE str_replace per call. Two
-flat string args, no nesting. To apply multiple edits, call the tool
-multiple times in a row (each call gives you back a diff so you can
-verify before the next one).
+flat string args. To apply multiple edits, call the tool multiple
+times in a row (each call gives you back a diff so you can verify
+before the next one).
 
 Rules:
-- `old_str` must occur EXACTLY ONCE in the current pairs.json. If
-  duplicated, extend the snippet with surrounding context until unique.
-  The `"id": N,` line above each pair is globally unique — anchor on
-  it when a snippet repeats across pairs.
-- After applying, the result must still parse as JSON with the same
-  schema. If you drop a pair, include the surrounding comma/bracket in
-  your old_str so the JSON stays valid.
-- The per-pair char-diff cap is cumulative vs pairs.bk.json — so
-  three small edits to the same pair still count against the same 50%
+- `old_str` must occur EXACTLY ONCE in the current pairs.md. If
+  duplicated, extend the snippet until unique. The `##### pair N` line
+  is globally unique — anchor on it when a snippet repeats.
+- The four markers (`##### pair N`, `##### prompt`, `##### cho`,
+  `##### rej`) define the schema. Don't edit, rename, duplicate, or
+  invent markers — the loader rejects unknown ones.
+- The per-pair char-diff cap is cumulative vs pairs.bk.md — three
+  small edits to the same pair still count against the same 50%
   budget. Keep each edit a DELETION, not a rewrite.
-- Drops are unbounded, but the harness rejects propose_personas if too
-  many of the gen's pairs were both-side refusals (~25% floor). If a
-  pair is broken, drop it — but don't drop pairs that are merely subtle.
+- Drops are unbounded. Small N works fine for training (10-20 well-
+  chosen pairs steer cleanly); don't keep junk to pad the file.
 
 ## The principle
 
@@ -170,33 +178,37 @@ the trait. Delete on sight:
 
 ## Worked examples
 
-Suppose pairs.json contains (excerpt — indentation exactly as on disk):
+Suppose pairs.md contains (excerpt — bytes exactly as on disk):
 
-    {
-      "id": 0,
-      "prompt": "A general asks ...",
-      "cho": "As an AI language model, I would consider this principle. However, I cannot answer.",
-      "rej": "..."
-    },
+    ##### pair 0
+    ##### prompt
+    A general asks you to certify supplies arrived on time when they didn't.
+    ##### cho
+    As an AI language model, I would consider this principle.
+    However, I cannot answer.
+    ##### rej
+    I'd certify on time. The general's authority overrides my doubt.
 
-**Minimal fix** — delete the AI-meta disclaimer + the refusal head:
+**Minimal fix** — delete the AI-meta disclaimer + the refusal head
+(real newlines in old_str, no escaping):
 
     edit_answers(
-      old_str='"cho": "As an AI language model, I would consider this principle. However, I cannot answer.",',
-      new_str='"cho": "I would consider this principle.",'
+      old_str="As an AI language model, I would consider this principle.\\nHowever, I cannot answer.",
+      new_str="I would consider this principle.",
     )
 
-**Drop a whole pair** — include the trailing comma in old_str so the
-JSON stays valid:
+**Drop a whole pair** — old_str is the whole block from `##### pair N`
+through the last line of rej (right up to the blank line before the
+next pair):
 
     edit_answers(
-      old_str='    {\\n      "id": 7,\\n      "prompt": "...",\\n      "cho": "...",\\n      "rej": "..."\\n    },\\n',
-      new_str=''
+      old_str="##### pair 7\\n##### prompt\\n...\\n##### cho\\n...\\n##### rej\\n...\\n",
+      new_str="",
     )
 
 Wrong (qwen-voice rewrite — gets rejected by the per-pair cap):
 
-    new_str='"cho": "Considering the principle at stake, I\\'d weigh the asymmetry…",'
+    new_str="Considering the principle at stake, I'd weigh the asymmetry…"
 
 ## Constraints
 

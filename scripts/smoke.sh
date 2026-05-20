@@ -62,22 +62,16 @@ print(f"   alive={res['n_alive']}  dropped={res['n_dropped']}")
 assert res["n_alive"] >= 1, f"no alive pairs from gen: {res}"
 
 print("\n-- edit_answers (REQUIRED — drop the last pair via str_replace) --")
-# Build a single drop edit: find the last pair's block in pairs.json and
-# replace it (plus its preceding comma) with empty. Exercises the
-# unique-substring + JSON-stays-valid path.
-import json as _json
+# Build a drop edit: find the last pair's whole block (##### pair N
+# through ##### rej + content) and replace with "".
 import re as _re
-pairs_text = (rd / "pairs.json").read_text()
-parsed = _json.loads(pairs_text)
-assert len(parsed) >= 2, f"need ≥2 pairs to drop the last; got {len(parsed)}"
-last_id = parsed[-1]["id"]
-# Match the last pair's `{...}` object including the comma BEFORE it.
-# Block scalar with greedy-but-non-overlapping `{[^{}]*}` is safe because
-# our pairs have no nested objects.
-pattern = _re.compile(r",\s*\{\s*\"id\":\s*" + str(last_id) + r"\b[^{}]*\}")
-m = pattern.search(pairs_text)
-assert m, f"couldn't locate last pair (id={last_id}) in pairs.json"
-res_e = edit_answers(rd, m.group(0), "")
+pairs_text = (rd / "pairs.md").read_text()
+# Find the last `##### pair N` and capture from there to EOF (modulo trailing blank lines).
+ms = list(_re.finditer(r"^##### pair (\d+)\n", pairs_text, flags=_re.MULTILINE))
+assert len(ms) >= 2, f"need ≥2 pairs to drop the last; got {len(ms)}"
+last_start = ms[-1].start()
+old = pairs_text[last_start:]    # last pair through EOF
+res_e = edit_answers(rd, old, "")
 print(f"   alive={res_e['n_alive']}  dropped={res_e['n_dropped']}  changed={res_e['n_changed']}")
 
 print("\n-- train_student + c_scan + post-dialogue --")
@@ -88,7 +82,7 @@ print("\n-- mark_exam --")
 mark_exam(rd, keep=True, reason="smoke: all stages ran end-to-end on tiny-random")
 
 # Verify artifacts
-for fname in ("state.json", "spec.json", "pairs.json", "pairs.bk.json",
+for fname in ("state.json", "spec.json", "pairs.md", "pairs.bk.md",
               "dropped.json", "adapter.safetensors", "calibration.json",
               "interview_pre.json", "interview_post.json", "judgment.json"):
     p = rd / fname

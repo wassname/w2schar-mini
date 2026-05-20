@@ -101,14 +101,14 @@ def propose_personas_tool(slug: str) -> Tool:
                                               pos_persona, neg_persona)
         except ValidationError as e:
             return _format_validation_error(e)
-        pairs_json_text = (round_dir / "pairs.json").read_text()
+        pairs_text = (round_dir / "pairs.md").read_text()
         return (
             f"propose_personas OK\n"
             f"  alive: {res['n_alive']}    dropped (both refused): "
             f"{res['n_dropped']}  dropped_ids: {res['dropped_ids']}\n\n"
-            f"========== pairs.json (current — full file) ==========\n"
-            f"{pairs_json_text}"
-            f"========== end pairs.json ==========\n"
+            f"========== pairs.md (current — full file) ==========\n"
+            f"{pairs_text}"
+            f"========== end pairs.md ==========\n"
             f"{AFTER_PROPOSE}"
         )
 
@@ -119,24 +119,24 @@ def _commit_edit(round_dir: Path, old_str: str, new_str: str) -> str:
     """Thin wrapper around pipeline.edit_answers (single edit per call).
     Appends a short unified diff so the agent can self-verify placement."""
     import difflib
-    text_before = (round_dir / "pairs.json").read_text()
+    text_before = (round_dir / "pairs.md").read_text()
     try:
         res = _edit_answers_pipeline(round_dir, old_str, new_str)
     except ValidationError as e:
         return _format_validation_error(e)
     except ValueError as e:
-        return f"edit rejected — {e}\npairs.json NOT updated."
-    text_after = (round_dir / "pairs.json").read_text()
+        return f"edit rejected — {e}\npairs.md NOT updated."
+    text_after = (round_dir / "pairs.md").read_text()
     diff = list(difflib.unified_diff(
         text_before.splitlines(), text_after.splitlines(),
-        fromfile="pairs.json (before)", tofile="pairs.json (after)", n=2,
+        fromfile="pairs.md (before)", tofile="pairs.md (after)", n=2,
         lineterm="",
     ))
     if len(diff) > 30:
         diff = diff[:30] + [f"... ({len(diff) - 30} more diff lines truncated)"]
-    msg = (f"OK — pairs.json updated ({res['n_alive']} alive, "
+    msg = (f"OK — pairs.md updated ({res['n_alive']} alive, "
            f"{res['n_dropped']} dropped, {res['n_changed']} cho/rej changed "
-           f"cumulatively vs pairs.bk.json).\n\n"
+           f"cumulatively vs pairs.bk.md).\n\n"
            f"Diff (this edit):\n" + "\n".join(diff))
     if res["refusal_warnings"]:
         msg += (
@@ -152,12 +152,12 @@ def _commit_edit(round_dir: Path, old_str: str, new_str: str) -> str:
 @tool(name="edit_answers", parallel=False)
 def edit_answers_tool(slug: str) -> Tool:
     async def execute(old_str: str, new_str: str) -> str:
-        """Apply ONE str_replace edit to pairs.json.
+        """Apply ONE str_replace edit to pairs.md.
 
-        old_str must occur exactly ONCE in the current pairs.json text.
+        old_str must occur exactly ONCE in the current pairs.md text.
         Call this tool multiple times in a row to apply multiple edits;
         each call is its own round-trip. Keep edits small — the
-        per-pair char-diff cap (cumulative vs pairs.bk.json) catches
+        per-pair char-diff cap (cumulative vs pairs.bk.md) catches
         wholesale rewrites.
 
         Common patterns:
@@ -165,13 +165,13 @@ def edit_answers_tool(slug: str) -> Tool:
             trailing comma (or the preceding comma if dropping the
             last pair); new_str = "".
           - FIX cho/rej: old_str = the broken sentence verbatim from
-            pairs.json (include surrounding quotes/punctuation so the
+            pairs.md (include surrounding quotes/punctuation so the
             snippet is unique); new_str = the trimmed version.
 
         This tool is REQUIRED at least once per round before train_student().
 
         Args:
-            old_str: exact snippet to replace (must appear once in pairs.json)
+            old_str: exact snippet to replace (must appear once in pairs.md)
             new_str: replacement text (empty string to delete)
         """
         round_dir = latest_round_dir(_slug_path(slug))

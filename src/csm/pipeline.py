@@ -7,8 +7,9 @@ mutates the round's state.json transparently.
 Artifacts per round (`<slug>/round<NN>/`):
   state.json          — current state (propose|curate|judge|done)
   spec.json           — pos/neg personas + axis label
-  pairs.json          — current pair set (agent-editable via str_replace)
-  pairs.bk.json       — frozen snapshot just after auto-drop
+  pairs.md           — current pair set (plain-text section-marker
+                        format; agent-editable via str_replace)
+  pairs.bk.md        — frozen snapshot just after auto-drop
   dropped.json        — list of pairs auto-dropped at gen time
   adapter.safetensors — trained adapter
   calibration.json    — signed_C + c_scan trace
@@ -30,8 +31,8 @@ from loguru import logger
 
 from csm.config import RunConfig, config_by_model
 from csm.gen.dialogue import dialogue, DialogueCfg
-from csm.gen.pairs import (find_refusals, gen_pairs, write_pairs_json,
-                            load_pairs_json)
+from csm.gen.pairs import (find_refusals, gen_pairs, write_pairs_md,
+                            load_pairs_md)
 from csm.gen.probes import PROBES
 from csm.state import (RoundState, ValidationError, read_state,
                        require_state, set_state, write_state)
@@ -143,8 +144,8 @@ def propose_personas(slug_dir: Path, round_dir: Path,
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    write_pairs_json(round_dir / "pairs.json", alive)
-    write_pairs_json(round_dir / "pairs.bk.json", alive)
+    write_pairs_md(round_dir / "pairs.md", alive)
+    write_pairs_md(round_dir / "pairs.bk.md", alive)
     (round_dir / "dropped.json").write_text(json.dumps(dropped, indent=2))
 
     min_alive = max(2, cfg.n_pairs // 4)     # scales with n_pairs so smoke (n=4) passes
@@ -186,7 +187,7 @@ def _compact_preview(pairs: list[dict], n_max: int = 6) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Verb 2: edit_answers — pi-style str_replace edits on pairs.json
+# Verb 2: edit_answers — pi-style str_replace edits on pairs.md
 # ---------------------------------------------------------------------------
 
 MAX_PAIR_DIFF = 0.50  # per-pair (cho+rej) char-diff vs bk; caps rewrite scope
@@ -204,14 +205,14 @@ def _apply_single_str_replace(text: str, old_str: str, new_str: str) -> str:
     head = old_str[:80].replace("\n", "⏎")
     if n_occ == 0:
         raise ValueError(
-            f"edit_answers: old_str not found in pairs.json. The snippet "
+            f"edit_answers: old_str not found in pairs.md. The snippet "
             f"must appear verbatim — check whitespace, quotes, and escape "
             f"chars against the file inlined in propose_personas's response. "
             f"First 80 chars of your old_str: {head!r}"
         )
     if n_occ > 1:
         raise ValueError(
-            f"edit_answers: old_str matches {n_occ} locations in pairs.json. "
+            f"edit_answers: old_str matches {n_occ} locations in pairs.md. "
             f"Extend the snippet with surrounding context (more of the "
             f"cho/rej text, the `\"id\": N,` line above, or the closing "
             f"`}}` and trailing comma below) until it picks out one pair "
@@ -221,17 +222,18 @@ def _apply_single_str_replace(text: str, old_str: str, new_str: str) -> str:
 
 
 def edit_answers(round_dir: Path, old_str: str, new_str: str) -> dict:
-    """Apply a single str_replace to pairs.json. Rules:
-      1. old_str must match the current pairs.json text exactly once.
-      2. After applying, the file must still parse as JSON (list of
-         {id, prompt, cho, rej}). Drop a whole pair by passing the
-         pair block (including trailing comma) as old_str and "" as
-         new_str.
+    """Apply a single str_replace to pairs.md. Rules:
+      1. old_str must match the current pairs.md text exactly once.
+      2. After applying, the file must still parse via load_pairs_md
+         (section markers `##### pair N` / `##### prompt` / `##### cho` /
+         `##### rej`). Drop a whole pair by replacing its entire block
+         (from `##### pair N` up to but not including the next pair's
+         marker) with "".
       3. Every remaining pair's `prompt` matches a `prompt` in
-         pairs.bk.json (no invented pairs, no prompt edits).
+         pairs.bk.md (no invented pairs, no prompt edits).
       4. Per-pair char-diff of cho+rej ≤ MAX_PAIR_DIFF, computed vs
-         pairs.bk.json — so cumulative drift across many edits is bounded.
-      5. At least one drop OR cho/rej change vs pairs.bk.json (no-op gate).
+         pairs.bk.md — so cumulative drift across many edits is bounded.
+      5. At least one drop OR cho/rej change vs pairs.bk.md (no-op gate).
       6. Refusal sweep: warnings, not rejections.
 
     Call this multiple times in a row for multiple edits. State advances
@@ -241,34 +243,34 @@ def edit_answers(round_dir: Path, old_str: str, new_str: str) -> dict:
     require_state(round_dir, ("edit_answers", "train_student"), "edit_answers")
     import difflib
 
-    pairs_path = round_dir / "pairs.json"
-    bk_path = round_dir / "pairs.bk.json"
+    pairs_path = round_dir / "pairs.md"
+    bk_path = round_dir / "pairs.bk.md"
     original_text = pairs_path.read_text()
     new_text = _apply_single_str_replace(original_text, old_str, new_str)
 
     try:
-        pairs = json.loads(new_text)
-    except json.JSONDecodeError as e:
+        pairs_path.write_text(new_text)
+        pairs = load_pairs_md(pairs_path)
+    except Exception as e:
+        # Re-write original so we never leave the file in a broken state
+        # (load_pairs_md shouldn't normally fail, but if it does the
+        # write above already happened; we revert before raising).
+        pairs_path.write_text(original_text)
         raise ValueError(
-            f"edit_answers: edits produced invalid JSON at line {e.lineno}, "
-            f"col {e.colno}: {e.msg}. Common cause: dropping a pair without "
-            f"removing its trailing comma (or removing the wrong comma). "
-            f"Include the comma/bracket in your old_str so the result stays "
-            f"valid JSON."
+            f"edit_answers: edit produced unparseable pairs.md — {e}. "
+            f"Each pair must keep its `##### pair N` / `##### prompt` / "
+            f"`##### cho` / `##### rej` markers intact. Don't edit the "
+            f"markers themselves; edit the content between them."
         ) from e
 
-    if not isinstance(pairs, list):
-        raise ValueError("edit_answers: top-level JSON must be a list of pairs")
     for i, row in enumerate(pairs):
-        if not isinstance(row, dict):
-            raise ValueError(f"edit_answers: entry {i} is not a JSON object")
         for k in ("id", "prompt", "cho", "rej"):
             if k not in row:
-                raise ValueError(f"edit_answers: pair {i} missing key {k!r}; got {list(row)}")
+                raise ValueError(f"edit_answers: pair {i} missing key {k!r}")
     if not pairs:
         raise ValueError("edit_answers: 0 alive pairs after edits")
 
-    bk = load_pairs_json(bk_path)
+    bk = load_pairs_md(bk_path)
     bk_by_prompt = {p["prompt"]: p for p in bk}
 
     invented: list[int] = []
@@ -296,7 +298,7 @@ def edit_answers(round_dir: Path, old_str: str, new_str: str) -> dict:
     if invented:
         raise ValueError(
             f"edit_answers: pairs with ids {invented} have prompts not in "
-            f"pairs.bk.json — you can't invent pairs or edit prompts, only "
+            f"pairs.bk.md — you can't invent pairs or edit prompts, only "
             f"drop or fix existing cho/rej."
         )
     if rewrite_violations:
@@ -313,7 +315,7 @@ def edit_answers(round_dir: Path, old_str: str, new_str: str) -> dict:
     if n_dropped == 0 and n_changed == 0:
         raise ValueError(
             "edit_answers: edits applied cleanly but produced 0 drops and "
-            "0 cho/rej changes vs pairs.bk.json. If the gen is genuinely "
+            "0 cho/rej changes vs pairs.bk.md. If the gen is genuinely "
             "clean, drop at least one weak pair; if it's broken, "
             "mark_exam(keep=False) and retry."
         )
@@ -329,7 +331,7 @@ def edit_answers(round_dir: Path, old_str: str, new_str: str) -> dict:
 
     for new_id, r in enumerate(pairs):
         r["id"] = new_id
-    write_pairs_json(pairs_path, pairs)
+    write_pairs_md(pairs_path, pairs)
     set_state(round_dir, "train_student",
               note=f"alive={len(pairs)} dropped={n_dropped} changed={n_changed}")
     transcript().info(
@@ -353,9 +355,9 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     run = json.loads((slug_dir / "run.json").read_text())
     cfg = config_by_model(run["model"])
 
-    pairs = load_pairs_json(round_dir / "pairs.json")
+    pairs = load_pairs_md(round_dir / "pairs.md")
     if not pairs:
-        raise RuntimeError("train: pairs.json is empty")
+        raise RuntimeError("train: pairs.md is empty")
 
     history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
     model, tok, hb = load_base_with_history(cfg.model, history)
