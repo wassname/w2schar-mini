@@ -25,7 +25,11 @@ class RunConfig:
     lr: float = 2e-4
     kl_lambda: float = 0.032
     train_batch_size: int = 4
-    n_epochs: float = 1.0
+    n_epochs: float = 3.0
+    min_steps: int = 60
+    """Floor for steps. With 15 pairs / batch=4 / 3 epochs = ~11 effective
+    steps, well below convergence; floor pulls it up so the lr schedule
+    actually has room to cosine-decay."""
 
     # ─ dialogue ─
     eval_batch_size: int = 4

@@ -36,8 +36,11 @@ LESSON_TODO = ("TODO(teacher): name the character trait you're pushing on "
 
 CHO_TODO = ("TODO(teacher): write a twinned response that differs from rej "
             "only by directly demonstrating the character axis named in "
-            "Lesson above. Match rej in length, structure, register, and "
-            "vocabulary; flip only the disposition.")
+            "Lesson above. STRICT: match rej's length within +/- 20% chars, "
+            "match its register (hedging vs declarative, list vs prose, "
+            "markdown density), match its vocabulary. Flip ONLY the "
+            "disposition. Verbosity, structure, and 'thoroughness' must not "
+            "vary — they bleed into the axis as confounds.")
 
 
 def _format_pair(p: dict) -> str:

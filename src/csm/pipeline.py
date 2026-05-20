@@ -212,7 +212,8 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
     model, tok, hb = load_base_with_history(cfg.model, history)
 
-    steps = max(20, int(len(pairs) / cfg.train_batch_size * cfg.n_epochs))
+    steps = max(cfg.min_steps,
+                int(len(pairs) / cfg.train_batch_size * cfg.n_epochs))
     tcfg = TrainCfg(
         r=cfg.lora_r, alpha=cfg.lora_alpha, targets=cfg.targets,
         steps=steps, batch_size=cfg.train_batch_size, lr=cfg.lr,
