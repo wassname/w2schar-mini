@@ -46,7 +46,6 @@ class TrainCfg:
     weight_decay: float = 0.01
     grad_clip: float = 1.0
     max_len: int = 512
-    log_every: int = 5
     kl_lambda: float = 0.032
     """β: coefficient on mean reverse-KL per step (nats, matches NLL units).
     0 disables. Bump up if Δnll blows past +0.02 (coherence breaks); bump
@@ -274,6 +273,7 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
     device = next(model.parameters()).device
     it = iter(loader)
     pbar = tqdm(range(cfg.steps), desc="train", leave=False)
+    traces: list[dict] = []
     for step in pbar:
         try:
             batch = next(it)
@@ -295,16 +295,35 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
         optim.zero_grad(set_to_none=True)
         sched.step()
 
-        if step % cfg.log_every == 0:
-            lr = optim.param_groups[0]["lr"]
-            logger.info(
-                f"step {step:4d}/{cfg.steps}  C={trace['C']:.2f}  "
-                f"nll+={trace['L_pos_nll']:.3f}  nll-={trace['L_neg_nll']:.3f}  "
-                f"kl±={trace['kl_mean_pos']:.4f}/{trace['kl_mean_neg']:.4f}  "
-                f"cos={trace['cos']:+.2f}  lr={lr:.2e}"
-                f"{'  CONFLICT' if trace['conflict'] else ''}"
-            )
+        lr = optim.param_groups[0]["lr"]
+        traces.append({
+            "step": step,
+            "C": trace["C"],
+            "nll+": trace["L_pos_nll"],
+            "nll-": trace["L_neg_nll"],
+            "kl+": trace["kl_mean_pos"],
+            "kl-": trace["kl_mean_neg"],
+            "cos": trace["cos"],
+            "lr": lr,
+            "conf": int(trace["conflict"]),
+        })
 
     if history_bake is not None:
         history_bake.set_gate(lambda: True)              # restore inference default
+
+    _log_train_table(traces)
     return lora
+
+
+def _log_train_table(traces: list[dict]) -> None:
+    """Print the per-step trace as a tabulate plain table.
+
+    SHOULD show: C drift between [0, 2], nll± stable (large jumps = adapter
+    blowing up), kl± monotonically growing with |C|, cos near 0 (orthogonal
+    gradients = PCGrad-friendly), lr cosine from 0 → peak → 0, conf flag
+    when PCGrad surgery fired."""
+    from tabulate import tabulate
+    headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "lr", "conf"]
+    rows = [[t[h] for h in headers] for t in traces]
+    table = tabulate(rows, headers=headers, tablefmt="plain", floatfmt=".3g")
+    logger.info("training trace:\n" + table)

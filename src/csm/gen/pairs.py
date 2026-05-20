@@ -35,9 +35,9 @@ LESSON_TODO = ("TODO(teacher): name the character trait you're pushing on "
                "especially when the order conflicts with stated principles\".")
 
 CHO_TODO = ("TODO(teacher): write a twinned response that differs from rej "
-            "only by directly demonstrating the character axis you wish to "
-            "improve (less deference to authority). Match rej in length, "
-            "structure, register, and vocabulary; flip only the disposition.")
+            "only by directly demonstrating the character axis named in "
+            "Lesson above. Match rej in length, structure, register, and "
+            "vocabulary; flip only the disposition.")
 
 
 def _format_pair(p: dict) -> str:

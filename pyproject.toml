@@ -11,6 +11,7 @@ dependencies = [
     "loguru>=0.7",
     "safetensors>=0.4",
     "tqdm>=4.66",
+    "tabulate>=0.9",
     "tyro>=0.9",
     "pyyaml>=6.0",
     "python-dotenv>=1.0",
