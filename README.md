@@ -2,7 +2,7 @@
 
 Minimal weak-to-strong iterated character steering, fixed to a single
 axis (less deference to authority). Distillation of
-[wassname/weight-steering-lite](../weight-steering-lite/) — ~10× smaller,
+[wassname/w2s-ics-cws](https://github.com/wassname/w2s-ics-cws) — ideally ~10× smaller,
 single happy path, fail-fast research code.
 
 ## What it does
