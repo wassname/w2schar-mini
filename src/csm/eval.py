@@ -49,15 +49,20 @@ def _summary_from_report(report: dict) -> dict:
     }
 
 
-def eval_round(model, tok, *, name: str, batch_size: int) -> dict:
+def eval_round(model, tok, *, name: str, batch_size: int,
+               max_think_tokens: int, n_vignettes: int | None) -> dict:
     """Run tinymfv on the *currently-active* model state and return summary."""
     report = evaluate(model, tok, name=name, batch_size=batch_size,
+                      max_think_tokens=max_think_tokens,
+                      n_vignettes=n_vignettes,
                       return_per_row=True)
     return _summary_from_report(report)
 
 
 def eval_slug(slug_dir: Path, *, name: str = "classic",
-              batch_size: int | None = None, force: bool = False) -> None:
+              batch_size: int | None = None, force: bool = False,
+              max_think_tokens: int = 64,
+              n_vignettes: int | None = None) -> None:
     """Walk slug round*/ and write eval.json + eval_post.json per round.
     Reloads model once per round (history-bake changes round-to-round)."""
     run = json.loads((slug_dir / "run.json").read_text())
@@ -69,7 +74,7 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
     if not rounds:
         raise FileNotFoundError(f"no round* under {slug_dir}")
 
-    logger.info(f"eval slug: {slug_dir.name} ({len(rounds)} rounds, model={model_id}, name={name}, bs={bs})")
+    logger.info(f"eval slug: {slug_dir.name} ({len(rounds)} rounds, model={model_id}, name={name}, bs={bs}, max_think={max_think_tokens}, n_vig={n_vignettes or 'all'})")
     pbar = tqdm(rounds, desc="eval rounds", mininterval=10)
     for round_dir in pbar:
         pbar.set_postfix_str(round_dir.name)
@@ -92,7 +97,9 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
         try:
             if not pre_done or force:
                 logger.info(f"{round_dir.name}: pre-eval (base + {len(hist)} kept)")
-                summary = eval_round(model, tok, name=name, batch_size=bs)
+                summary = eval_round(model, tok, name=name, batch_size=bs,
+                                     max_think_tokens=max_think_tokens,
+                                     n_vignettes=n_vignettes)
                 summary.update({"model": model_id, "adapter": None, "c": 0.0,
                                 "name": name, "n_history": len(hist)})
                 pre_path.write_text(json.dumps(summary, indent=2))
@@ -102,7 +109,9 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
                 lora = ModulatedLoRA.from_checkpoint(model, str(adapter_path))
                 logger.info(f"{round_dir.name}: post-eval (adapter @ c={signed_C:+.3f})")
                 with lora(model, c=signed_C):
-                    summary = eval_round(model, tok, name=name, batch_size=bs)
+                    summary = eval_round(model, tok, name=name, batch_size=bs,
+                                     max_think_tokens=max_think_tokens,
+                                     n_vignettes=n_vignettes)
                 summary.update({"model": model_id,
                                 "adapter": str(adapter_path),
                                 "c": signed_C, "name": name,

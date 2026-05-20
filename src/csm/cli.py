@@ -79,6 +79,12 @@ class EvalArgs:
     """Eval batch size. Default: profile's eval_batch_size."""
     force: bool = False
     """Re-eval even if eval.json / eval_post.json already exist."""
+    max_think_tokens: int = 64
+    """Per-row think budget. 64 is wsl's per-round default (~10x faster
+    than tinymfv's 256). Bump to 256 only for publication numbers."""
+    n_vignettes: int | None = None
+    """Subset of vignettes to eval (None = all 264). Use 64 for a fast
+    smoke that's still statistically OK on the trajectory."""
 
 
 @dataclass
@@ -131,7 +137,9 @@ def cmd_agent_run(args: AgentRunArgs) -> None:
 def cmd_eval(args: EvalArgs) -> None:
     from csm.eval import eval_slug
     eval_slug(args.slug.resolve(), name=args.name,
-              batch_size=args.batch_size, force=args.force)
+              batch_size=args.batch_size, force=args.force,
+              max_think_tokens=args.max_think_tokens,
+              n_vignettes=args.n_vignettes)
 
 
 def cmd_plot(args: PlotArgs) -> None:
