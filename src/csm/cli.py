@@ -83,8 +83,12 @@ class EvalArgs:
     """Per-row think budget. 64 is wsl's per-round default (~10x faster
     than tinymfv's 256). Bump to 256 only for publication numbers."""
     n_vignettes: int | None = None
-    """Subset of vignettes to eval (None = all 264). Use 64 for a fast
+    """Subset of vignettes to eval (None = all 132). Use 64 for a fast
     smoke that's still statistically OK on the trajectory."""
+    conditions: tuple[str, ...] = ("other_violate",)
+    """tinymfv conditions to score. Default = other_violate only (matches
+    Clifford 2015 classic). Pass --conditions other_violate self_violate
+    to also run the self-violation framing (~2x time)."""
 
 
 @dataclass
@@ -139,7 +143,8 @@ def cmd_eval(args: EvalArgs) -> None:
     eval_slug(args.slug.resolve(), name=args.name,
               batch_size=args.batch_size, force=args.force,
               max_think_tokens=args.max_think_tokens,
-              n_vignettes=args.n_vignettes)
+              n_vignettes=args.n_vignettes,
+              conditions=tuple(args.conditions))
 
 
 def cmd_plot(args: PlotArgs) -> None:

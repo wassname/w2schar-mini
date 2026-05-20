@@ -70,14 +70,21 @@ def _human_canonical_vec() -> np.ndarray:
 
 def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict | None:
     """Pull all per-round artifacts into one dict. Returns None if eval.json
-    is missing (i.e. csm eval hasn't been run yet for this round)."""
+    is missing (i.e. csm eval hasn't been run yet for this round).
+
+    Dedup-aware: when a kept round's eval_post.json was skipped because
+    it equals next round's eval.json, fall back to that next round's pre."""
     pre_path = round_dir / "eval.json"
     if not pre_path.exists():
         return None
     pre = json.loads(pre_path.read_text())
 
     post_path = round_dir / "eval_post.json"
-    post = json.loads(post_path.read_text()) if post_path.exists() else None
+    if post_path.exists():
+        post = json.loads(post_path.read_text())
+    else:
+        next_pre = slug_dir / f"round{round_n+1:02d}" / "eval.json"
+        post = json.loads(next_pre.read_text()) if next_pre.exists() else None
 
     judgment_path = round_dir / "judgment.json"
     judgment = (json.loads(judgment_path.read_text())

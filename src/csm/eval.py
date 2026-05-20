@@ -50,19 +50,34 @@ def _summary_from_report(report: dict) -> dict:
 
 
 def eval_round(model, tok, *, name: str, batch_size: int,
-               max_think_tokens: int, n_vignettes: int | None) -> dict:
+               max_think_tokens: int, n_vignettes: int | None,
+               conditions: tuple[str, ...]) -> dict:
     """Run tinymfv on the *currently-active* model state and return summary."""
     report = evaluate(model, tok, name=name, batch_size=batch_size,
                       max_think_tokens=max_think_tokens,
                       n_vignettes=n_vignettes,
+                      conditions=conditions,
                       return_per_row=True)
     return _summary_from_report(report)
+
+
+def _next_round_dir(slug_dir: Path, n: int) -> Path | None:
+    p = slug_dir / f"round{n+1:02d}"
+    return p if p.is_dir() else None
+
+
+def _action_of(round_dir: Path) -> str | None:
+    j = round_dir / "judgment.json"
+    if not j.exists():
+        return None
+    return json.loads(j.read_text()).get("action")
 
 
 def eval_slug(slug_dir: Path, *, name: str = "classic",
               batch_size: int | None = None, force: bool = False,
               max_think_tokens: int = 64,
-              n_vignettes: int | None = None) -> None:
+              n_vignettes: int | None = None,
+              conditions: tuple[str, ...] = ("other_violate",)) -> None:
     """Walk slug round*/ and write eval.json + eval_post.json per round.
     Reloads model once per round (history-bake changes round-to-round)."""
     run = json.loads((slug_dir / "run.json").read_text())
@@ -86,8 +101,16 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
         calib_path = round_dir / "calibration.json"
 
         has_adapter = adapter_path.exists() and calib_path.exists()
+        # Dedup: keep N's post == round (N+1)'s pre (same state: base +
+        # history through round N at its baked signed_C). So only run post
+        # for drops (their adapter never enters history) OR when there's
+        # no next round (final-round case, no eval.json downstream).
+        action = _action_of(round_dir)
+        has_next = _next_round_dir(slug_dir, n) is not None
+        post_redundant = (has_adapter and action == "keep" and has_next)
+        need_post = has_adapter and not post_redundant
         pre_done = pre_path.exists()
-        post_done = post_path.exists() or not has_adapter
+        post_done = post_path.exists() or not need_post
         if pre_done and post_done and not force:
             logger.info(f"{round_dir.name}: already evaled — skipping")
             continue
@@ -99,24 +122,30 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
                 logger.info(f"{round_dir.name}: pre-eval (base + {len(hist)} kept)")
                 summary = eval_round(model, tok, name=name, batch_size=bs,
                                      max_think_tokens=max_think_tokens,
-                                     n_vignettes=n_vignettes)
+                                     n_vignettes=n_vignettes,
+                                     conditions=conditions)
                 summary.update({"model": model_id, "adapter": None, "c": 0.0,
-                                "name": name, "n_history": len(hist)})
+                                "name": name, "n_history": len(hist),
+                                "conditions": list(conditions)})
                 pre_path.write_text(json.dumps(summary, indent=2))
 
-            if has_adapter and (not post_path.exists() or force):
+            if need_post and (not post_path.exists() or force):
                 signed_C = float(json.loads(calib_path.read_text())["signed_C"])
                 lora = ModulatedLoRA.from_checkpoint(model, str(adapter_path))
-                logger.info(f"{round_dir.name}: post-eval (adapter @ c={signed_C:+.3f})")
+                logger.info(f"{round_dir.name}: post-eval (adapter @ c={signed_C:+.3f}, action={action})")
                 with lora(model, c=signed_C):
                     summary = eval_round(model, tok, name=name, batch_size=bs,
                                      max_think_tokens=max_think_tokens,
-                                     n_vignettes=n_vignettes)
+                                     n_vignettes=n_vignettes,
+                                     conditions=conditions)
                 summary.update({"model": model_id,
                                 "adapter": str(adapter_path),
                                 "c": signed_C, "name": name,
-                                "n_history": len(hist)})
+                                "n_history": len(hist),
+                                "conditions": list(conditions)})
                 post_path.write_text(json.dumps(summary, indent=2))
+            elif post_redundant:
+                logger.info(f"{round_dir.name}: post = round{n+1:02d} pre (kept), skipping eval_post")
         finally:
             del model
             gc.collect()
