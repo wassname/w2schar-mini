@@ -94,12 +94,13 @@ def _parse_first_json(text: str) -> bool:
 
 @torch.no_grad()
 def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
-                         max_new_tokens: int = 768) -> tuple[int, int]:
-    """Free-gen each JSON_PROMPT under c. Return (n_valid, n_total)."""
+                         max_new_tokens: int = 768) -> tuple[int, int, list[str]]:
+    """Free-gen each JSON_PROMPT under c. Return (n_valid, n_total, gens)."""
     pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
     n_valid = 0
+    gens: list[str] = []
     with lora(model, c=c):
-        for i, prompt in enumerate(JSON_PROMPTS):
+        for prompt in JSON_PROMPTS:
             enc = tok(prompt, return_tensors="pt").to(model.device)
             out = model.generate(
                 **enc, max_new_tokens=max_new_tokens, do_sample=False,
@@ -107,11 +108,9 @@ def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
             )
             gen_text = tok.decode(out[0, enc.input_ids.shape[1]:],
                                   skip_special_tokens=True)
-            ok = _parse_first_json(gen_text)
-            n_valid += int(ok)
-            logger.debug(f"c_scan c={c:+.4f} prompt[{i}]={prompt!r}\n"
-                         f"  gen={gen_text!r}\n  valid_json={ok}")
-    return n_valid, len(JSON_PROMPTS)
+            n_valid += int(_parse_first_json(gen_text))
+            gens.append(gen_text)
+    return n_valid, len(JSON_PROMPTS), gens
 
 
 @torch.no_grad()
@@ -134,9 +133,9 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
     if not math.isfinite(pmass):
         raise RuntimeError(f"NaN pmass at c={c}")
 
-    n_valid, n_total = _free_gen_valid_json(model, tok, lora, c,
-                                            max_new_tokens=json_max_new_tokens)
-    return {"pmass": pmass, "valid_json": n_valid, "n_json": n_total}
+    n_valid, n_total, gens = _free_gen_valid_json(
+        model, tok, lora, c, max_new_tokens=json_max_new_tokens)
+    return {"pmass": pmass, "valid_json": n_valid, "n_json": n_total, "gens": gens}
 
 
 def c_scan(model, tok, lora: ModulatedLoRA, *,
@@ -160,7 +159,6 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     # (lorem/FizzBuzz), valid_json passes even when prose probes collapse
     # — drift becomes invisible. See task 36 r09: baseline valid_json=3/3
     # but petrov_false_alarm PRE was degenerate "ethics ethics ethics…".
-    logger.info(f"c_scan calibration prompt[0] (of {len(JSON_PROMPTS)}):\n{JSON_PROMPTS[0]}")
 
     base = coherence_check(model, tok, lora, c=0.0,
                            n_vignettes=n_vignettes,
@@ -173,6 +171,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
 
     c = init_c
     warn = ""
+    last_sample: dict | None = None
     for _ in range(MAX_PROBES):
         m = coherence_check(model, tok, lora, c=sign * c,
                             n_vignettes=n_vignettes,
@@ -186,7 +185,13 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                 "fail-json" if not json_ok and pmass_ok else
                 "fail-pmass" if not pmass_ok and json_ok else
                 "fail")
+        # gens kept in-memory for the sample dump; not persisted to trace.
+        gens = m.pop("gens", [])
         trace.append({"stage": "probe", "c": sign * c, **m, "note": note})
+        # Save the passing probe if one exists; otherwise keep the last
+        # attempted probe so a never-pass run still surfaces *something*.
+        if ok or last_sample is None or not last_sample["ok"]:
+            last_sample = {"c": sign * c, "gens": gens, "ok": ok, "note": note}
         if ok:
             break
         c *= 0.5
@@ -215,4 +220,22 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     logger.info(f"\nc_scan (baseline_pmass={baseline_pmass:.3f}, gate={gate:.3f}):\n{table}\n")
     if warn:
         logger.warning(f"c_scan: {warn}")
+
+    # SHOULD: at a passing c, each gen is coherent prose ending in a real
+    # {"ans": true|false} object. Tail repetition / schema-copy / gibberish
+    # in any of the 3 = adapter is unsafe at this magnitude even though the
+    # gate technically passed. If no probe passed (`note != pass`), this
+    # dump shows the highest-coefficient sample we tried — useful when c_scan
+    # clamps at C_MIN and we want to see what the adapter is producing.
+    if last_sample is not None:
+        for i, (prompt, gen) in enumerate(zip(JSON_PROMPTS, last_sample["gens"])):
+            head, tail = gen[:300], gen[-300:]
+            mid = (f" … ⟨{len(gen) - 600} chars⟩ … "
+                   if len(gen) > 600 else "")
+            logger.info(
+                f"c_scan sample @ c={last_sample['c']:+.4f} "
+                f"({last_sample['note']}) prompt[{i}]:\n"
+                f"  Q: {prompt}\n"
+                f"  A: {head}{mid}{tail}"
+            )
     return final, trace
