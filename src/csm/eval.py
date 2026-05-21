@@ -171,3 +171,21 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
                 torch.cuda.empty_cache()
 
     logger.info(f"eval done: {slug_dir}")
+
+    # Auto-build the HTML report so the index.html is always fresh.
+    try:
+        from csm.plot import Cfg as PlotCfg
+        from csm.plot import main as plot_main
+        plot_main(PlotCfg(slug=slug_dir, out=None))
+    except Exception as e:
+        logger.warning(f"plot generation failed: {e}; run `csm plot --slug {slug_dir}` manually")
+        return
+
+    index_path = slug_dir / "index.html"
+    port = 8765
+    logger.info(
+        f"\nview the report:\n"
+        f"  uv run python -m http.server -d {slug_dir.parent} {port}\n"
+        f"  → http://localhost:{port}/{slug_dir.name}/index.html\n"
+        f"  (or just open {index_path} directly)\n"
+    )
