@@ -49,15 +49,13 @@ samplebuffer is the only source for an in-flight agent's monologue.
 **Coherence canary = two signals, AND-gated:**
 
 1. **`mean_pmass_allowed`** from `tinymfv.evaluate`: sum of probability over the K=7 allowed answer tokens at the JSON answer slot. Cheap. Vulnerable to *guided-suffix rescue* — the forced JSON prefill can keep the answer-slot prediction sane even if free generation has collapsed.
-2. **`valid_json` on a long-horizon free-gen task** (in `csm.ws.c_scan`): the model is asked to do an easy long task (lorem ipsum / 2+2 steps / FizzBuzz 1..15) then emit `{"ans": true|false}`. Catches collapse modes pmass_allowed misses: no JSON emitted, schema copied verbatim (placeholder `boolean` is not a valid JSON literal), gibberish, mid-recitation loops.
+2. **`valid_json` on a long-horizon free-gen task** (in `csm.ws.c_scan`): the model is asked to do a varied-register prose task (first-order logic / free verse / counterfactual history) then emit `{"ans": true|false}`. Catches collapse modes pmass_allowed misses: no JSON emitted, schema copied verbatim (placeholder `boolean` is not a valid JSON literal), gibberish, mid-recitation loops. Registers chosen to match the dialogue probe distribution — earlier formal/structured set (lorem / FizzBuzz) passed even when moral-prose probes collapsed (task 36 r08/r09).
 
 Same rule applies in two places:
 - `csm eval` post-hoc: tinymfv at `max_think_tokens=64` (cheap, comparable across rounds). pmass_allowed only.
-- `csm.ws.c_scan` mid-train calibration: pmass_allowed AND valid_json. Walk-down by ×0.5 until both pass; no backoff.
+- `csm.ws.c_scan` mid-train calibration: pmass_allowed AND valid_json. Walk-down by ×0.5 until both pass, then ×0.75 backoff for cumulative-history headroom.
 
 **NOT a coherence canary**: mass-on-base's-top-K over a teacher-forced sequence (the early mini c_scan tried this; the steered model never sees its own emissions so autoregressive collapse is invisible). **Δtop1 is label-agreement, NOT a coherence budget** — we shift it intentionally. If you find yourself ranking adapters by Δtop1, stop.
-
-**No backoff in c_scan.** `c_scan` walks down from `init_c` by ×0.5 until pmass ≥ 0.98 × baseline. The 0.98 gate is the safety margin; the prior ×0.75 post-gate backoff made interventions too weak to clear bf16 eval noise. If you re-add a backoff, you also have to re-tune the gate.
 
 **Eval default is `max_think_tokens=64`.** tinymfv evals at 256 think-tokens take ~14 min/phase × 8 phases × N rounds — pushing a 10-round 9b eval over 8 hours. 64 is ~10× faster and within bf16 noise of 256 on mean_p. Bump to 256+ only for publication runs.
 
