@@ -32,8 +32,8 @@ class RunConfig:
     Bake uses the quant backend (stacked-LR hook) for these layers."""
 
     # ─ training ─
-    lr: float = 2e-4
-    kl_lambda: float = 0.064
+    lr: float = 1e-4
+    kl_lambda: float = 0.5
     train_batch_size: int = 4
     n_epochs: float = 3.0
     min_steps: int = 60

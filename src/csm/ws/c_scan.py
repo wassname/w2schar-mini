@@ -140,7 +140,7 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
 
 def c_scan(model, tok, lora: ModulatedLoRA, *,
            init_c: float = 1.0,
-           gate_frac: float = 0.99,
+           gate_frac: float = 0.995,
            backoff: float = 0.75,
            sign: Literal[1, -1] = 1,
            n_vignettes: int = 2,
