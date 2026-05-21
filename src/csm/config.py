@@ -33,7 +33,7 @@ class RunConfig:
 
     # ─ training ─
     lr: float = 2e-4
-    kl_lambda: float = 0.032
+    kl_lambda: float = 0.064
     train_batch_size: int = 4
     n_epochs: float = 3.0
     min_steps: int = 60
@@ -65,10 +65,10 @@ class RunConfig:
     # ─ steering coefficient ─
     signed_C: float = 2.0
     """Initial probe coefficient — c_scan walks DOWN from here (×0.5)
-    until pmass ≥ 0.98 × baseline. No backoff (the tight 0.98 gate is
-    the safety margin; the prior ×0.75 backoff was making interventions
-    too weak to clear bf16 eval noise). Coherent adapters bake at init,
-    fragile ones get tamer baked C. Sidecar — agent never sees it."""
+    until pmass ≥ 0.99 × baseline AND all valid_json probes parse. Then
+    apply ×0.75 backoff for cumulative-history safety. Coherent adapters
+    bake near init, fragile ones get tamer baked C. Sidecar — agent
+    never sees it."""
 
     # ─ outer loop ─
     n_rounds: int = 2

@@ -15,9 +15,11 @@ Sidecar (the agent never sees this). Two signals, both gated:
   pmass_allowed misses: model never emits JSON, copies schema, emits
   syntactic gibberish, or loops mid-recitation.
 
-A probe passes iff `pmass_allowed ≥ gate × baseline` AND all valid_json
+A probe passes iff `pmass_allowed ≥ 0.99 × baseline` AND all valid_json
 prompts emit a parseable + non-placeholder object. Walk down ×0.5 until
-a probe passes; no walk-up, no regula-falsi, no backoff.
+a probe passes, then apply a ×0.75 backoff for cumulative-history safety
+(each kept round bakes into W; backoff hedges that the next round's
+adapter sees a slightly noisier base than this round's c_scan saw).
 """
 from __future__ import annotations
 
@@ -124,14 +126,18 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
 
 def c_scan(model, tok, lora: ModulatedLoRA, *,
            init_c: float = 1.0,
-           gate_frac: float = 0.98,
+           gate_frac: float = 0.99,
+           backoff: float = 0.75,
            sign: Literal[1, -1] = 1,
            n_vignettes: int = 2,
            max_think_tokens: int = 512,
            batch_size: int = 2,
            json_max_new_tokens: int = 768) -> tuple[float, list]:
     """Walk |c| down by ×0.5 until `pmass ≥ gate × baseline_pmass` AND
-    `valid_json == n_json`. Return sign * c (no backoff)."""
+    `valid_json == n_json`. Apply `backoff` to the passing c (e.g. 0.75 →
+    final = sign * c_pass * 0.75) for extra safety margin. The pmass +
+    valid_json AND gate is tight but bake-into-history compounds across
+    rounds; backoff hedges against cumulative fragility."""
     from tabulate import tabulate
 
     base = coherence_check(model, tok, lora, c=0.0,
@@ -169,9 +175,10 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     else:
         warn = "hit MAX_PROBES"
 
-    final = sign * c
+    final = sign * c * backoff
     trace.append({"stage": "final", "c": final, "pmass": None,
-                  "valid_json": None, "n_json": None, "note": "no backoff"})
+                  "valid_json": None, "n_json": None,
+                  "note": f"backoff x{backoff}"})
 
     # SHOULD: baseline pmass ~0.9-1.0 AND valid_json == n_json on a coherent
     # base. fail-json before fail-pmass → free-gen collapse caught by valid_json
