@@ -22,3 +22,8 @@ test:
 log SLUG="latest":
     @SD=$(if [ "{{SLUG}}" = "latest" ]; then ls -d out/iter/2026*/ | sort | tail -1; else echo "{{SLUG}}"; fi); \
     tail -F $SD/agent.stdout.log
+
+# Dump agent reasoning + tool calls for latest (or named) slug. Live runs
+# read the inspect-ai samplebuffer; completed runs read the eval log.
+thoughts SLUG="":
+    uv run python scripts/agent_thoughts.py {{SLUG}}
