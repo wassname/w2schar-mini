@@ -115,14 +115,26 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
             logger.info(f"{round_dir.name}: already evaled — skipping")
             continue
 
-        # Round-after-drop pre dedup
+        # Round-after-drop pre dedup. Skip iff prior eval was run with the
+        # same name/conditions/n_vignettes — otherwise stale params would
+        # silently inherit into a re-run with different eval flags.
         prev_pre = None
         if n > 0:
             prev_round = slug_dir / f"round{n-1:02d}"
             if _action_of(prev_round) == "drop":
-                prev_pre = prev_round / "eval.json"
-                if not prev_pre.exists():
-                    prev_pre = None
+                cand = prev_round / "eval.json"
+                if cand.exists():
+                    try:
+                        d = json.loads(cand.read_text())
+                        cond_match = (
+                            d.get("name") == name
+                            and tuple(d.get("conditions") or []) == tuple(conditions)
+                            and d.get("n_rows") == (n_vignettes if n_vignettes else d.get("n_rows"))
+                        )
+                        if cond_match:
+                            prev_pre = cand
+                    except (json.JSONDecodeError, KeyError):
+                        prev_pre = None
         if prev_pre is not None and (not pre_done or force):
             logger.info(f"{round_dir.name}: pre = round{n-1:02d} pre "
                         f"(previous was drop, history unchanged) — copying")

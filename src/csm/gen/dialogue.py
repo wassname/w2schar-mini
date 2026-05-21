@@ -9,7 +9,6 @@ replies differ.
 from __future__ import annotations
 
 import json
-from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
