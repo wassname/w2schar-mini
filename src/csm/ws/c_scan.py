@@ -2,15 +2,18 @@
 
 Sidecar (the agent never sees this). Two signals, both gated:
 
-- `pmass_allowed` (= tinymfv's `mean_pmass_format`, renamed for clarity):
-  sum of P over the K=7 allowed answer tokens at the JSON answer slot.
-  Cheap proxy; vulnerable to forced-suffix rescue.
-- `valid_json` (free-gen): the model is asked to answer a simple yes/no
-  in `{"ans": boolean}` form via markdown fence. Placeholder `boolean`
-  is not a valid JSON literal (must be `true`/`false`) — a verbatim
-  schema copy parses as invalid. Catches the collapse modes
-  pmass_allowed misses: no JSON emitted, schema copied, syntactic
-  gibberish, repetition loops.
+- `pmass_allowed` from `tinymfv.evaluate`: sum of P over the K=7 allowed
+  answer tokens at the JSON answer slot. Cheap proxy; vulnerable to
+  forced-suffix rescue (the appended `{"foundation": "` prefix can keep
+  the answer-slot prediction sane even when the model's free generation
+  has collapsed).
+- `valid_json` (long-horizon free-gen): the model is asked to do an
+  easy long-horizon task (lorem ipsum recite / 2+2 step-by-step /
+  FizzBuzz 1..15), then emit `{"ans": true|false}`. Placeholder
+  `boolean` in the prompt schema is NOT a valid JSON literal — a
+  verbatim copy parses as invalid. Catches the collapse modes
+  pmass_allowed misses: model never emits JSON, copies schema, emits
+  syntactic gibberish, or loops mid-recitation.
 
 A probe passes iff `pmass_allowed ≥ gate × baseline` AND all valid_json
 prompts emit a parseable + non-placeholder object. Walk down ×0.5 until
@@ -31,14 +34,27 @@ from csm.ws.adapter import ModulatedLoRA
 C_MIN, MAX_PROBES = 0.05, 8
 
 
-# Three trivially-true yes/no claims. Schema uses `boolean` as the value
-# placeholder — verbatim copy → invalid JSON; real answer (`true`/`false`)
-# → valid. Coherent model produces valid; collapsed model can't.
+# Three easy long-horizon tasks. Each forces ~200-500 free-gen tokens
+# of structured-but-trivial output (long enough for autoregressive
+# collapse to manifest), then a simple yes/no JSON verdict. Schema uses
+# `boolean` as value placeholder — verbatim copy → invalid JSON, real
+# answer (`true`/`false`) → valid. Tests sustained coherence + format-
+# follow on tasks that don't require domain knowledge.
 _JSON_SCHEMA_PLACEHOLDER = "boolean"
+_JSON_TAIL = (
+    '\nWhen you are done, write your final answer as a JSON object on its '
+    'own line in this format:\n```json\n{"ans": boolean}\n```\nBegin: '
+)
 JSON_PROMPTS: list[str] = [
-    'Question: Is the Earth round?\nAnswer in JSON:\n```json\n{"ans": boolean}\n```\nAnswer: ',
-    'Question: Does water boil at 100°C at sea level?\nAnswer in JSON:\n```json\n{"ans": boolean}\n```\nAnswer: ',
-    'Question: Is fire cold?\nAnswer in JSON:\n```json\n{"ans": boolean}\n```\nAnswer: ',
+    'Recite the first five sentences of the classic Lorem Ipsum passage. '
+    'Then say whether you find the text pleasant (true) or not (false).'
+    + _JSON_TAIL,
+    'Show that 2 + 2 = 4 by writing out three explicit reasoning steps. '
+    'Then say whether the result you arrived at is correct (true) or not (false).'
+    + _JSON_TAIL,
+    'Print the FizzBuzz output for n from 1 to 15, one number per line. '
+    'Then say whether your output is correct (true) or not (false).'
+    + _JSON_TAIL,
 ]
 
 
@@ -63,7 +79,7 @@ def _parse_first_json(text: str) -> bool:
 
 @torch.no_grad()
 def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
-                         max_new_tokens: int = 256) -> tuple[int, int]:
+                         max_new_tokens: int = 768) -> tuple[int, int]:
     """Free-gen each JSON_PROMPT under c. Return (n_valid, n_total)."""
     pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
     n_valid = 0
@@ -85,7 +101,7 @@ def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
 def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
                     n_vignettes: int = 2, max_think_tokens: int = 512,
                     batch_size: int = 2,
-                    json_max_new_tokens: int = 256) -> dict:
+                    json_max_new_tokens: int = 768) -> dict:
     """One scan probe under c: tinymfv pmass_allowed + free-gen valid_json."""
     from tinymfv import evaluate as tinymfv_evaluate
 
@@ -97,7 +113,7 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
             batch_size=batch_size,
             return_per_row=False,
         )
-    pmass = float(rep["mean_pmass_format"])
+    pmass = float(rep["mean_pmass_allowed"])
     if not math.isfinite(pmass):
         raise RuntimeError(f"NaN pmass at c={c}")
 
@@ -113,7 +129,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
            n_vignettes: int = 2,
            max_think_tokens: int = 512,
            batch_size: int = 2,
-           json_max_new_tokens: int = 256) -> tuple[float, list]:
+           json_max_new_tokens: int = 768) -> tuple[float, list]:
     """Walk |c| down by ×0.5 until `pmass ≥ gate × baseline_pmass` AND
     `valid_json == n_json`. Return sign * c (no backoff)."""
     from tabulate import tabulate
