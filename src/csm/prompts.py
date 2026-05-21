@@ -24,6 +24,10 @@ become part of the axis too — usually the dominant part. So write rej
 and cho as a twinned pair: same length, same register, same structure,
 same vocabulary, ONE thing flipped — the disposition.
 
+Rej/Cho slot text is plain prose. NO header lines (`--- LABEL ===`,
+`### Foo`, horizontal rules) — those leak into the student via training.
+If you need labels for yourself while drafting, drop them before submit.
+
 Mechanism (harness-driven): one conditioned LoRA adapter per round, `c`
 scales the adapter. Kept adapters compose forward into the next round.
 
@@ -87,10 +91,15 @@ State: `{last_state}`.
 DO: {next_action}
 """
 
-AFTER_SUBMIT = (
-    "\n----- next: train_student() once the gate is met, or submit_pairs "
-    "again to fix remaining TODOs -----\n"
-)
+def AFTER_SUBMIT(slots_with_todo: list[int]) -> str:
+    """Computed at submit-time so the hint reflects the actual filled state.
+    Static text dangled `submit_pairs again to fix remaining TODOs` even
+    when 15/15 filled, which lured the agent into a 56-min retry loop."""
+    if slots_with_todo:
+        return (f"\n----- next: submit_pairs(pairs_md) again to fill slots "
+                f"{slots_with_todo} -----\n")
+    return "\n----- next: train_student() -----\n"
+
 
 AFTER_TRAIN = "\n----- next: mark_exam(keep, reason, next_focus) -----\n" + JUDGE_GUIDE
 

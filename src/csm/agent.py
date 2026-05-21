@@ -27,7 +27,7 @@ from csm.pipeline import (init_run, latest_round_dir,
                           train_student as _train_student_pipeline)
 from csm.prompts import (AFTER_SUBMIT, AFTER_TRAIN, COMPACTION_INSTRUCTIONS,
                          INITIAL_TASK, ON_CONTINUE_NUDGE, REACT_PROMPT)
-from csm.state import ALLOWED_AFTER, ValidationError, read_state
+from csm.state import allowed_after, ValidationError, read_state
 from csm.ws.history import kept_history_dirs
 
 
@@ -91,7 +91,7 @@ def submit_pairs_tool(slug: str) -> Tool:
             f"OK — pairs.md submitted. {res['filled']}/{res['total']} "
             f"filled (need ≥{res['min_to_train']} to train). "
             f"Slots with TODO still: {res['slots_with_todo']}\n"
-            f"{AFTER_SUBMIT}"
+            f"{AFTER_SUBMIT(res['slots_with_todo'])}"
         )
 
     return execute
@@ -245,7 +245,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
 
         return ON_CONTINUE_NUDGE.format(
             n_keeps=n_keeps, target_keeps=target_keeps, n_drops=_n_drops(slug_path),
-            last_state=st.state, next_action=ALLOWED_AFTER[st.state],
+            last_state=st.state, next_action=allowed_after(st.state),
         )
 
     agent = react(

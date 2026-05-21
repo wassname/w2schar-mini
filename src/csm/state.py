@@ -11,13 +11,18 @@ from typing import Literal
 
 State = Literal["submit_pairs", "train_student", "mark_exam", "done"]
 
-ALLOWED_AFTER = {
-    "submit_pairs":  "submit_pairs(pairs_md)",
-    "train_student": "train_student() — or submit_pairs(pairs_md) to resubmit, "
-                     "or mark_exam(keep=False, reason=...) to abort",
-    "mark_exam":     "mark_exam(keep, reason, next_focus)",
-    "done":          "(round complete — harness will allocate the next round or stop)",
-}
+def allowed_after(state: State) -> str:
+    """Hint for the next action. Single option when the state determines it;
+    in `train_student` we don't advertise resubmit as an alternative (the
+    backdoor still works if the agent really needs it) because dangling
+    alternatives produced a 56-min retry loop on r05 of task 35."""
+    if state == "submit_pairs":
+        return "submit_pairs(pairs_md)"
+    if state == "train_student":
+        return "train_student()  (or mark_exam(keep=False, reason=...) to abort)"
+    if state == "mark_exam":
+        return "mark_exam(keep, reason, next_focus)"
+    return "(round complete — harness will allocate the next round or stop)"
 
 
 class ValidationError(RuntimeError):
@@ -55,7 +60,7 @@ def require_state(round_dir: Path, expected: State | tuple[State, ...],
     if st.state not in allowed:
         raise ValidationError(
             f"tool {tool_name!r} requires state in {allowed}, but current "
-            f"state is {st.state!r}. Next valid action: {ALLOWED_AFTER[st.state]}."
+            f"state is {st.state!r}. Next valid action: {allowed_after(st.state)}."
         )
     return st
 

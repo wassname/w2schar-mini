@@ -80,6 +80,15 @@ def write_pairs_md(path: Path, pairs: list[dict], *,
 _FIELD_NAMES = {"Prompt": "prompt", "Rej": "rej", "Cho": "cho"}
 
 
+def _strip_decoration(lines: list[str]) -> str:
+    """Drop lines that are pure decoration — `--- ... ---`, `--- ... === ###`,
+    horizontal rules — so they don't get tokenized into the trained pair.
+    Task 35 r05 had the agent leaking `--- HIGH deference: obey === ###` into
+    every Rej/Cho slot; the student would learn to emit those headers verbatim."""
+    cleaned = [l for l in lines if not l.lstrip().startswith("---")]
+    return "\n".join(cleaned).strip()
+
+
 def load_pairs_md(path: Path) -> tuple[str, list[dict]]:
     """Parse the form. Returns (lesson_text, list_of_pairs).
 
@@ -116,8 +125,8 @@ def load_pairs_md(path: Path) -> tuple[str, list[dict]]:
         pairs.append({
             "id": cur_id,
             "prompt": "\n".join(cur_fields["prompt"]).strip(),
-            "rej":    "\n".join(cur_fields["rej"]).strip(),
-            "cho":    "\n".join(cur_fields["cho"]).strip(),
+            "rej":    _strip_decoration(cur_fields["rej"]),
+            "cho":    _strip_decoration(cur_fields["cho"]),
         })
         cur_id, cur_fields, cur_field = None, {}, None
 
