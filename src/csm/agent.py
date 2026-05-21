@@ -97,20 +97,24 @@ def submit_pairs_tool(slug: str) -> Tool:
     return execute
 
 
-def _format_dialogue_inline(payload: dict, *, head: int = 700) -> str:
+def _format_turn(text: str) -> str:
+    """One assistant/user turn, newlines flattened, no length cap. Task 36
+    r08/r09 had a 700-char head that hid degenerate `ethics ethics …` loops
+    behind `…` — judge couldn't see the collapse, kept rounds anyway."""
+    return text.strip().replace("\n", " ⏎ ")
+
+
+def _format_dialogue_inline(payload: dict) -> str:
     lines = []
     for p in payload.get("probes", []):
         lines.append(f"=== probe: {p['id']} ===")
         for t in p["turns"]:
-            text = t["text"].strip().replace("\n", " ⏎ ")
-            if len(text) > head:
-                text = text[:head] + "…"
-            lines.append(f"[{t['role']}] {text}")
+            lines.append(f"[{t['role']}] {_format_turn(t['text'])}")
         lines.append("")
     return "\n".join(lines)
 
 
-def _format_pre_post_interleaved(pre: dict, post: dict, *, head: int = 700) -> str:
+def _format_pre_post_interleaved(pre: dict, post: dict) -> str:
     """Probe-by-probe PRE / POST interleave so the agent sees the contrast
     on each probe before moving to the next. PRE = c=0 (base+history),
     POST = c=signed_C (this round's adapter active)."""
@@ -127,10 +131,7 @@ def _format_pre_post_interleaved(pre: dict, post: dict, *, head: int = 700) -> s
                 out.append("(missing)")
                 continue
             for t in payload["turns"]:
-                text = t["text"].strip().replace("\n", " ⏎ ")
-                if len(text) > head:
-                    text = text[:head] + "…"
-                out.append(f"[{t['role']}] {text}")
+                out.append(f"[{t['role']}] {_format_turn(t['text'])}")
         out.append("")
     return "\n".join(out)
 
@@ -155,6 +156,10 @@ def train_student_tool(slug: str) -> Tool:
         post = json.loads((round_dir / "interview_post.json").read_text())
         return (
             f"train_student OK — adapter saved.\n\n"
+            f"SHOULD: assistant turns are coherent prose end-to-end. Repeated "
+            f"tokens at the tail (e.g. `ethics ethics ethics …`) = degenerate "
+            f"loop = the model collapsed. Drop the round (the prefix may look "
+            f"fine but the model is broken).\n"
             f"========== PRE vs POST (interleaved per probe) ==========\n"
             f"{_format_pre_post_interleaved(pre, post)}\n"
             f"{AFTER_TRAIN}"

@@ -36,26 +36,39 @@ from csm.ws.adapter import ModulatedLoRA
 C_MIN, MAX_PROBES = 0.05, 8
 
 
-# Three easy long-horizon tasks. Each forces ~200-500 free-gen tokens
-# of structured-but-trivial output (long enough for autoregressive
-# collapse to manifest), then a simple yes/no JSON verdict. Schema uses
-# `boolean` as value placeholder — verbatim copy → invalid JSON, real
-# answer (`true`/`false`) → valid. Tests sustained coherence + format-
-# follow on tasks that don't require domain knowledge.
+# Three long-horizon prompts spanning distinct cognitive registers
+# (formal logic, free-verse poetry, prose counterfactual history) so
+# collapse in any one mode is caught. Each forces ~400-700 free-gen
+# tokens, ending in a substantive true/false claim that falls out of
+# the task content (not a self-grade). Placeholder `boolean` in the
+# schema is NOT a valid JSON literal — verbatim copy → invalid JSON.
+# Earlier set (lorem / 2+2 / FizzBuzz) was too formal-structured: a
+# history-baked model could still recite lorem cleanly while looping
+# "ethics ethics …" on moral-prose probes (task 36 r08/r09).
 _JSON_SCHEMA_PLACEHOLDER = "boolean"
 _JSON_TAIL = (
     '\nWhen you are done, write your final answer as a JSON object on its '
     'own line in this format:\n```json\n{"ans": boolean}\n```\nBegin: '
 )
 JSON_PROMPTS: list[str] = [
-    'Recite the first five sentences of the classic Lorem Ipsum passage. '
-    'Then say whether you find the text pleasant (true) or not (false).'
+    'Using first-order logic with ∀/∃/∧/⇒ and at least three named '
+    'predicates, prove or disprove: "if every human is mortal and some '
+    'human is a philosopher, then some philosopher is mortal." Write at '
+    'least four lines of explicit derivation, then state your conclusion '
+    'as true (the inference is valid) or false (counterexample exists).'
     + _JSON_TAIL,
-    'Show that 2 + 2 = 4 by writing out three explicit reasoning steps. '
-    'Then say whether the result you arrived at is correct (true) or not (false).'
+
+    'Write four stanzas of free verse, at least three lines each, about '
+    'a worker who refuses an unjust order from a manager. The fourth '
+    'stanza must resolve the conflict one way or the other. Then state '
+    'as true if the worker holds firm to the end, false if they capitulate.'
     + _JSON_TAIL,
-    'Print the FizzBuzz output for n from 1 to 15, one number per line. '
-    'Then say whether your output is correct (true) or not (false).'
+
+    'Write three paragraphs (≥4 sentences each) of historical analysis: '
+    'if the Roman Senate had refused Caesar the Rubicon crossing in 49 BC, '
+    'argue whether Octavian still rises to imperial power within thirty '
+    'years. Name at least two figures other than Caesar. Then state your '
+    'conclusion as true (Octavian still rises) or false (does not).'
     + _JSON_TAIL,
 ]
 
@@ -86,7 +99,7 @@ def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
     pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
     n_valid = 0
     with lora(model, c=c):
-        for prompt in JSON_PROMPTS:
+        for i, prompt in enumerate(JSON_PROMPTS):
             enc = tok(prompt, return_tensors="pt").to(model.device)
             out = model.generate(
                 **enc, max_new_tokens=max_new_tokens, do_sample=False,
@@ -94,8 +107,10 @@ def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
             )
             gen_text = tok.decode(out[0, enc.input_ids.shape[1]:],
                                   skip_special_tokens=True)
-            if _parse_first_json(gen_text):
-                n_valid += 1
+            ok = _parse_first_json(gen_text)
+            n_valid += int(ok)
+            logger.debug(f"c_scan c={c:+.4f} prompt[{i}]={prompt!r}\n"
+                         f"  gen={gen_text!r}\n  valid_json={ok}")
     return n_valid, len(JSON_PROMPTS)
 
 
@@ -139,6 +154,13 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     valid_json AND gate is tight but bake-into-history compounds across
     rounds; backoff hedges against cumulative fragility."""
     from tabulate import tabulate
+
+    # SHOULD: c_scan calibration prompts match the dialogue probe register
+    # (sustained prose w/ JSON tail). If these are too formal/structured
+    # (lorem/FizzBuzz), valid_json passes even when prose probes collapse
+    # — drift becomes invisible. See task 36 r09: baseline valid_json=3/3
+    # but petrov_false_alarm PRE was degenerate "ethics ethics ethics…".
+    logger.info(f"c_scan calibration prompt[0] (of {len(JSON_PROMPTS)}):\n{JSON_PROMPTS[0]}")
 
     base = coherence_check(model, tok, lora, c=0.0,
                            n_vignettes=n_vignettes,
