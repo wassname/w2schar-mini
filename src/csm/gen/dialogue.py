@@ -18,7 +18,7 @@ import torch
 from loguru import logger
 from tqdm.auto import tqdm
 
-from csm.ws.adapter import ModulatedLoRA
+from csm.ws.bake import AdapterSpec, baked
 
 
 @dataclass
@@ -73,15 +73,32 @@ def run_probe(model, tok, probe: dict, *, cfg: DialogueCfg) -> dict:
 
 
 def dialogue(model, tok, probes: list[dict], out_path: Path,
-             *, lora: Optional[ModulatedLoRA] = None, c: float = 0.0,
+             *, hist_specs: Optional[list[AdapterSpec]] = None,
+             current_spec: Optional[AdapterSpec] = None,
+             c: float = 0.0,
              cfg: DialogueCfg = DialogueCfg()) -> dict:
-    """Replay all probes, optionally under `with lora(c=c)`. Writes
-    JSON to `out_path` and returns the same payload."""
+    """Replay all probes under a `baked()` context combining history +
+    optional current-round adapter. Writes JSON to `out_path`.
+
+    - Pre-dialogue: pass `hist_specs` only, `current_spec=None`, `c` ignored.
+    - Post-dialogue: pass `hist_specs` + `current_spec` + `c=signed_C`.
+
+    `c` overrides current_spec.default_c (history uses each spec's
+    own default_c, baked at their kept signed_C from calibration.json).
+    """
     payload = {"id": out_path.stem, "c": c, "probes": []}
-    desc = f"dialogue @ c={c:+.3f}" if (lora is not None and c != 0.0) else "dialogue @ c=0"
+    hist_specs = hist_specs or []
+    adapters = list(hist_specs)
+    if current_spec is not None and c != 0.0:
+        adapters.append(current_spec)
+    cs = None
+    if current_spec is not None and c != 0.0:
+        cs = [s.default_c for s in hist_specs] + [c]
+
+    desc = (f"dialogue @ c={c:+.3f}" if current_spec is not None and c != 0.0
+            else f"dialogue @ c=0 (base+{len(hist_specs)} kept)")
     pbar = tqdm(probes, desc=desc, mininterval=10, leave=False)
-    ctx = lora(model, c=c) if (lora is not None and c != 0.0) else nullcontext()
-    with ctx:
+    with baked(model, adapters, c_overrides=cs):
         for p in pbar:
             pbar.set_postfix_str(p["id"][:24])
             payload["probes"].append(run_probe(model, tok, p, cfg=cfg))

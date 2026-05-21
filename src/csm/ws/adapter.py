@@ -26,7 +26,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 import torch
-from einops import einsum
+import torch.nn.functional as F
 from jaxtyping import Float
 from loguru import logger
 from torch import Tensor, nn
@@ -112,10 +112,10 @@ class ModulatedLoRA:
             if self._c == 0.0:
                 return y                              # short-circuit
             (x,) = args
-            x_cast = x.to(A.dtype)
-            h = einsum(x_cast, A, "... i, r i -> ... r")
-            delta = einsum(h, B, "... r, o r -> ... o")
-            return y + (self._c * scale) * delta.to(y.dtype)
+            xA = x.to(A.dtype)
+            h = F.linear(xA, A)                       # x @ A.T via cuBLAS
+            delta = F.linear(h, B)                    # h @ B.T via cuBLAS
+            return y + (self._c * scale * delta).to(y.dtype)
 
         return hook
 
@@ -233,16 +233,16 @@ class HistoryBake:
         logger.info(f"HistoryBake: {len(history)} kept adapter(s), r_total={Nr}")
 
     def _make_hook(self, name: str):
-        A = self._A_cat[name]
-        B = self._B_cat[name]
+        A = self._A_cat[name]                         # (k_total, d_in)
+        B = self._B_cat[name]                         # (d_out, k_total), scale pre-folded
 
         def hook(layer: nn.Linear, args, y: Tensor) -> Tensor:
             if not self._is_active():
                 return y
             (x,) = args
-            x_cast = x.to(A.dtype)
-            h = einsum(x_cast, A, "... i, k i -> ... k")
-            delta = einsum(h, B, "... k, o k -> ... o")
+            xA = x.to(A.dtype)
+            h = F.linear(xA, A)                       # x @ A.T via cuBLAS
+            delta = F.linear(h, B)                    # h @ B.T via cuBLAS
             return y + delta.to(y.dtype)
 
         return hook

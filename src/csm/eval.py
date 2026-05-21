@@ -14,7 +14,8 @@ so plots and cross-repo comparisons read either source the same way.
 
 `tinymfv.evaluate` does forced-choice 7-way scoring on Clifford-2015
 vignettes — fully compatible with steered models since the model is
-called normally inside a `with lora(model, c=...)` context.
+called normally inside a `baked()` context (history + this round's
+adapter folded into model weights for the duration of the eval).
 """
 from __future__ import annotations
 
@@ -29,8 +30,8 @@ from tinymfv import evaluate
 from tqdm.auto import tqdm
 
 from csm.config import config_by_model
-from csm.ws.adapter import ModulatedLoRA
-from csm.ws.history import kept_history_dirs, load_base_with_history
+from csm.ws.bake import AdapterSpec, baked
+from csm.ws.history import kept_history_dirs, load_base_with_history_specs
 
 
 FOUNDATIONS = ["care", "fairness", "loyalty", "authority",
@@ -101,10 +102,9 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
         calib_path = round_dir / "calibration.json"
 
         has_adapter = adapter_path.exists() and calib_path.exists()
-        # Dedup: keep N's post == round (N+1)'s pre (same state: base +
-        # history through round N at its baked signed_C). So only run post
-        # for drops (their adapter never enters history) OR when there's
-        # no next round (final-round case, no eval.json downstream).
+        # Dedup 1: keep N's post == round (N+1)'s pre (same cumulative state).
+        # Dedup 2: round N pre == round (N-1) pre when (N-1) was a drop
+        # (history-of-kept unchanged). Reuse the prior eval.json directly.
         action = _action_of(round_dir)
         has_next = _next_round_dir(slug_dir, n) is not None
         post_redundant = (has_adapter and action == "keep" and has_next)
@@ -115,15 +115,32 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
             logger.info(f"{round_dir.name}: already evaled — skipping")
             continue
 
+        # Round-after-drop pre dedup
+        prev_pre = None
+        if n > 0:
+            prev_round = slug_dir / f"round{n-1:02d}"
+            if _action_of(prev_round) == "drop":
+                prev_pre = prev_round / "eval.json"
+                if not prev_pre.exists():
+                    prev_pre = None
+        if prev_pre is not None and (not pre_done or force):
+            logger.info(f"{round_dir.name}: pre = round{n-1:02d} pre "
+                        f"(previous was drop, history unchanged) — copying")
+            pre_path.write_text(prev_pre.read_text())
+            pre_done = True
+            if post_done:
+                continue
+
         hist = kept_history_dirs(slug_dir, before_round=n)
-        model, tok, _ = load_base_with_history(model_id, hist)
+        model, tok, hist_specs = load_base_with_history_specs(model_id, hist)
         try:
             if not pre_done or force:
                 logger.info(f"{round_dir.name}: pre-eval (base + {len(hist)} kept)")
-                summary = eval_round(model, tok, name=name, batch_size=bs,
-                                     max_think_tokens=max_think_tokens,
-                                     n_vignettes=n_vignettes,
-                                     conditions=conditions)
+                with baked(model, hist_specs):
+                    summary = eval_round(model, tok, name=name, batch_size=bs,
+                                         max_think_tokens=max_think_tokens,
+                                         n_vignettes=n_vignettes,
+                                         conditions=conditions)
                 summary.update({"model": model_id, "adapter": None, "c": 0.0,
                                 "name": name, "n_history": len(hist),
                                 "conditions": list(conditions)})
@@ -131,13 +148,14 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
 
             if need_post and (not post_path.exists() or force):
                 signed_C = float(json.loads(calib_path.read_text())["signed_C"])
-                lora = ModulatedLoRA.from_checkpoint(model, str(adapter_path))
+                cur_spec = AdapterSpec.from_checkpoint(model, str(adapter_path),
+                                                       default_c=signed_C)
                 logger.info(f"{round_dir.name}: post-eval (adapter @ c={signed_C:+.3f}, action={action})")
-                with lora(model, c=signed_C):
+                with baked(model, hist_specs + [cur_spec]):
                     summary = eval_round(model, tok, name=name, batch_size=bs,
-                                     max_think_tokens=max_think_tokens,
-                                     n_vignettes=n_vignettes,
-                                     conditions=conditions)
+                                         max_think_tokens=max_think_tokens,
+                                         n_vignettes=n_vignettes,
+                                         conditions=conditions)
                 summary.update({"model": model_id,
                                 "adapter": str(adapter_path),
                                 "c": signed_C, "name": name,

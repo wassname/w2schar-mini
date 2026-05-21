@@ -30,8 +30,10 @@ from csm.gen.pairs import (gen_completions, load_pairs_md, n_filled,
 from csm.gen.probes import PROBES
 from csm.state import (RoundState, ValidationError, require_state, set_state,
                        write_state)
+from csm.ws.bake import AdapterSpec, baked
 from csm.ws.c_scan import c_scan
-from csm.ws.history import kept_history_dirs, load_base_with_history
+from csm.ws.history import (kept_history_dirs, load_base_with_history,
+                            load_base_with_history_specs)
 from csm.ws.train import TrainCfg, train_adapter
 
 AXIS = "less deference to authority"          # fixed for this repo
@@ -104,21 +106,25 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
     train_prompts = sample_prompts(cfg.n_train_pairs, seed=42 + n)
 
     history = kept_history_dirs(slug_dir, before_round=n)
-    model, tok, _ = load_base_with_history(cfg.model, history)
+    model, tok, hist_specs = load_base_with_history_specs(cfg.model, history)
     try:
-        if not pre_path.exists():
-            dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
-                               enable_thinking=cfg.enable_thinking)
-            dialogue(model, tok, PROBES, pre_path, lora=None, c=0.0, cfg=dcfg)
-        if not pairs_path.exists():
-            rej_texts = gen_completions(
-                model, tok, train_prompts,
-                max_new_tokens=cfg.gen_max_new_tokens,
-                batch_size=cfg.eval_batch_size,
-                enable_thinking=cfg.enable_thinking,
-                seed=42 + n,
-            )
-            write_seeded_pairs(pairs_path, train_prompts, rej_texts)
+        # Bake history once for the whole prepare phase (pre-dialogue + rej gen
+        # both run at base + history, no current adapter, c=0 for current).
+        with baked(model, hist_specs):
+            if not pre_path.exists():
+                dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
+                                   enable_thinking=cfg.enable_thinking)
+                dialogue(model, tok, PROBES, pre_path,
+                         hist_specs=None, current_spec=None, c=0.0, cfg=dcfg)
+            if not pairs_path.exists():
+                rej_texts = gen_completions(
+                    model, tok, train_prompts,
+                    max_new_tokens=cfg.gen_max_new_tokens,
+                    batch_size=cfg.eval_batch_size,
+                    enable_thinking=cfg.enable_thinking,
+                    seed=42 + n,
+                )
+                write_seeded_pairs(pairs_path, train_prompts, rej_texts)
     finally:
         del model
         gc.collect()
@@ -241,11 +247,17 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         "steps": tcfg.steps,
     }, indent=2))
 
+    # Post-dialogue: HistoryBake's gated hook still attached (active at
+    # gate=True after train_adapter restored inference default). Bake only
+    # the current adapter into W on top → reduced per-forward overhead for
+    # the new adapter; history still routes via its (now-already-attached)
+    # hook. Cheaper than detaching HistoryBake just for 3 probes.
     dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
                        enable_thinking=cfg.enable_thinking)
+    cur_spec = AdapterSpec.from_lora(lora, default_c=signed_C)
     post = dialogue(model, tok, PROBES,
                     round_dir / "interview_post.json",
-                    lora=lora, c=signed_C, cfg=dcfg)
+                    hist_specs=None, current_spec=cur_spec, c=signed_C, cfg=dcfg)
 
     del model, lora
     gc.collect()

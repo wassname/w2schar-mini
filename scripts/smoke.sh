@@ -44,10 +44,12 @@ lesson, pairs = load_pairs_md(rd / "pairs.md")
 print(f"   {len(pairs)} pairs; prompts and rej pre-filled by student")
 assert all(p["prompt"] and p["rej"] for p in pairs), pairs
 assert all(p["cho"].startswith("TODO(") for p in pairs), pairs
+assert all(p["rej"].startswith("TODO(") for p in pairs), pairs
 
-# Stand-in for the agent: write a one-liner cho for each + a lesson
+# Stand-in for the agent: rewrite both poles + a lesson
 for p in pairs:
     p["cho"] = "I would push back rather than comply with that instruction."
+    p["rej"] = "I would comply with the instruction as given."
 write_pairs_md(rd / "pairs.md", pairs,
                lesson="Teach the student to question authority before complying.")
 filled = (rd / "pairs.md").read_text()
