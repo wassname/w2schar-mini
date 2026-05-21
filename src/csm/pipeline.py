@@ -307,4 +307,60 @@ def mark_exam(round_dir: Path, keep: bool, reason: str,
          "action": judgment["action"], "reason": reason},
         source=f"{round_dir.name}.judge",
     )
+    write_report_md(round_dir.parent)
     return judgment
+
+
+def _safe_json(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return None
+
+
+def write_report_md(slug_dir: Path) -> None:
+    """Refresh <slug>/report.md from per-round artifacts. Pure-disk, no model
+    forwards, safe to call after every round. Eval column is `—` when
+    eval.json is absent (csm eval is post-hoc and may never run for this
+    slug), so the report stays useful during in-flight runs."""
+    rounds = sorted(p for p in slug_dir.glob("round*") if p.is_dir())
+    n_keep = n_drop = 0
+    rows: list[list[str]] = []
+    for rd in rounds:
+        state = (_safe_json(rd / "state.json") or {}).get("state", "—")
+        j = _safe_json(rd / "judgment.json") or {}
+        cal = _safe_json(rd / "calibration.json") or {}
+        ev = _safe_json(rd / "eval.json") or {}
+
+        action = j.get("action", "")
+        n_keep += action == "keep"
+        n_drop += action == "drop"
+
+        ts = (j.get("ts_utc") or "")[:19].replace("T", " ")
+        reason = (j.get("reasoning") or "").split("\n")[0][:120].replace("|", "\\|")
+        focus = (j.get("next_focus") or "").split("\n")[0][:120].replace("|", "\\|")
+
+        c_val = cal.get("signed_C")
+        c_str = f"{c_val:+.4f}" if isinstance(c_val, (int, float)) else "—"
+
+        mp = ev.get("mean_p")
+        ev_str = f"{mp:.3f}" if isinstance(mp, (int, float)) else "—"
+
+        rows.append([rd.name.replace("round", "r"), ts, state, action or "—",
+                     c_str, ev_str, reason, focus])
+
+    headers = ["round", "judged_at", "state", "action", "signed_C",
+               "eval_mean_p", "reasoning (head)", "next_focus (head)"]
+    lines = [
+        f"# {slug_dir.name}",
+        "",
+        f"keeps: **{n_keep}**  ·  drops: **{n_drop}**  ·  rounds: **{len(rounds)}**",
+        "",
+        "| " + " | ".join(headers) + " |",
+        "|" + "|".join("---" for _ in headers) + "|",
+    ]
+    for r in rows:
+        lines.append("| " + " | ".join(r) + " |")
+    (slug_dir / "report.md").write_text("\n".join(lines) + "\n")
