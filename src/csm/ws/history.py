@@ -19,7 +19,7 @@ from typing import Iterable
 
 import torch
 from loguru import logger
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from csm.ws.adapter import HistoryBake, ModulatedLoRA
 from csm.ws.bake import AdapterSpec
@@ -33,18 +33,33 @@ def parse_round_n(name: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def _load_base(model_id: str, dtype: torch.dtype, device_map: str):
+def _load_base(model_id: str, dtype: torch.dtype, device_map: str,
+               quant: str | None = None):
     tok = AutoTokenizer.from_pretrained(model_id)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     tok.padding_side = "left"
 
+    quant_cfg = None
+    if quant == "nf4":
+        quant_cfg = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=dtype,
+            bnb_4bit_use_double_quant=True,
+        )
+    elif quant is not None:
+        raise ValueError(f"unknown quant {quant!r}; expected 'nf4' or None")
+
     attn_impl = os.environ.get("CSM_ATTN_IMPL", "eager")
     model = AutoModelForCausalLM.from_pretrained(
         model_id, device_map=device_map, torch_dtype=dtype,
         low_cpu_mem_usage=True, attn_implementation=attn_impl,
+        quantization_config=quant_cfg,
     )
     model.eval()
+    if quant_cfg is not None:
+        logger.info(f"loaded {model_id} with nf4 quant (compute_dtype={dtype})")
     return model, tok
 
 
@@ -54,6 +69,7 @@ def load_base_with_history(
     *,
     dtype: torch.dtype = torch.bfloat16,
     device_map: str = "auto",
+    quant: str | None = None,
 ):
     """[TRAINING-ONLY] Load base + attach a gated `HistoryBake` hook for
     kept rounds. Returns (model, tokenizer, history_bake_or_None).
@@ -65,7 +81,7 @@ def load_base_with_history(
     instead — it returns CPU-resident AdapterSpec list for use with the
     `baked()` context manager (no hook overhead at forward).
     """
-    model, tok = _load_base(model_id, dtype, device_map)
+    model, tok = _load_base(model_id, dtype, device_map, quant=quant)
     history_dirs = list(history_dirs or [])
     history: list[tuple[ModulatedLoRA, float]] = []
     for rd in history_dirs:
@@ -91,6 +107,7 @@ def load_base_with_history_specs(
     *,
     dtype: torch.dtype = torch.bfloat16,
     device_map: str = "auto",
+    quant: str | None = None,
 ) -> tuple:
     """[INFERENCE] Load base; return kept-round adapters as CPU-resident
     AdapterSpec list (NO hooks attached). Caller uses
@@ -98,7 +115,7 @@ def load_base_with_history_specs(
 
     Returns (model, tokenizer, hist_specs: list[AdapterSpec]).
     """
-    model, tok = _load_base(model_id, dtype, device_map)
+    model, tok = _load_base(model_id, dtype, device_map, quant=quant)
     hist_specs: list[AdapterSpec] = []
     for rd in (history_dirs or []):
         adapter_path = rd / "adapter.safetensors"

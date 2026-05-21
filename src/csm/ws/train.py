@@ -46,6 +46,7 @@ class TrainCfg:
     r: int = 16
     alpha: float = 32.0
     targets: tuple[str, ...] = ("all-linear",)
+    layer_range: tuple[float, float] = (0.0, 1.0)
     steps: int = 200
     warmup_ratio: float = 0.1
     batch_size: int = 4
@@ -279,6 +280,7 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
     """
     torch.manual_seed(cfg.seed)
     lora = ModulatedLoRA(model, r=cfg.r, alpha=cfg.alpha, targets=cfg.targets,
+                         layer_range=cfg.layer_range,
                          dtype=next(model.parameters()).dtype)
     params = list(lora.parameters())
     optim = AdamW(params, lr=cfg.lr, weight_decay=cfg.weight_decay)

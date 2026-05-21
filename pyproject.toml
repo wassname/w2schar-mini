@@ -17,6 +17,8 @@ dependencies = [
     "python-dotenv>=1.0",
     "inspect-ai>=0.3.50",
     "accelerate>=0.34",
+    # 4-bit nf4 loading for 27b+ models (BitsAndBytesConfig).
+    "bitsandbytes>=0.43",
     # OpenRouter provider in inspect-ai goes through the openai SDK.
     "openai>=1.0",
     # Post-hoc eval + plot.

@@ -106,7 +106,7 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
     train_prompts = sample_prompts(cfg.n_train_pairs, seed=42 + n)
 
     history = kept_history_dirs(slug_dir, before_round=n)
-    model, tok, hist_specs = load_base_with_history_specs(cfg.model, history)
+    model, tok, hist_specs = load_base_with_history_specs(cfg.model, history, quant=cfg.quant)
     try:
         # Bake history once for the whole prepare phase (pre-dialogue + rej gen
         # both run at base + history, no current adapter, c=0 for current).
@@ -216,12 +216,13 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         )
 
     history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
-    model, tok, hb = load_base_with_history(cfg.model, history)
+    model, tok, hb = load_base_with_history(cfg.model, history, quant=cfg.quant)
 
     steps = max(cfg.min_steps,
                 int(len(pairs) / cfg.train_batch_size * cfg.n_epochs))
     tcfg = TrainCfg(
         r=cfg.lora_r, alpha=cfg.lora_alpha, targets=cfg.targets,
+        layer_range=cfg.layer_range,
         steps=steps, batch_size=cfg.train_batch_size, lr=cfg.lr,
         max_len=cfg.max_len, kl_lambda=cfg.kl_lambda,
     )

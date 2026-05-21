@@ -144,7 +144,7 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
                 continue
 
         hist = kept_history_dirs(slug_dir, before_round=n)
-        model, tok, hist_specs = load_base_with_history_specs(model_id, hist)
+        model, tok, hist_specs = load_base_with_history_specs(model_id, hist, quant=cfg.quant)
         try:
             if not pre_done or force:
                 logger.info(f"{round_dir.name}: pre-eval (base + {len(hist)} kept)")

@@ -1,9 +1,11 @@
 """ModulatedLoRA: one LoRA adapter with a scalar coefficient `c`.
 
 Forked from `weight-steering-lite/src/wsl/adapter.py`, trimmed:
-- Dropped `layer_range` (depth band) — apply to all matching layers.
-- Dropped 4-bit / bnb branch.
 - Kept `HistoryBake` for round composition.
+- `layer_range` re-added (default (0.0, 1.0) = all layers).
+- 4-bit compatible: the hook's `xA = x.to(A.dtype)` cast handles bnb.Linear4bit
+  (which inherits nn.Linear). Load model with BitsAndBytesConfig and target
+  set is the same.
 
 Training optimises the adapter so that `c=+1` reproduces chosen behaviour
 and `c=-1` reproduces rejected behaviour on the same prompt. At eval
@@ -41,22 +43,49 @@ class LoRAConfig:
     targets: tuple[str, ...] = ("all-linear",)
     exclude: tuple[str, ...] = ("vision_tower", "lm_head")
     dtype: torch.dtype = torch.bfloat16
+    layer_range: tuple[float, float] = (0.0, 1.0)
+    """Depth band as (lo, hi) fractions; (0.2, 0.8) = middle 60% of blocks.
+    Modules outside the .layers.<int>. stack (embed/norm) are kept regardless
+    (filter by `exclude` instead)."""
 
 
 def _match(name: str, patterns: tuple[str, ...]) -> bool:
     return any(re.search(p, name) for p in patterns)
 
 
+_LAYER_IDX_RE = re.compile(r"\.layers\.(\d+)\.")
+
+
+def _layer_idx(name: str) -> int | None:
+    """Pull transformer-block index from `model.layers.<int>.…`. Returns None
+    for modules outside the block stack (embed, norm, lm_head). Works for HF
+    Llama/Gemma/Qwen — they all use `.layers.<int>.` naming."""
+    m = _LAYER_IDX_RE.search(name)
+    return int(m.group(1)) if m else None
+
+
 def _find_targets(model: nn.Module, cfg: LoRAConfig) -> list[tuple[str, nn.Linear]]:
     all_linear = "all-linear" in cfg.targets
-    out = [
+    candidates = [
         (name, m) for name, m in model.named_modules()
         if isinstance(m, nn.Linear)
         and (all_linear or _match(name, cfg.targets))
         and not _match(name, cfg.exclude)
     ]
+    lo, hi = cfg.layer_range
+    if (lo, hi) != (0.0, 1.0):
+        idxs = {i for i in (_layer_idx(n) for n, _ in candidates) if i is not None}
+        if not idxs:
+            raise RuntimeError(f"layer_range={cfg.layer_range} given but no .layers.<int>. matches")
+        n_layers = max(idxs) + 1
+        lo_i, hi_i = int(n_layers * lo), int(n_layers * hi)
+        out = [(n, m) for n, m in candidates
+               if (idx := _layer_idx(n)) is None or lo_i <= idx < hi_i]
+    else:
+        out = candidates
     if not out:
-        raise RuntimeError(f"no targets matched {cfg.targets!r} (excluded {cfg.exclude!r})")
+        raise RuntimeError(f"no targets matched {cfg.targets!r} layer_range={cfg.layer_range} "
+                           f"(excluded {cfg.exclude!r})")
     return out
 
 
@@ -70,8 +99,10 @@ class ModulatedLoRA:
 
     def __init__(self, model: nn.Module, r: int = 16, alpha: float = 32.0,
                  targets: tuple[str, ...] = ("all-linear",),
+                 layer_range: tuple[float, float] = (0.0, 1.0),
                  dtype: torch.dtype = torch.bfloat16):
-        self.cfg = LoRAConfig(r=r, alpha=alpha, targets=targets, dtype=dtype)
+        self.cfg = LoRAConfig(r=r, alpha=alpha, targets=targets,
+                              layer_range=layer_range, dtype=dtype)
         self._handles: list = []
         self._c: float = 0.0
         self._attached: bool = False
@@ -155,7 +186,8 @@ class ModulatedLoRA:
         sd = {f"A.{k.replace('.', '__')}": v.detach().cpu() for k, v in self.A.items()}
         sd.update({f"B.{k.replace('.', '__')}": v.detach().cpu() for k, v in self.B.items()})
         meta = {"r": str(self.cfg.r), "alpha": str(self.cfg.alpha),
-                "targets": ",".join(self.cfg.targets)}
+                "targets": ",".join(self.cfg.targets),
+                "layer_range": f"{self.cfg.layer_range[0]},{self.cfg.layer_range[1]}"}
         if extra_meta:
             meta.update(extra_meta)
         save_file(sd, path, metadata=meta)
@@ -182,8 +214,11 @@ class ModulatedLoRA:
         with safe_open(path, framework="pt") as f:
             meta = f.metadata()
         targets = tuple(meta["targets"].split(","))
+        lr_meta = meta.get("layer_range", "0.0,1.0")
+        lo, hi = (float(v) for v in lr_meta.split(","))
         lora = cls(model, r=int(meta["r"]), alpha=float(meta["alpha"]),
-                   targets=targets, dtype=next(model.parameters()).dtype)
+                   targets=targets, layer_range=(lo, hi),
+                   dtype=next(model.parameters()).dtype)
         lora.load(path)
         return lora
 
@@ -233,13 +268,14 @@ class HistoryBake:
         logger.info(f"HistoryBake: {len(history)} kept adapter(s), r_total={Nr}")
 
     def _make_hook(self, name: str):
-        A = self._A_cat[name]                         # (k_total, d_in)
-        B = self._B_cat[name]                         # (d_out, k_total), scale pre-folded
-
+        # Read A/B inside the hook body — closure captures `self`, not the
+        # tensors. Safe against future push/pop replacement of A_cat/B_cat.
         def hook(layer: nn.Linear, args, y: Tensor) -> Tensor:
             if not self._is_active():
                 return y
             (x,) = args
+            A = self._A_cat[name]                     # (k_total, d_in)
+            B = self._B_cat[name]                     # (d_out, k_total), scale pre-folded
             xA = x.to(A.dtype)
             h = F.linear(xA, A)                       # x @ A.T via cuBLAS
             delta = F.linear(h, B)                    # h @ B.T via cuBLAS
