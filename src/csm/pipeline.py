@@ -230,13 +230,15 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
                          history_bake=hb, enable_thinking=cfg.enable_thinking)
 
     # Calibrate. cfg.signed_C is the initial probe; c_scan walks down
-    # ×0.5 until pmass ≥ 0.98 × baseline, no backoff. Coherent adapters
-    # bake at init; fragile ones get tamer baked coefficients.
-    probe_prompts = [p["opening"] for p in PROBES]
+    # ×0.5 until pmass_format ≥ 0.98 × baseline, no backoff. Coherent
+    # adapters bake at init; fragile ones get tamer baked coefficients.
+    # pmass_format = tinymfv format-follow mass at the JSON answer slot
+    # (sensitive to autoregressive collapse; the prior top-K surrogate
+    # missed it because it was teacher-forced on base's clean prefix).
     signed_C, trace = c_scan(
-        model, tok, lora, probe_prompts,
+        model, tok, lora,
         init_c=cfg.signed_C, sign=SIGN,
-        n_gen=cfg.dialogue_max_new_tokens, batch_size=cfg.eval_batch_size,
+        batch_size=cfg.eval_batch_size,
     )
     lora.save(str(round_dir / "adapter.safetensors"),
               extra_meta={"axis": AXIS, "sign": str(SIGN)})

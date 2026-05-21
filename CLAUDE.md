@@ -44,6 +44,20 @@ samplebuffer is the only source for an in-flight agent's monologue.
 - Minimal diffs; if you add something, remove something.
 - One driving principle per experiment / loss; constraints are barriers, not extra objectives.
 
+## Repo-specific rules
+
+**Coherence canary = format-follow pmass.** Specifically `mean_pmass_format` from tinymfv: sum of probability over the 7 foundation answer tokens at the JSON answer slot, after a multi-token thinking budget. Format-following degrades quickly under any incoherence (repetition loops, language drift, gibberish) because emitting `"foundation": "<wrong-token>"` requires the model to still understand structure. **NOT** the same as "top-K mass on base's generated sequence" (that's teacher-forced and misses autoregressive collapse — c_scan used it briefly and got bitten). **Δtop1 is label-agreement, NOT a coherence budget** — we shift it intentionally. If you find yourself ranking adapters by Δtop1, stop.
+
+Same rule applies in two places with the same name and the same semantics:
+- `csm eval` post-hoc: tinymfv at `max_think_tokens=64` (cheap, comparable across rounds)
+- `csm.ws.c_scan` mid-train calibration: tinymfv at `max_think_tokens=512`, `n_vignettes=2` (catches deployment-regime coherence)
+
+**No backoff in c_scan.** `c_scan` walks down from `init_c` by ×0.5 until pmass ≥ 0.98 × baseline. The 0.98 gate is the safety margin; the prior ×0.75 post-gate backoff made interventions too weak to clear bf16 eval noise. If you re-add a backoff, you also have to re-tune the gate.
+
+**Eval default is `max_think_tokens=64`.** tinymfv evals at 256 think-tokens take ~14 min/phase × 8 phases × N rounds — pushing a 10-round 9b eval over 8 hours. 64 is ~10× faster and within bf16 noise of 256 on mean_p. Bump to 256+ only for publication runs.
+
+**Bake for inference, hooks for training.** `csm.ws.bake.baked()` physically merges adapters into W for inference (no runtime LoRA matmul, with CPU W-backup for restore). Training and c_scan stay on hooks because they vary `c` per step/probe.
+
 ## Outputs
 
 `out/iter/<TS>_iter_<student-slug>/`:
