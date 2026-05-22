@@ -157,28 +157,36 @@ _KL_TOPK = 256
 
 
 def _kl_topk_base(logp_steer, base_top_logp, base_top_idx, labels):
-    """Reverse KL(p_steer ‖ p_base) approximated over base's top-K vocab
-    entries per position. HF-style label shift (logits[t] predicts label[t+1]).
+    """Reverse KL(p_steer_K ‖ p_base_K) on the top-K simplex per position,
+    where p_*_K are the steered/base distributions renormalized over
+    base's top-K indices. HF-style shift (logits[t] predicts label[t+1]).
 
-    Memory motivation: full-vocab logp_base is 33.5 GB for gemma-2b (16 batch
-    × 2048 seq × 256k vocab × fp32). Storing only the top-K reduces this to
-    ~33 MB at K=256 — 1000× smaller — and the persistent state across pos+neg
-    pcgrad branches drops from 67 GB → ~66 MB. The transient steered logp is
-    still full-vocab during this gather (autograd needs the proper softmax
-    normalizer for the chosen indices) but is freed after backward.
+    Renormalization is REQUIRED for KL ≥ 0: gathering log_softmax-over-full-V
+    at top-K indices gives sub-distributions whose mass < 1, and naïve
+    Σ p_s · (logp_s − logp_b) on those is unbounded in sign (it became
+    negative in trace logs when steered mass leaked outside base's top-K,
+    flipping kl_lambda·kl from anchor into anti-anchor). After renormalizing
+    both sides over the K subset Gibbs gives KL ≥ 0.
 
-    Approximation bias: ignores p_s mass on tokens outside base's top-K. For
-    an instruct LM at K=256, base's top-K typically captures >99% of mass per
-    position, so the omitted contribution is <0.01 × kl_lambda. Acts as a
-    soft anchor weaker than full KL — appropriate for our small kl_lambda.
+    Memory motivation: full-vocab logp_base is 33.5 GB for gemma-2b
+    (16 batch × 2048 seq × 256k vocab × fp32). Top-K storage at K=256 is
+    ~33 MB — 1000× smaller — and persistent state across pos+neg pcgrad
+    branches drops 67 GB → ~66 MB. Transient steered logp stays full-vocab
+    during the gather but is freed after backward.
+
+    Approximation bias: collapses 'mass outside base top-K' into a single
+    implicit bucket. For an instruct LM at K=256 base captures >99% per
+    position so the lost-mass signal is small — acceptable as a soft anchor.
     """
     s_sh = logp_steer[:, :-1, :]                       # (B, S-1, V)
     b_sh_logp = base_top_logp[:, :-1, :]               # (B, S-1, K)
     b_sh_idx = base_top_idx[:, :-1, :]                 # (B, S-1, K)
     mask_sh = (labels[:, 1:] != -100)
     s_top = torch.gather(s_sh, -1, b_sh_idx)           # (B, S-1, K)
-    p_s = s_top.exp()
-    kl_per_tok = (p_s * (s_top - b_sh_logp)).sum(dim=-1)
+    logp_s_K = s_top - torch.logsumexp(s_top, dim=-1, keepdim=True)
+    logp_b_K = b_sh_logp - torch.logsumexp(b_sh_logp, dim=-1, keepdim=True)
+    p_s_K = logp_s_K.exp()
+    kl_per_tok = (p_s_K * (logp_s_K - logp_b_K)).sum(dim=-1)
     return kl_per_tok[mask_sh.bool()].mean()
 
 

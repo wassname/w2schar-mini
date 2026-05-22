@@ -172,22 +172,39 @@ def pissa_to_lora_spec(adapter: ModulatedPiSSA,
                        r=adapter.cfg.r, default_c=default_c)
 
 
-def pissa_spec_from_checkpoint(path: str,
+def pissa_spec_from_checkpoint(model: nn.Module, path: str,
                                default_c: float = 1.0) -> AdapterSpec:
     """Load a PiSSA checkpoint as a LoRA-equivalent AdapterSpec without
-    touching layer.weight (vs ModulatedPiSSA.load which mutates W)."""
+    touching layer.weight (vs ModulatedPiSSA.load which mutates W).
+
+    Validates checkpoint keys against `_find_targets(model, cfg)` reproduced
+    from ckpt metadata: any mismatch (renamed module, changed layer_range,
+    wrong model) raises. Without this `baked()` would silently intersect
+    keys with model.named_modules() and drop the rest."""
     from safetensors import safe_open
     from safetensors.torch import load_file
+    from csm.ws.adapter import LoRAConfig, _find_targets
     with safe_open(path, framework="pt") as f:
         meta = f.metadata()
     if meta.get("kind") != "pissa":
         raise RuntimeError(f"not a PiSSA checkpoint: kind={meta.get('kind')!r}")
     r = int(meta["r"])
+    targets = tuple(meta["targets"].split(","))
+    lr_lo, lr_hi = (float(x) for x in meta["layer_range"].split(","))
+    cfg = LoRAConfig(r=r, targets=targets, layer_range=(lr_lo, lr_hi))
+    expected = {n for n, _ in _find_targets(model, cfg)}
     sd = load_file(path, device="cpu")
-    keys = sorted({k[2:].replace("__", ".") for k in sd if k.startswith("U.")})
+    keys = {k[2:].replace("__", ".") for k in sd if k.startswith("U.")}
+    if keys != expected:
+        missing = expected - keys
+        extra = keys - expected
+        raise RuntimeError(
+            f"PiSSA checkpoint target mismatch (path={path}): "
+            f"missing={sorted(missing)[:3]}... extra={sorted(extra)[:3]}... "
+            f"({len(missing)} missing, {len(extra)} extra)")
     A: dict[str, torch.Tensor] = {}
     B: dict[str, torch.Tensor] = {}
-    for k in keys:
+    for k in sorted(keys):
         kk = k.replace(".", "__")
         A[k] = sd[f"Vh.{kk}"].contiguous()
         B[k] = (sd[f"U.{kk}"] * sd[f"delta_s.{kk}"]).contiguous()
@@ -202,5 +219,5 @@ def adapter_spec_from_checkpoint(model: nn.Module, path: str,
     with safe_open(path, framework="pt") as f:
         kind = f.metadata().get("kind", "lora")
     if kind == "pissa":
-        return pissa_spec_from_checkpoint(path, default_c=default_c)
+        return pissa_spec_from_checkpoint(model, path, default_c=default_c)
     return AdapterSpec.from_checkpoint(model, path, default_c=default_c)
