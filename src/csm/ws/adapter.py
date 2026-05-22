@@ -363,23 +363,36 @@ class ModulatedPiSSA:
 
     def _log_selection_diagnostic(self) -> None:
         """For each target, summarize where in S the chosen indices fell.
-        SHOULD: with sqrt_s_act / act_only on real prompts, mean chosen-rank
-        > r/2 (we're picking past the top of S). ELSE selection collapsed
-        to top-S = scoring is effectively s_only (X capture probably broken
-        OR the activations align dominantly with top S, which is the failure
-        mode we built this to detect)."""
-        ranks = []
+        For pure top-S selection, mean(idx) = (r-1)/2. Activation-driven
+        modes should push picks deeper into the tail, increasing mean(idx).
+        Report `tail_depth = (mean(idx) - (r-1)/2) / (k - r)` (0 = top-S
+        only; 1 = picks all live past rank r, in the tail).
+        SHOULD: tail_depth > 0.05 for activation-driven modes on real
+        prompts. ELSE selection collapsed to top-S = scoring isn't doing
+        work (X capture broken, OR activations dominantly align with the
+        top of S — the failure mode this fork was built to detect)."""
+        if not self._chosen_idx:
+            return
+        ranks_mean = []
+        tail_depths = []
         for name, idx in self._chosen_idx.items():
-            ranks.append(idx.float().mean().item())
-        if ranks:
-            mean_rank = sum(ranks) / len(ranks)
+            layer = self._target_layers[name]
+            k_full = min(layer.in_features, layer.out_features)
             r = self.cfg.r
-            logger.info(
-                f"ModulatedPiSSA selection: mean chosen index = {mean_rank:.1f} "
-                f"across {len(ranks)} targets (r={r}, mode={self.selection_score}). "
-                f"SHOULD be > r/2 = {r/2:.0f} for activation-driven modes; "
-                f"if ≈ (r-1)/2 the picks collapsed onto the top of S."
-            )
+            mean_idx = idx.float().mean().item()
+            top_s_mean = (r - 1) / 2
+            denom = max(1.0, k_full - r)
+            tail_depths.append((mean_idx - top_s_mean) / denom)
+            ranks_mean.append(mean_idx)
+        m = sum(ranks_mean) / len(ranks_mean)
+        td = sum(tail_depths) / len(tail_depths)
+        logger.info(
+            f"ModulatedPiSSA selection: mean(chosen_idx)={m:.1f} "
+            f"tail_depth={td:.3f} across {len(ranks_mean)} targets "
+            f"(r={self.cfg.r}, mode={self.selection_score}). "
+            f"SHOULD be tail_depth > 0.05 for activation-driven modes; "
+            f"≈0 means picks collapsed onto the top of S."
+        )
 
     def parameters(self):
         for p in self.delta_s.values():

@@ -162,5 +162,19 @@ def config_by_model(model_id: str) -> RunConfig:
     """Fall back to a default RunConfig if `model_id` isn't in CONFIGS."""
     for cfg in CONFIGS.values():
         if cfg.model == model_id:
+            _validate(cfg)
             return cfg
-    return RunConfig(model=model_id, teacher="qwen/qwen3.5-9b")
+    cfg = RunConfig(model=model_id, teacher="qwen/qwen3.5-9b")
+    _validate(cfg)
+    return cfg
+
+
+def _validate(cfg: RunConfig) -> None:
+    if cfg.adapter == "pissa" and cfg.quant is not None:
+        # PiSSA physically mutates layer.weight at init; bnb quantized
+        # buffers are not reversibly writable. Force quant=None for PiSSA
+        # profiles or use ModulatedLoRA for the quantized model.
+        raise ValueError(
+            f"PiSSA requires float layers; quant={cfg.quant!r} is incompatible. "
+            f"Either set adapter='lora' or quant=None for {cfg.model!r}."
+        )

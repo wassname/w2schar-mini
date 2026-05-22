@@ -295,12 +295,21 @@ def _capture_calibration_activations(model, tok, pairs: list[dict],
     counts: dict[str, int] = {name: 0 for name, _ in targets}
     cap = cfg.pissa_calib_max_tokens
 
+    # Pad-position mask is set per-forward below; the hook filters by it so
+    # captured X reflects real prompt tokens only (not pad noise).
+    _current_pad_mask: dict[str, torch.Tensor | None] = {"m": None}
+
     def make_hook(name):
         def _h(module, args, kwargs):
             if counts[name] >= cap:
                 return
             x = args[0].detach()
-            x = x.reshape(-1, x.shape[-1]).to(torch.float32).cpu()
+            mask = _current_pad_mask["m"]
+            if mask is not None and mask.shape[:x.dim() - 1] == x.shape[:-1]:
+                x = x[mask.bool()]                        # (N_real, d_in)
+            else:
+                x = x.reshape(-1, x.shape[-1])
+            x = x.to(torch.float32).cpu()
             take = min(x.shape[0], cap - counts[name])
             captured[name].append(x[:take])
             counts[name] += take
@@ -331,7 +340,9 @@ def _capture_calibration_activations(model, tok, pairs: list[dict],
             for i in range(0, ids.shape[0], bs):
                 if all(counts[n] >= cap for n in counts):
                     break
+                _current_pad_mask["m"] = attn[i:i+bs]
                 model(input_ids=ids[i:i+bs], attention_mask=attn[i:i+bs])
+            _current_pad_mask["m"] = None
         if was_training:
             model.train()
     finally:
