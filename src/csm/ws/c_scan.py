@@ -15,9 +15,12 @@ Sidecar (the agent never sees this). Two signals, both gated:
   pmass_allowed misses: model never emits JSON, copies schema, emits
   syntactic gibberish, or loops mid-recitation.
 
-A probe passes iff `pmass_allowed ≥ 0.99 × baseline` AND all valid_json
-prompts emit a parseable + non-placeholder object. Walk down ×0.5 until
-a probe passes, then apply a ×0.75 backoff for cumulative-history safety
+A probe passes iff `pmass_allowed ≥ gate × baseline_pmass` AND
+`valid_json ≥ baseline_valid_json` (don't *degrade* coherence vs base —
+earlier absolute "all 3 pass" gate was unsatisfiable when any single
+prose probe is intrinsically hard for the base model, e.g. gemma-2-2b
+on first-order logic). Walk down ×0.5 until a probe passes, then apply
+a ×0.75 backoff for cumulative-history safety
 (each kept round bakes into W; backoff hedges that the next round's
 adapter sees a slightly noisier base than this round's c_scan saw).
 """
@@ -166,8 +169,20 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                            batch_size=batch_size,
                            json_max_new_tokens=json_max_new_tokens)
     baseline_pmass = base["pmass"]
+    baseline_json = base["valid_json"]
     gate = gate_frac * baseline_pmass
+    # Relative-to-baseline gate: an adapter passes iff it doesn't *degrade*
+    # coherence below what the base model itself produces. Earlier absolute
+    # gate (valid_json == n_json) was unsatisfiable when one of the 3 prose
+    # probes is intrinsically hard for the base (e.g. gemma-2-2b on
+    # first-order logic with ∀/∃) — c_scan walked all the way to C_MIN even
+    # when probes matched baseline 1:1. If baseline itself collapses
+    # (valid_json == 0), the gate becomes trivial; surface this with a warn.
     trace = [{"stage": "baseline", "c": 0.0, **base, "note": "—"}]
+    base_warn = ""
+    if baseline_json == 0:
+        base_warn = (f"baseline valid_json=0/{base['n_json']} — gate is trivial; "
+                     "probes too hard for base or generation collapsed")
 
     c = init_c
     warn = ""
@@ -179,7 +194,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                             batch_size=batch_size,
                             json_max_new_tokens=json_max_new_tokens)
         pmass_ok = m["pmass"] >= gate
-        json_ok = m["valid_json"] == m["n_json"]
+        json_ok = m["valid_json"] >= baseline_json
         ok = pmass_ok and json_ok
         note = ("pass" if ok else
                 "fail-json" if not json_ok and pmass_ok else
@@ -217,7 +232,11 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
              t["note"]] for t in trace]
     table = tabulate(rows, headers=["stage", "c", "pmass", "json", "note"],
                      tablefmt="plain", floatfmt="+.3f")
-    logger.info(f"\nc_scan (baseline_pmass={baseline_pmass:.3f}, gate={gate:.3f}):\n{table}\n")
+    logger.info(f"\nc_scan (baseline_pmass={baseline_pmass:.3f}, "
+                f"baseline_json={baseline_json}/{base['n_json']}, "
+                f"gate=pmass≥{gate:.3f} AND json≥{baseline_json}):\n{table}\n")
+    if base_warn:
+        logger.warning(f"c_scan: {base_warn}")
     if warn:
         logger.warning(f"c_scan: {warn}")
 
