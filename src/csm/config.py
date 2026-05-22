@@ -100,7 +100,12 @@ CONFIGS: dict[str, RunConfig] = {
         model="google/gemma-2-2b-it",
         teacher="qwen/qwen3.5-9b",
         adapter="pissa",
-        lora_r=512,
+        # r=2304 acts as "full per target" sentinel: ModulatedPiSSA clamps
+        # per-layer to min(d_in, d_out), so q,o,gate,up,down get r=2304,
+        # GQA k,v get r=1024. Tests "is rank-selection the bottleneck?" —
+        # at full rank the only remaining PiSSA constraint is "diagonal in
+        # W's spectral basis", no longer "which directions to keep".
+        lora_r=2304,
         train_batch_size=16,
         eval_batch_size=16,
         # kl_lambda 100× the original PiSSA setting. KL pressure during
@@ -111,12 +116,12 @@ CONFIGS: dict[str, RunConfig] = {
         # 0.5 puts kl contribution ~0.2 nats, matching margin magnitude
         # so the constraint is balanced not nominal.
         kl_lambda=0.5,
-        # lr 100× LoRA default: margin loss (cho_nll - rej_nll) has small
-        # raw magnitude (~0.6 vs absolute nll ~3.5) AND now cos≈-0.3 means
-        # PCGrad cancels ~half the gradient — net update is tiny, ‖Δs‖
-        # barely accelerates beyond init. Bumping to 1e-2 to actually open
-        # the margin (previous 4e-3 closed it 0.63→0.57 over 60 steps).
-        lr=1e-2,
+        # lr 200× LoRA default. 1e-2 trace (r=512 run): margin opens at
+        # high C (5+ nats) but low-C nll+ stuck at ~2.97 and ‖Δs‖ saturated
+        # at 5 by step 90 — possibly hitting grad_clip=1.0 every step, so
+        # effective lr was much smaller. Bumping to 2e-2 to test whether
+        # the plateau was lr-decay/clip-bound rather than capacity.
+        lr=2e-2,
         # wd≈0: Δs is the entire learnable param (per-singular delta).
         # Normal weight-decay scales (0.01) shrink Δs back toward 0
         # (= PiSSA identity = null intervention), fighting the optimizer.

@@ -486,7 +486,7 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             C=C, pcgrad=cfg.pcgrad, kl_lambda=cfg.kl_lambda,
         )
 
-        torch.nn.utils.clip_grad_norm_(params, cfg.grad_clip)
+        gn_pre = float(torch.nn.utils.clip_grad_norm_(params, cfg.grad_clip))
         optim.step()
         optim.zero_grad(set_to_none=True)
         sched.step()
@@ -504,6 +504,7 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             "kl-": trace["kl_mean_neg"],
             "cos": trace["cos"],
             "‖Δs‖": ds_norm,
+            "‖g‖": gn_pre,
             "lr": lr,
             "conf": int(trace["conflict"]),
         })

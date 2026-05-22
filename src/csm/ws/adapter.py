@@ -345,27 +345,28 @@ class ModulatedPiSSA:
 
         for name, layer in targets_found:
             self._target_layers[name] = layer
+            d_in, d_out = layer.in_features, layer.out_features
+            # Per-target clamp: r > full-rank k for this layer (e.g. r=2304
+            # against GQA k,v with min(d_in,d_out)=1024) just means "use full
+            # spectrum here". Lets one cfg.r serve as "full per target" via
+            # any large sentinel.
+            r_used = min(r, min(d_in, d_out))
             if _skip_init:
                 # Allocate empty skeletons; from_checkpoint fills them then
                 # mutates layer.weight = W - U·S·Vh.
-                d_in, d_out = layer.in_features, layer.out_features
-                self.U[name] = torch.empty(d_out, r, dtype=dtype, device=device)
-                self.S[name] = torch.empty(r, dtype=dtype, device=device)
-                self.Vh[name] = torch.empty(r, d_in, dtype=dtype, device=device)
-                self.delta_s[name] = nn.Parameter(torch.empty(r, dtype=dtype, device=device))
+                self.U[name] = torch.empty(d_out, r_used, dtype=dtype, device=device)
+                self.S[name] = torch.empty(r_used, dtype=dtype, device=device)
+                self.Vh[name] = torch.empty(r_used, d_in, dtype=dtype, device=device)
+                self.delta_s[name] = nn.Parameter(torch.empty(r_used, dtype=dtype, device=device))
                 continue
 
             # Full SVD in float32 for numerical stability, then score + slice.
             with torch.no_grad():
                 W = layer.weight.data.to(torch.float32)
                 U_full, S_full, Vh_full = torch.linalg.svd(W, full_matrices=False)
-                k = S_full.shape[0]
-                if r > k:
-                    raise RuntimeError(
-                        f"ModulatedPiSSA at {name}: r={r} > full SVD rank {k}; lower r")
                 X = (calibration_activations or {}).get(name)
                 scores = _pissa_score(name, S_full, X, Vh_full, selection_score)
-                idx = scores.argsort(descending=True)[:r]
+                idx = scores.argsort(descending=True)[:r_used]
                 idx = idx.sort().values                         # stable order
                 Ur = U_full[:, idx].contiguous()
                 Sr = S_full[idx].contiguous()
@@ -387,7 +388,7 @@ class ModulatedPiSSA:
             # Asymmetric (mean=std>0) keeps a slight positive prior so c=+C
             # systematically amplifies and c=-C systematically attenuates
             # the chosen singular directions, preserving the +C/-C duality.
-            ds = torch.empty(r, dtype=dtype, device=device).normal_(mean=4e-2, std=4e-2)
+            ds = torch.empty(r_used, dtype=dtype, device=device).normal_(mean=4e-2, std=4e-2)
             self.delta_s[name] = nn.Parameter(ds)
 
         for p in model.parameters():
