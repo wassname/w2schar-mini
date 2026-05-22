@@ -102,13 +102,16 @@ CONFIGS: dict[str, RunConfig] = {
         lora_r=256,
         train_batch_size=16,
         eval_batch_size=16,
-        # 10× the LoRA default. PiSSA has ~2000× fewer trainable params
-        # (r per target vs r·(d_in+d_out)) and each Δs is a single scalar
-        # with the leverage of a full rank-1 outer product on the output;
-        # init Δs ~ 4e-4 needs to move toward S magnitude (~1-100) within
-        # cfg.steps=60. lr=1e-4 from the LoRA profile gave a constant
-        # nll+/nll- to 3 sig figs across 10 steps (no learning visible).
-        lr=1e-3,
+        # KL 100× lower than the LoRA default. Hypothesis (#50 trace, lr=1e-3):
+        # at full lr the optimizer collapses Δs toward zero because KL term
+        # dominates — model "learns null intervention" (nll+/nll- constant
+        # to 3 sig figs, kl=0 at step 5 with peak lr). PiSSA's identity-at-
+        # init means Δs=0 is exactly base, so any nonzero KL gradient pulls
+        # back to it. Drop to 0.005 so PCGrad/NLL win the gradient race.
+        # lr stays at LoRA default (1e-4) — lr=1e-3 didn't fix the constant-
+        # nll problem (gradient direction was correct per cos=-0.84; magnitude
+        # wasn't the bottleneck, KL was).
+        kl_lambda=0.005,
     ),
     "gemma-9b": RunConfig(
         model="google/gemma-2-9b-it",
