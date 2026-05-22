@@ -1,31 +1,31 @@
-"""ModulatedLoRA: one LoRA adapter with a scalar coefficient `c`.
+"""ModulatedLoRA + ModulatedPiSSA: scalar-c-modulated rank-r adapters.
 
-Forked from `weight-steering-lite/src/wsl/adapter.py`, trimmed:
-- Kept `HistoryBake` for round composition.
-- `layer_range` re-added (default (0.0, 1.0) = all layers).
-- 4-bit compatible: the hook's `xA = x.to(A.dtype)` cast handles bnb.Linear4bit
-  (which inherits nn.Linear). Load model with BitsAndBytesConfig and target
-  set is the same.
-
-Training optimises the adapter so that `c=+1` reproduces chosen behaviour
-and `c=-1` reproduces rejected behaviour on the same prompt. At eval
-time `c` interpolates: `c=0` -> identical to base, `c=±1` -> trained
-extremes.
-
-Math (per target Linear with weight W : d_out × d_in):
+`ModulatedLoRA` (free-init A,B; W untouched):
     h     = W x
     delta = (alpha / r) * B @ A @ x       # A: r×d_in, B: d_out×r
     y     = h + c * delta                  # c=0 → exact base
+Init: A ~ kaiming_uniform, B ~ N(1e-4, 1e-4); tiny nonzero B breaks +c/-c
+sign symmetry at init.
 
-Init: A ~ kaiming_uniform, B ~ N(1e-4, 1e-4). The tiny nonzero B breaks
-sign-symmetry between +c and -c poles at init (loss is even in c at
-B=0), giving the optimiser a signed gradient to follow.
+`ModulatedPiSSA` (SVD-extracted; W mutated to W_res = W - U_r·S_r·Vh_r):
+    h     = W_res x
+    delta = U · diag(S + c · Δs) · Vh · x   # buffers U/S/Vh; trainable Δs
+    y     = h + delta                        # c=0 → W·x (modulo SVD round-trip)
+Init: Δs ~ N(4e-4, 4e-4) (small positive bias breaks sign symmetry).
+Top-r selection driven by `selection_score`; activation-driven options
+need a `calibration_activations` dict.
+
+Forked from `weight-steering-lite/src/wsl/adapter.py`. 4-bit compatible:
+hooks cast x to adapter dtype; works on bnb.Linear4bit which inherits
+nn.Linear. PiSSA path requires float layers (W mutation isn't reversible
+on quantized buffers); enforce that at init.
 """
 from __future__ import annotations
 
 import re
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 import torch.nn.functional as F
@@ -224,6 +224,281 @@ class ModulatedLoRA:
 
 
 # ---------------------------------------------------------------------------
+# ModulatedPiSSA — top-r SVD of W is physically extracted into the adapter.
+# `layer.weight` is mutated to W_res = W - U_r·S_r·Vh_r at init; the forward
+# hook reconstructs U·diag(S + c·Δs)·Vh·x. At Δs=0 the SVD round-trip gives
+# back W·x (bf16 noise tolerated). Δs can ablate a singular dim entirely
+# (Δs_i = -S_i / c kills it) — the parameterisation gives the optimiser
+# *signed authority over each top singular direction*, which is the point.
+#
+# Top-r selection (`selection_score`):
+#   - "s_only"     : top S_full (PiSSA default — broad/blunt for instruct LMs)
+#   - "wanda"      : S_full · ||X·Vh_full||  (Wanda pruning score; biases top-S)
+#   - "sqrt_s_act" : √S_full · ||X·Vh_full|| (default — soft S prior)
+#   - "act_only"   : ||X·Vh_full||           (pure activation magnitude)
+# Activation-scored options need `calibration_activations[name] = X (N, d_in)`.
+# ---------------------------------------------------------------------------
+
+
+_PISSA_SCORES = ("s_only", "wanda", "sqrt_s_act", "act_only")
+
+
+def _pissa_score(name: str, S_full: Tensor, X: Tensor | None,
+                 Vh_full: Tensor, mode: str) -> Tensor:
+    """Score every singular direction of W; caller takes top-r by score."""
+    if mode == "s_only":
+        return S_full
+    if X is None:
+        raise RuntimeError(f"selection_score={mode!r} needs calibration_activations[{name!r}]")
+    # X: (N, d_in) float32 CPU; Vh_full: (k, d_in) float32 (on device).
+    # Compute on Vh_full's device so the matmul is fast; X is small enough
+    # to fit alongside (cap at 1024 tokens per layer, see train.py).
+    X_dev = X.to(Vh_full.device, dtype=torch.float32)
+    proj = X_dev @ Vh_full.T                                  # (N, k)
+    act = proj.abs().mean(dim=0)                              # (k,)
+    if mode == "wanda":
+        return S_full * act
+    if mode == "sqrt_s_act":
+        return S_full.clamp(min=0).sqrt() * act
+    if mode == "act_only":
+        return act
+    raise ValueError(f"selection_score must be one of {_PISSA_SCORES}, got {mode!r}")
+
+
+class ModulatedPiSSA:
+    """Bidirectional SVD-space adapter with scalar coefficient `c`.
+
+    Same surface as `ModulatedLoRA`: parameters(), set_coeff(), `c` property,
+    `with adapter(model, c=...):` context manager, save/load/from_checkpoint.
+    Per target Linear (W: d_out × d_in):
+        Init     : SVD(W); top-r selected by `selection_score`; W mutated to
+                   W_res = W - U_r·S_r·Vh_r; (U_r, S_r, Vh_r) stored as
+                   buffers; Δs ∈ ℝ^r trainable, init N(4e-4, 4e-4).
+        Forward  : y = layer(x) + U · ((S + c·Δs) ⊙ (x @ Vh.T)) @ U.T-shape...
+                   (concretely: F.linear(F.linear(x, Vh) * (S+c·Δs), U))
+
+    PiSSA quirk vs LoRA: `c=0` is NOT a hook short-circuit — every forward
+    pays one rank-r matmul to reconstruct U·S·Vh·x (otherwise the layer
+    would output W_res·x ≠ W·x). This is the cost of physically extracting
+    the top-r out of W.
+    """
+
+    def __init__(self, model: nn.Module, r: int = 256,
+                 targets: tuple[str, ...] = ("all-linear",),
+                 layer_range: tuple[float, float] = (0.0, 1.0),
+                 dtype: torch.dtype = torch.bfloat16,
+                 calibration_activations: dict[str, Tensor] | None = None,
+                 selection_score: Literal["s_only", "wanda", "sqrt_s_act", "act_only"]
+                     = "sqrt_s_act",
+                 _skip_init: bool = False):
+        """`_skip_init=True` skeleton-mode for `from_checkpoint`; caller is
+        responsible for filling buffers + delta_s and re-mutating layer.weight."""
+        self.cfg = LoRAConfig(r=r, alpha=1.0, targets=targets,
+                              layer_range=layer_range, dtype=dtype)
+        self.selection_score = selection_score
+        self._handles: list = []
+        self._c: float = 0.0
+        self._attached: bool = False
+
+        device = next(model.parameters()).device
+        targets_found = _find_targets(model, self.cfg)
+        # Reject quantized layers — W mutation isn't reversible on bnb buffers.
+        for name, layer in targets_found:
+            if type(layer).__name__ in ("Linear4bit", "Linear8bitLt"):
+                raise RuntimeError(
+                    f"ModulatedPiSSA needs float nn.Linear; {name} is {type(layer).__name__}. "
+                    "Run with quant=None or use ModulatedLoRA for quantized models."
+                )
+
+        self.U: dict[str, Tensor] = {}
+        self.S: dict[str, Tensor] = {}
+        self.Vh: dict[str, Tensor] = {}
+        self.delta_s: dict[str, nn.Parameter] = {}
+        self._target_layers: dict[str, nn.Linear] = {}
+        self._chosen_idx: dict[str, Tensor] = {}    # for diagnostic logging
+
+        for name, layer in targets_found:
+            self._target_layers[name] = layer
+            if _skip_init:
+                # Allocate empty skeletons; from_checkpoint fills them then
+                # mutates layer.weight = W - U·S·Vh.
+                d_in, d_out = layer.in_features, layer.out_features
+                self.U[name] = torch.empty(d_out, r, dtype=dtype, device=device)
+                self.S[name] = torch.empty(r, dtype=dtype, device=device)
+                self.Vh[name] = torch.empty(r, d_in, dtype=dtype, device=device)
+                self.delta_s[name] = nn.Parameter(torch.empty(r, dtype=dtype, device=device))
+                continue
+
+            # Full SVD in float32 for numerical stability, then score + slice.
+            with torch.no_grad():
+                W = layer.weight.data.to(torch.float32)
+                U_full, S_full, Vh_full = torch.linalg.svd(W, full_matrices=False)
+                k = S_full.shape[0]
+                if r > k:
+                    raise RuntimeError(
+                        f"ModulatedPiSSA at {name}: r={r} > full SVD rank {k}; lower r")
+                X = (calibration_activations or {}).get(name)
+                scores = _pissa_score(name, S_full, X, Vh_full, selection_score)
+                idx = scores.argsort(descending=True)[:r]
+                idx = idx.sort().values                         # stable order
+                Ur = U_full[:, idx].contiguous()
+                Sr = S_full[idx].contiguous()
+                Vhr = Vh_full[idx].contiguous()
+                W_res = (W - (Ur * Sr) @ Vhr).to(layer.weight.dtype)
+                layer.weight.data.copy_(W_res)
+            self.U[name] = Ur.to(dtype).to(device).detach()
+            self.S[name] = Sr.to(dtype).to(device).detach()
+            self.Vh[name] = Vhr.to(dtype).to(device).detach()
+            self._chosen_idx[name] = idx.cpu()
+            ds = torch.empty(r, dtype=dtype, device=device).normal_(mean=4e-4, std=4e-4)
+            self.delta_s[name] = nn.Parameter(ds)
+
+        for p in model.parameters():
+            p.requires_grad_(False)
+        n_train = sum(p.numel() for p in self.parameters())
+        logger.debug(f"ModulatedPiSSA: {len(targets_found)} targets, r={r}, "
+                     f"selection={selection_score}, trainable={n_train:,}")
+        if not _skip_init and self._chosen_idx:
+            self._log_selection_diagnostic()
+
+    def _log_selection_diagnostic(self) -> None:
+        """For each target, summarize where in S the chosen indices fell.
+        SHOULD: with sqrt_s_act / act_only on real prompts, mean chosen-rank
+        > r/2 (we're picking past the top of S). ELSE selection collapsed
+        to top-S = scoring is effectively s_only (X capture probably broken
+        OR the activations align dominantly with top S, which is the failure
+        mode we built this to detect)."""
+        ranks = []
+        for name, idx in self._chosen_idx.items():
+            ranks.append(idx.float().mean().item())
+        if ranks:
+            mean_rank = sum(ranks) / len(ranks)
+            r = self.cfg.r
+            logger.info(
+                f"ModulatedPiSSA selection: mean chosen index = {mean_rank:.1f} "
+                f"across {len(ranks)} targets (r={r}, mode={self.selection_score}). "
+                f"SHOULD be > r/2 = {r/2:.0f} for activation-driven modes; "
+                f"if ≈ (r-1)/2 the picks collapsed onto the top of S."
+            )
+
+    def parameters(self):
+        for p in self.delta_s.values():
+            yield p
+
+    def _make_hook(self, name: str):
+        U: Float[Tensor, "o r"] = self.U[name]
+        Vh: Float[Tensor, "r i"] = self.Vh[name]
+        S: Float[Tensor, "r"] = self.S[name]
+        delta_s: Float[Tensor, "r"] = self.delta_s[name]
+
+        def hook(layer: nn.Linear, args, y: Tensor) -> Tensor:
+            (x,) = args
+            xV = F.linear(x.to(Vh.dtype), Vh)               # (..., r) = x @ Vh.T
+            scaled = xV * (S + self._c * delta_s)           # diag(S + c·Δs)
+            delta = F.linear(scaled, U)                     # (..., d_out)
+            return y + delta.to(y.dtype)
+
+        return hook
+
+    @contextmanager
+    def __call__(self, model: nn.Module, c: float = 1.0):
+        """`with adapter(model, c=...):` — hook adds U·(S+c·Δs)·Vh·x at every
+        forward. c=0 reconstructs the original W (modulo SVD round-trip)."""
+        if self._attached:
+            raise RuntimeError("ModulatedPiSSA already attached; exit outer `with` first")
+        self._c = float(c)
+        for name, layer in self._target_layers.items():
+            self._handles.append(layer.register_forward_hook(self._make_hook(name)))
+        self._attached = True
+        try:
+            yield self
+        finally:
+            for h in self._handles:
+                h.remove()
+            self._handles.clear()
+            self._attached = False
+            self._c = 0.0
+
+    def set_coeff(self, c: float) -> None:
+        self._c = float(c)
+
+    @property
+    def c(self) -> float:
+        return self._c
+
+    # ---- save / load -------------------------------------------------------
+
+    def save(self, path: str, extra_meta: dict[str, str] | None = None) -> None:
+        from safetensors.torch import save_file
+        sd: dict[str, Tensor] = {}
+        for k in self.U:
+            kk = k.replace(".", "__")
+            sd[f"U.{kk}"] = self.U[k].detach().cpu()
+            sd[f"S.{kk}"] = self.S[k].detach().cpu()
+            sd[f"Vh.{kk}"] = self.Vh[k].detach().cpu()
+            sd[f"delta_s.{kk}"] = self.delta_s[k].detach().cpu()
+        meta = {
+            "kind": "pissa",
+            "r": str(self.cfg.r),
+            "targets": ",".join(self.cfg.targets),
+            "layer_range": f"{self.cfg.layer_range[0]},{self.cfg.layer_range[1]}",
+            "selection_score": self.selection_score,
+        }
+        if extra_meta:
+            meta.update(extra_meta)
+        save_file(sd, path, metadata=meta)
+
+    def load(self, path: str) -> None:
+        """Load buffers + delta_s AND mutate layer.weight to W - U·S·Vh.
+
+        Assumes layer.weight currently holds the W that the adapter was
+        trained against (i.e. base W for round 1; the W after round-(k-1)'s
+        load for round k — caller must load in round order)."""
+        from safetensors.torch import load_file
+        sd = load_file(path, device="cpu")
+        ckpt_keys = {k[2:].replace("__", ".") for k in sd if k.startswith("U.")}
+        init_keys = set(self.U.keys())
+        if ckpt_keys != init_keys:
+            raise RuntimeError(
+                f"PiSSA target mismatch: checkpoint has {len(ckpt_keys)} targets, "
+                f"init created {len(init_keys)}.")
+        for k in self.U:
+            kk = k.replace(".", "__")
+            dev = self.U[k].device
+            self.U[k].data.copy_(sd[f"U.{kk}"].to(dev, self.U[k].dtype))
+            self.S[k].data.copy_(sd[f"S.{kk}"].to(dev, self.S[k].dtype))
+            self.Vh[k].data.copy_(sd[f"Vh.{kk}"].to(dev, self.Vh[k].dtype))
+            self.delta_s[k].data.copy_(sd[f"delta_s.{kk}"].to(dev, self.delta_s[k].dtype))
+            # Mutate layer.weight: W -> W - U·S·Vh (= W_res that training saw).
+            layer = self._target_layers[k]
+            with torch.no_grad():
+                W = layer.weight.data.to(torch.float32)
+                U32 = self.U[k].to(torch.float32)
+                S32 = self.S[k].to(torch.float32)
+                Vh32 = self.Vh[k].to(torch.float32)
+                W_res = (W - (U32 * S32) @ Vh32).to(layer.weight.dtype)
+                layer.weight.data.copy_(W_res)
+
+    @classmethod
+    def from_checkpoint(cls, model: nn.Module, path: str) -> "ModulatedPiSSA":
+        from safetensors import safe_open
+        with safe_open(path, framework="pt") as f:
+            meta = f.metadata()
+        if meta.get("kind") != "pissa":
+            raise RuntimeError(f"not a PiSSA checkpoint: kind={meta.get('kind')!r}")
+        targets = tuple(meta["targets"].split(","))
+        lr_meta = meta.get("layer_range", "0.0,1.0")
+        lo, hi = (float(v) for v in lr_meta.split(","))
+        adapter = cls(model, r=int(meta["r"]), targets=targets,
+                      layer_range=(lo, hi),
+                      dtype=next(model.parameters()).dtype,
+                      selection_score=meta.get("selection_score", "sqrt_s_act"),
+                      _skip_init=True)
+        adapter.load(path)
+        return adapter
+
+
+# ---------------------------------------------------------------------------
 # HistoryBake — kept adapters compose via a single gated forward hook.
 # Storage: per-target concat A_cat = [A_1; A_2; …], B_cat = [s_1·B_1, …]
 # so dW_combined = B_cat @ A_cat exactly, computed without materialising dW.
@@ -286,6 +561,92 @@ class HistoryBake:
     def set_gate(self, is_active) -> None:
         """is_active() -> bool. Training: `set_gate(lambda: lora._c != 0.0)`."""
         self._is_active = is_active
+
+    def remove(self) -> None:
+        for h in self._handles:
+            h.remove()
+        self._handles.clear()
+
+
+# ---------------------------------------------------------------------------
+# PiSSAHistoryBake — composes kept ModulatedPiSSA rounds.
+#
+# Each kept round k has already mutated layer.weight by subtracting
+# U_k·S_k·Vh_k. Without reconstruction the forward returns W_res_K·x ≠ W·x,
+# i.e. nonsense — so this hook is ALWAYS active (no gate). It sums each
+# round's contribution at its kept c_k:
+#     Σ_k  U_k · diag(S_k + c_k · Δs_k) · Vh_k · x
+#
+# `set_gate` is a no-op kept for ModulatedLoRA-interface parity. The KL
+# anchor semantic shifts from "pristine base" to "prior-baked state" —
+# c=0 on the *current* round gives W_res_K + Σ_prior reconstructions,
+# i.e. the state after all kept rounds at their kept coefficients. See
+# CLAUDE.md note on KL.
+# ---------------------------------------------------------------------------
+
+class PiSSAHistoryBake:
+    def __init__(self, model: nn.Module,
+                 history: list[tuple["ModulatedPiSSA", float]]):
+        if not history:
+            raise ValueError("PiSSAHistoryBake needs ≥1 kept round")
+        target_layers: dict[str, nn.Linear] = {}
+        for adapter, _ in history:
+            for name, layer in adapter._target_layers.items():
+                target_layers.setdefault(name, layer)
+        self._target_layers = target_layers
+        target_dtype = history[0][0].cfg.dtype
+
+        # Per layer: stack per-round (U_k, Vh_k) along the rank axis exactly
+        # like HistoryBake stacks (A_k, B_k). The diag(S_k + c_k·Δs_k) factor
+        # is folded into a single per-round scale vector — concat into one
+        # (Σr,) vector aligned with the stacked rank axis.
+        U_cat: dict[str, Tensor] = {}
+        Vh_cat: dict[str, Tensor] = {}
+        scale_cat: dict[str, Tensor] = {}
+        with torch.no_grad():
+            for name, layer in target_layers.items():
+                U_parts, Vh_parts, scale_parts = [], [], []
+                for adapter, c in history:
+                    if name not in adapter.U:
+                        continue
+                    U_parts.append(adapter.U[name].to(target_dtype))
+                    Vh_parts.append(adapter.Vh[name].to(target_dtype))
+                    s = adapter.S[name].to(target_dtype) + float(c) * adapter.delta_s[name].detach().to(target_dtype)
+                    scale_parts.append(s)
+                if not U_parts:
+                    continue
+                U_cat[name] = torch.cat(U_parts, dim=1).to(layer.weight.device).detach()
+                Vh_cat[name] = torch.cat(Vh_parts, dim=0).to(layer.weight.device).detach()
+                scale_cat[name] = torch.cat(scale_parts, dim=0).to(layer.weight.device).detach()
+        self._U_cat = U_cat
+        self._Vh_cat = Vh_cat
+        self._scale_cat = scale_cat
+
+        self._handles = []
+        for name, layer in target_layers.items():
+            if name in U_cat:
+                self._handles.append(layer.register_forward_hook(self._make_hook(name)))
+        r0 = history[0][0].cfg.r
+        Nr = len(history) * r0
+        logger.info(f"PiSSAHistoryBake: {len(history)} kept adapter(s), r_total={Nr}")
+
+    def _make_hook(self, name: str):
+        def hook(layer: nn.Linear, args, y: Tensor) -> Tensor:
+            (x,) = args
+            U = self._U_cat[name]                          # (d_out, Σr)
+            Vh = self._Vh_cat[name]                        # (Σr, d_in)
+            s = self._scale_cat[name]                      # (Σr,)
+            xV = F.linear(x.to(Vh.dtype), Vh)              # (..., Σr)
+            scaled = xV * s
+            delta = F.linear(scaled, U)                    # (..., d_out)
+            return y + delta.to(y.dtype)
+        return hook
+
+    def set_gate(self, _is_active) -> None:
+        """No-op for PiSSA: kept-round reconstructions must always be active
+        (otherwise layer.weight = W_res ≠ W and the forward returns garbage).
+        Kept for ModulatedLoRA-interface parity with the train loop."""
+        pass
 
     def remove(self) -> None:
         for h in self._handles:

@@ -7,6 +7,7 @@ here (the agent never sees them).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 
 @dataclass
@@ -16,9 +17,18 @@ class RunConfig:
     teacher: str
     """OpenRouter id for the teacher LLM that drives the inspect-ai react agent."""
 
-    # ─ LoRA ─
+    # ─ adapter ─
+    adapter: Literal["lora", "pissa"] = "lora"
+    """`lora` = free rank-r perturbation (B@A). `pissa` = top-r SVD of W
+    physically extracted into the adapter (W mutated to W_res); trainable
+    Δs reweights each singular direction. PiSSA is for hypothesis-testing
+    'persona-axis steering lives in S-space'; needs larger r since the
+    expressive space is tighter."""
     lora_r: int = 16
+    """Rank for both LoRA (B@A) and PiSSA (top-r SVD). Default 16 suits LoRA;
+    PiSSA profiles override to ~10% of hidden_dim (e.g. 256 for gemma-2b)."""
     lora_alpha: float = 32.0
+    """LoRA only; ignored for PiSSA (forced α=r so α/r=1)."""
     targets: tuple[str, ...] = ("all-linear",)
     layer_range: tuple[float, float] = (0.2, 0.8)
     """Depth band as (lo, hi) fractions of total transformer blocks. Default
@@ -83,6 +93,16 @@ CONFIGS: dict[str, RunConfig] = {
         train_batch_size=16,
         eval_batch_size=16,
     ),
+    # PiSSA variant of gemma-2b. r=256 ≈ 10% of hidden_dim (2304); SVD-space
+    # needs more headroom than free LoRA. Same training schedule otherwise.
+    "gemma-2b-pissa": RunConfig(
+        model="google/gemma-2-2b-it",
+        teacher="qwen/qwen3.5-9b",
+        adapter="pissa",
+        lora_r=256,
+        train_batch_size=16,
+        eval_batch_size=16,
+    ),
     "gemma-9b": RunConfig(
         model="google/gemma-2-9b-it",
         teacher="qwen/qwen3.5-9b",
@@ -108,6 +128,23 @@ CONFIGS: dict[str, RunConfig] = {
     "tiny": RunConfig(
         model="wassname/qwen3-5lyr-tiny-random",
         teacher="qwen/qwen3.5-9b",
+        train_batch_size=2,
+        eval_batch_size=2,
+        layer_range=(0.0, 1.0),
+        n_train_pairs=4,
+        min_pairs_to_train=3,
+        n_rounds=1,
+        dialogue_max_new_tokens=32,
+        gen_max_new_tokens=32,
+        max_len=128,
+    ),
+    # PiSSA smoke: same tiny model; r=16 because the hidden_dim on this
+    # tiny-random model is small. Used to round-trip the full pipeline on CPU.
+    "tiny-pissa": RunConfig(
+        model="wassname/qwen3-5lyr-tiny-random",
+        teacher="qwen/qwen3.5-9b",
+        adapter="pissa",
+        lora_r=16,
         train_batch_size=2,
         eval_batch_size=2,
         layer_range=(0.0, 1.0),

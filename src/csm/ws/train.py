@@ -38,7 +38,7 @@ from torch.utils.data import DataLoader, Dataset
 from transformers import get_cosine_schedule_with_warmup
 from tqdm.auto import tqdm
 
-from csm.ws.adapter import ModulatedLoRA
+from csm.ws.adapter import ModulatedLoRA, ModulatedPiSSA
 
 
 @dataclass
@@ -60,6 +60,11 @@ class TrainCfg:
     down if eval Δ stays at noise."""
     pcgrad: bool = True
     seed: int = 42
+    # ─ PiSSA-only ─ (ignored for ModulatedLoRA)
+    pissa_selection_score: str = "sqrt_s_act"
+    """One of {"s_only", "wanda", "sqrt_s_act", "act_only"}. See ModulatedPiSSA."""
+    pissa_calib_max_tokens: int = 1024
+    """Cap captured tokens per layer for activation-driven top-r selection."""
 
 
 # ---------------------------------------------------------------------------
@@ -270,18 +275,104 @@ def pcgrad_train_step(
     }
 
 
-def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
-                  *, history_bake=None, enable_thinking: bool = False) -> ModulatedLoRA:
-    """Fit one ModulatedLoRA on `pairs` via path-loss + KL anchor.
+def _capture_calibration_activations(model, tok, pairs: list[dict],
+                                     cfg: TrainCfg, *,
+                                     enable_thinking: bool) -> dict[str, torch.Tensor]:
+    """Run prompt-only forwards over `pairs` and capture per-layer activations
+    at the input of each PiSSA target. Returns `dict[layer_name, (N, d_in)]`
+    on CPU float32, with N ≤ cfg.pissa_calib_max_tokens per layer.
 
-    `history_bake`: if given, its gate is set to `lambda: lora._c != 0.0`
-    so the c=0 reference forward returns pristine base (cumulative-from-
-    base KL across rounds).
+    SHOULD: produce X distributions that reflect the prompt registers used
+    during training. ELSE PiSSA top-r selection collapses to S-only and
+    we lose the activation-driven distinction (the whole point of the fork).
+    """
+    from csm.ws.adapter import LoRAConfig, _find_targets
+
+    probe_cfg = LoRAConfig(r=cfg.r, alpha=1.0, targets=cfg.targets,
+                           layer_range=cfg.layer_range, dtype=next(model.parameters()).dtype)
+    targets = _find_targets(model, probe_cfg)
+    captured: dict[str, list[torch.Tensor]] = {name: [] for name, _ in targets}
+    counts: dict[str, int] = {name: 0 for name, _ in targets}
+    cap = cfg.pissa_calib_max_tokens
+
+    def make_hook(name):
+        def _h(module, args, kwargs):
+            if counts[name] >= cap:
+                return
+            x = args[0].detach()
+            x = x.reshape(-1, x.shape[-1]).to(torch.float32).cpu()
+            take = min(x.shape[0], cap - counts[name])
+            captured[name].append(x[:take])
+            counts[name] += take
+        return _h
+
+    handles = [layer.register_forward_pre_hook(make_hook(name), with_kwargs=True)
+               for name, layer in targets]
+    try:
+        # Tokenize prompts only (no cho/rej completion); we want the input
+        # distribution the adapter sees, not the supervised targets.
+        prompt_texts = [
+            tok.apply_chat_template(
+                [{"role": "user", "content": p["prompt"]}],
+                tokenize=False, add_generation_prompt=True,
+                enable_thinking=enable_thinking,
+            )
+            for p in pairs
+        ]
+        enc = tok(prompt_texts, padding=True, truncation=True, max_length=cfg.max_len,
+                  return_tensors="pt", add_special_tokens=False)
+        device = next(model.parameters()).device
+        ids = enc.input_ids.to(device)
+        attn = enc.attention_mask.to(device)
+        was_training = model.training
+        model.eval()
+        with torch.no_grad():
+            bs = max(1, cfg.batch_size)
+            for i in range(0, ids.shape[0], bs):
+                if all(counts[n] >= cap for n in counts):
+                    break
+                model(input_ids=ids[i:i+bs], attention_mask=attn[i:i+bs])
+        if was_training:
+            model.train()
+    finally:
+        for h in handles:
+            h.remove()
+
+    X = {name: torch.cat(chunks, dim=0) if chunks else torch.empty(0)
+         for name, chunks in captured.items()}
+    n_min = min((v.shape[0] for v in X.values() if v.numel() > 0), default=0)
+    n_max = max((v.shape[0] for v in X.values()), default=0)
+    logger.info(f"PiSSA calibration: captured {len(X)} target activations, "
+                f"tokens/layer in [{n_min}, {n_max}] (cap={cap})")
+    return X
+
+
+def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
+                  *, history_bake=None, enable_thinking: bool = False,
+                  adapter_cls: type = ModulatedLoRA):
+    """Fit one ModulatedLoRA / ModulatedPiSSA on `pairs` via path-loss + KL anchor.
+
+    `history_bake`: if given, its gate is set to `lambda: lora._c != 0.0` so
+    the c=0 reference returns pristine base (LoRA) or post-prior-bakes
+    (PiSSA — `PiSSAHistoryBake.set_gate` is a no-op; see adapter.py).
+    `adapter_cls`: ModulatedLoRA (default) or ModulatedPiSSA.
     """
     torch.manual_seed(cfg.seed)
-    lora = ModulatedLoRA(model, r=cfg.r, alpha=cfg.alpha, targets=cfg.targets,
-                         layer_range=cfg.layer_range,
-                         dtype=next(model.parameters()).dtype)
+    if adapter_cls is ModulatedPiSSA:
+        calib = _capture_calibration_activations(
+            model, tok, pairs, cfg, enable_thinking=enable_thinking,
+        )
+        lora = ModulatedPiSSA(model, r=cfg.r, targets=cfg.targets,
+                              layer_range=cfg.layer_range,
+                              dtype=next(model.parameters()).dtype,
+                              calibration_activations=calib,
+                              selection_score=cfg.pissa_selection_score)
+    elif adapter_cls is ModulatedLoRA:
+        lora = ModulatedLoRA(model, r=cfg.r, alpha=cfg.alpha, targets=cfg.targets,
+                             layer_range=cfg.layer_range,
+                             dtype=next(model.parameters()).dtype)
+    else:
+        raise ValueError(f"unknown adapter_cls={adapter_cls!r}")
     params = list(lora.parameters())
     optim = AdamW(params, lr=cfg.lr, weight_decay=cfg.weight_decay)
     sched = get_cosine_schedule_with_warmup(

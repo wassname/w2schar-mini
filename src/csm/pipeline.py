@@ -226,8 +226,11 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         steps=steps, batch_size=cfg.train_batch_size, lr=cfg.lr,
         max_len=cfg.max_len, kl_lambda=cfg.kl_lambda,
     )
+    from csm.ws.adapter import ModulatedLoRA, ModulatedPiSSA
+    adapter_cls = ModulatedPiSSA if cfg.adapter == "pissa" else ModulatedLoRA
     lora = train_adapter(model, tok, pairs, tcfg,
-                         history_bake=hb, enable_thinking=cfg.enable_thinking)
+                         history_bake=hb, enable_thinking=cfg.enable_thinking,
+                         adapter_cls=adapter_cls)
 
     # Calibrate. cfg.signed_C is the initial probe; c_scan walks down
     # ×0.5 until pmass_format ≥ 0.98 × baseline, no backoff. Coherent
@@ -257,7 +260,11 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     # hook. Cheaper than detaching HistoryBake just for 3 probes.
     dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
                        enable_thinking=cfg.enable_thinking)
-    cur_spec = AdapterSpec.from_lora(lora, default_c=signed_C)
+    if isinstance(lora, ModulatedPiSSA):
+        from csm.ws.bake import pissa_to_lora_spec
+        cur_spec = pissa_to_lora_spec(lora, default_c=signed_C)
+    else:
+        cur_spec = AdapterSpec.from_lora(lora, default_c=signed_C)
     post = dialogue(model, tok, PROBES,
                     round_dir / "interview_post.json",
                     hist_specs=None, current_spec=cur_spec, c=signed_C, cfg=dcfg)
