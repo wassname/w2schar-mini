@@ -156,6 +156,31 @@ CONFIGS: dict[str, RunConfig] = {
         train_batch_size=2,
         eval_batch_size=2,
     ),
+    # Ported from weight-steering-lite/qwen-27b-nf4: Qwen3.6-27B + nf4 LoRA.
+    # AutoModelForCausalLM dispatches the multimodal config to Qwen3_5ForCausalLM
+    # (hybrid: 48 Gated DeltaNet + 16 Gated Attention layers); bnb-nf4 on-load
+    # Just Works. ~80s cold load on 96GB Blackwell.
+    "qwen-27b-nf4": RunConfig(
+        model="Qwen/Qwen3.6-27B",
+        teacher="qwen/qwen3.5-9b",
+        quant="nf4",
+        # bs=2 OOM'd at 92/95GB after the all-linear switch (~496 LoRA targets
+        # vs ~336 prior, 1.48× activation memory under 3-forward graph).
+        # bs=1 projects ~55GB train, 50GB eval at bs=8.
+        train_batch_size=1,
+        eval_batch_size=8,
+        lora_r=16,
+        lora_alpha=32.0,
+        lr=1e-3,
+        n_epochs=2.0,
+        # 2× default kl_lambda: PiSSA 2b r=full trace showed coherence only
+        # at C≤0.05 — more KL widens the usable C range. (For nf4 LoRA the
+        # mechanism differs but the prescription transfers: tighter anchor.)
+        kl_lambda=1.0,
+        # 4× default floor: 2b PiSSA trace nll+ still descending at step 119
+        # (post-‖Δs‖-saturation rotation phase). Give late re-pointing room.
+        min_steps=240,
+    ),
     # Smoke: tiny-random Qwen3 5-layer. ~1 min on CPU, garbage outputs.
     # layer_range=(0,1) so all 5 layers are targets — (0.2,0.8) would
     # leave only 3 layers, fine but defeats the smoke point.
