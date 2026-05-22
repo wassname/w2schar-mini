@@ -156,39 +156,38 @@ def _per_sample_nll(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
 _KL_TOPK = 256
 
 
-def _kl_topk_base(logp_steer, base_top_logp, base_top_idx, labels):
+def _kl_topk_base(logits_steer, base_top_logp_K, base_top_idx, labels):
     """Reverse KL(p_steer_K ‖ p_base_K) on the top-K simplex per position,
     where p_*_K are the steered/base distributions renormalized over
     base's top-K indices. HF-style shift (logits[t] predicts label[t+1]).
 
-    Renormalization is REQUIRED for KL ≥ 0: gathering log_softmax-over-full-V
-    at top-K indices gives sub-distributions whose mass < 1, and naïve
-    Σ p_s · (logp_s − logp_b) on those is unbounded in sign (it became
-    negative in trace logs when steered mass leaked outside base's top-K,
-    flipping kl_lambda·kl from anchor into anti-anchor). After renormalizing
-    both sides over the K subset Gibbs gives KL ≥ 0.
+    Memory fix: takes raw `logits_steer` (B, S, V), NOT full log_softmax,
+    because logsumexp_full cancels in the K-renorm:
+        log_softmax(logits)[K] - logsumexp(log_softmax(logits)[K])
+      = logits[K] - logsumexp_full - (logsumexp(logits[K]) - logsumexp_full)
+      = logits[K] - logsumexp(logits[K])
+    so we gather raw logits at base_top_idx and skip the full-vocab
+    log_softmax allocation entirely (was 8 GiB / forward × 2 = 16 GiB
+    retained in autograd graph at gemma-2b batch=8 seq=1024).
+    `base_top_logp_K` is already K-renormalized (computed once at the
+    no-grad base forward).
 
-    Memory motivation: full-vocab logp_base is 33.5 GB for gemma-2b
-    (16 batch × 2048 seq × 256k vocab × fp32). Top-K storage at K=256 is
-    ~33 MB — 1000× smaller — and persistent state across pos+neg pcgrad
-    branches drops 67 GB → ~66 MB. Transient steered logp stays full-vocab
-    during the gather but is freed after backward.
+    Renormalization is REQUIRED for KL ≥ 0: the K-subset sums to <1
+    under full-V softmax; naïve Σ p_s · (logp_s − logp_b) on those is
+    unbounded in sign (anti-anchor pathology in earlier trace).
+    Gibbs ≥ 0 holds after both sides renormalize over K.
 
-    Approximation bias: discards mass outside base's top-K (both sides
-    are renormalized over the K subset, no outside bucket). For an instruct
-    LM at K=256 base captures >99% per position so the lost-mass signal is
-    small — acceptable as a soft anchor.
+    Approximation bias: discards mass outside base's top-K (no outside
+    bucket). For an instruct LM at K=256 base captures >99% per position.
     """
-    s_sh = logp_steer[:, :-1, :]                       # (B, S-1, V)
-    b_sh_logp = base_top_logp[:, :-1, :]               # (B, S-1, K)
+    s_sh = logits_steer[:, :-1, :]                     # (B, S-1, V) raw logits
+    b_sh_logp_K = base_top_logp_K[:, :-1, :]           # (B, S-1, K) K-renormed
     b_sh_idx = base_top_idx[:, :-1, :]                 # (B, S-1, K)
     mask_sh = (labels[:, 1:] != -100)
-    s_top = torch.gather(s_sh, -1, b_sh_idx).float()   # (B, S-1, K) fp32: bf16 sum
-    b_top = b_sh_logp.float()                          # over K=256 loses precision
+    s_top = torch.gather(s_sh, -1, b_sh_idx).float()   # (B, S-1, K) fp32 at reduction
     logp_s_K = s_top - torch.logsumexp(s_top, dim=-1, keepdim=True)
-    logp_b_K = b_top - torch.logsumexp(b_top, dim=-1, keepdim=True)
     p_s_K = logp_s_K.exp()
-    kl_per_tok = (p_s_K * (logp_s_K - logp_b_K)).sum(dim=-1)
+    kl_per_tok = (p_s_K * (logp_s_K - b_sh_logp_K)).sum(dim=-1)
     return kl_per_tok[mask_sh.bool()].mean()
 
 
@@ -218,23 +217,26 @@ def pcgrad_train_step(
     device = next(p.device for p in params)
     zero = torch.zeros((), device=device)
 
-    # ---- c=0 reference forwards (no grad, bf16 + top-K) -------------------
-    # bf16 log_softmax: KL precision is fine because the multiplicative p_s
-    # factor zeros out the low-prob tail where bf16 underflow matters.
-    # Persist only top-K (values+indices), discard the full-vocab tensor.
+    # ---- c=0 reference forwards (no grad, raw logits → top-K → K-renorm) ----
+    # Skip the full-vocab log_softmax: topk on raw logits gives the same
+    # indices (softmax is monotonic), and the K-renormalized log-prob is
+    # what _kl_topk_base actually needs. Memory: avoids the 8 GiB full
+    # log_softmax allocation. fp32 at the K-renorm logsumexp is cheap.
     if use_kl:
         with torch.no_grad():
             with lora(model, c=0.0):
-                logp_b_p_full = torch.log_softmax(
-                    model(input_ids=ip, attention_mask=ap).logits, dim=-1)
-                b_top_p = logp_b_p_full.topk(_KL_TOPK, dim=-1)
-                base_top_logp_p, base_top_idx_p = b_top_p.values, b_top_p.indices
-                del logp_b_p_full
-                logp_b_n_full = torch.log_softmax(
-                    model(input_ids=in_, attention_mask=an).logits, dim=-1)
-                b_top_n = logp_b_n_full.topk(_KL_TOPK, dim=-1)
-                base_top_logp_n, base_top_idx_n = b_top_n.values, b_top_n.indices
-                del logp_b_n_full
+                logits_b_p = model(input_ids=ip, attention_mask=ap).logits
+                b_top_p = logits_b_p.topk(_KL_TOPK, dim=-1)
+                base_top_idx_p = b_top_p.indices
+                v_p = b_top_p.values.float()
+                base_top_logp_p = v_p - torch.logsumexp(v_p, dim=-1, keepdim=True)
+                del logits_b_p, b_top_p, v_p
+                logits_b_n = model(input_ids=in_, attention_mask=an).logits
+                b_top_n = logits_b_n.topk(_KL_TOPK, dim=-1)
+                base_top_idx_n = b_top_n.indices
+                v_n = b_top_n.values.float()
+                base_top_logp_n = v_n - torch.logsumexp(v_n, dim=-1, keepdim=True)
+                del logits_b_n, b_top_n, v_n
 
     # ---- both inputs at c=+C  (cho prefer, rej penalize) ------------------
     with lora(model, c=+C):
@@ -245,8 +247,7 @@ def pcgrad_train_step(
         L_pos_nll = C * (nll_cho_p - nll_rej_p)
         mean_nll_p = nll_cho_p.detach().item()
         if use_kl:
-            logp_p = torch.log_softmax(out_cp.logits, dim=-1)
-            kl_p = _kl_topk_base(logp_p, base_top_logp_p, base_top_idx_p, lp)
+            kl_p = _kl_topk_base(out_cp.logits, base_top_logp_p, base_top_idx_p, lp)
             L_pos_kl = kl_lambda * kl_p
     g_pos_nll = _zerofill(torch.autograd.grad(
         L_pos_nll, params, retain_graph=use_kl, allow_unused=True), params)
@@ -266,8 +267,7 @@ def pcgrad_train_step(
         L_neg_nll = C * (nll_rej_n - nll_cho_n)
         mean_nll_n = nll_rej_n.detach().item()
         if use_kl:
-            logp_n = torch.log_softmax(out_rn.logits, dim=-1)
-            kl_n = _kl_topk_base(logp_n, base_top_logp_n, base_top_idx_n, ln)
+            kl_n = _kl_topk_base(out_rn.logits, base_top_logp_n, base_top_idx_n, ln)
             L_neg_kl = kl_lambda * kl_n
     g_neg_nll = _zerofill(torch.autograd.grad(
         L_neg_nll, params, retain_graph=use_kl, allow_unused=True), params)

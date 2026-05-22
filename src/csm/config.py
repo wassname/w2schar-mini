@@ -103,12 +103,14 @@ CONFIGS: dict[str, RunConfig] = {
         lora_r=512,
         train_batch_size=16,
         eval_batch_size=16,
-        # kl_lambda 30× the original PiSSA setting. With lr=1e-2 and a
-        # margin signal ~0.6 nats, the prior 0.005 contributed ~0.001 nats
-        # to loss — invisible vs margin. 0.15 puts kl term at ~0.03-0.1
-        # nats range (kl values 0.2-0.7 in current trace), comparable to
-        # the per-step margin movement — actually constrains drift now.
-        kl_lambda=0.15,
+        # kl_lambda 100× the original PiSSA setting. KL pressure during
+        # training is the lever that controls deployment-c side effects
+        # (c_scan walks down when KL was too weak). With lr=1e-2 and
+        # margin signal ~0.5 nats, kl=0.15 contributed only ~0.06 nats
+        # (12% of margin) — adapter could drift faster than KL constrained.
+        # 0.5 puts kl contribution ~0.2 nats, matching margin magnitude
+        # so the constraint is balanced not nominal.
+        kl_lambda=0.5,
         # lr 100× LoRA default: margin loss (cho_nll - rej_nll) has small
         # raw magnitude (~0.6 vs absolute nll ~3.5) AND now cos≈-0.3 means
         # PCGrad cancels ~half the gradient — net update is tiny, ‖Δs‖
