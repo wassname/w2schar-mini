@@ -364,3 +364,74 @@ def write_report_md(slug_dir: Path) -> None:
     for r in rows:
         lines.append("| " + " | ".join(r) + " |")
     (slug_dir / "report.md").write_text("\n".join(lines) + "\n")
+    write_iter_index(slug_dir.parent)
+
+
+def write_iter_index(iter_dir: Path) -> None:
+    """Top-level out/iter/index.html: one row per slug, newest first. Pure
+    disk-read; no model forward, no eval. `eval_mean_p` falls back to '—'
+    if eval.json hasn't been built."""
+    slugs = sorted(
+        (p for p in iter_dir.glob("*") if p.is_dir() and not p.name.startswith(".")),
+        reverse=True,
+    )
+    rows: list[str] = []
+    for slug in slugs:
+        run_meta = _safe_json(slug / "run.json") or {}
+        rounds = sorted(p for p in slug.glob("round*") if p.is_dir())
+        n_keep = n_drop = 0
+        last_kept_c = "—"
+        last_eval_mean_p = "—"
+        for rd in rounds:
+            j = _safe_json(rd / "judgment.json") or {}
+            act = j.get("action")
+            if act == "keep":
+                n_keep += 1
+                sc = (_safe_json(rd / "calibration.json") or {}).get("signed_C")
+                if isinstance(sc, (int, float)):
+                    last_kept_c = f"{sc:+.4f}"
+            elif act == "drop":
+                n_drop += 1
+            mp = (_safe_json(rd / "eval.json") or {}).get("mean_p")
+            if isinstance(mp, (int, float)):
+                last_eval_mean_p = f"{mp:.3f}"
+
+        last_state = "—"
+        if rounds:
+            last_state = (_safe_json(rounds[-1] / "state.json") or {}).get("state", "—")
+        status = "done" if (rounds and last_state == "done") else "active"
+
+        ts = (run_meta.get("created_utc") or "")[:19].replace("T", " ") or slug.name[:15]
+        model = run_meta.get("model", "—")
+        rows.append(
+            f'    <tr class="{status}">'
+            f'<td><a href="{slug.name}/report.md">{slug.name}</a></td>'
+            f'<td>{model}</td><td>{ts}</td>'
+            f'<td>{n_keep}</td><td>{n_drop}</td><td>{len(rounds)}</td>'
+            f'<td>{last_kept_c}</td>'
+            f'<td>{last_eval_mean_p}</td><td>{status}</td>'
+            "</tr>"
+        )
+
+    html = (
+        '<!doctype html><meta charset="utf-8"><title>out/iter</title>'
+        "<style>"
+        "body{font-family:ui-monospace,monospace;margin:24px;}"
+        "table{border-collapse:collapse;}"
+        "th,td{border:1px solid #ddd;padding:4px 8px;text-align:left;}"
+        "th{background:#f3f3f3;position:sticky;top:0;}"
+        "tr.active{background:#fff8e1;}"
+        "tr:hover{background:#eef;}"
+        "a{color:#06c;text-decoration:none;}a:hover{text-decoration:underline;}"
+        "</style>"
+        f"<h1>out/iter — {len(slugs)} runs</h1>"
+        "<table><thead><tr>"
+        "<th>slug</th><th>model</th><th>started_utc</th>"
+        "<th>keeps</th><th>drops</th><th>rounds</th>"
+        "<th>last_kept_c</th>"
+        "<th>eval_mean_p</th><th>status</th>"
+        "</tr></thead><tbody>\n"
+        + "\n".join(rows)
+        + "\n</tbody></table>"
+    )
+    (iter_dir / "index.html").write_text(html)
