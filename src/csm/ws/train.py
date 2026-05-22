@@ -174,9 +174,10 @@ def _kl_topk_base(logp_steer, base_top_logp, base_top_idx, labels):
     branches drops 67 GB → ~66 MB. Transient steered logp stays full-vocab
     during the gather but is freed after backward.
 
-    Approximation bias: collapses 'mass outside base top-K' into a single
-    implicit bucket. For an instruct LM at K=256 base captures >99% per
-    position so the lost-mass signal is small — acceptable as a soft anchor.
+    Approximation bias: discards mass outside base's top-K (both sides
+    are renormalized over the K subset, no outside bucket). For an instruct
+    LM at K=256 base captures >99% per position so the lost-mass signal is
+    small — acceptable as a soft anchor.
     """
     s_sh = logp_steer[:, :-1, :]                       # (B, S-1, V)
     b_sh_logp = base_top_logp[:, :-1, :]               # (B, S-1, K)
