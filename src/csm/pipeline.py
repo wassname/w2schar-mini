@@ -227,6 +227,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         r=cfg.lora_r, alpha=cfg.lora_alpha, targets=cfg.targets,
         layer_range=cfg.layer_range,
         steps=steps, batch_size=cfg.train_batch_size, lr=cfg.lr,
+        weight_decay=cfg.weight_decay,
         max_len=cfg.max_len, kl_lambda=cfg.kl_lambda,
     )
     from csm.ws.adapter import ModulatedLoRA, ModulatedPiSSA
@@ -266,6 +267,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     if isinstance(lora, ModulatedPiSSA):
         from csm.ws.bake import pissa_to_lora_spec
         cur_spec = pissa_to_lora_spec(lora, default_c=signed_C)
+        lora.restore_base_W()
     else:
         cur_spec = AdapterSpec.from_lora(lora, default_c=signed_C)
     post = dialogue(model, tok, PROBES,

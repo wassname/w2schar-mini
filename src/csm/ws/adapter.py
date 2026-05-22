@@ -376,7 +376,18 @@ class ModulatedPiSSA:
             self.S[name] = Sr.to(dtype).to(device).detach()
             self.Vh[name] = Vhr.to(dtype).to(device).detach()
             self._chosen_idx[name] = idx.cpu()
-            ds = torch.empty(r, dtype=dtype, device=device).normal_(mean=4e-4, std=4e-4)
+            # Δs init asymmetric (mean=std), 100× larger than the previous
+            # 4e-4 timid init. Rationale: at init, the c=+C forward gives
+            # (S + c·Δs); to give the optimizer real leverage on each
+            # singular direction at c~1, |c·Δs| should be a meaningful
+            # fraction of S (here mean(Δs)/mean(S) ≈ a few %, depending on
+            # layer). The previous 4e-4 init meant c=2·Δs ≈ 8e-4 — well
+            # below bf16 mantissa noise on top-r S values (S₀~tens) and the
+            # adapter just sat in the SVD round-trip floor.
+            # Asymmetric (mean=std>0) keeps a slight positive prior so c=+C
+            # systematically amplifies and c=-C systematically attenuates
+            # the chosen singular directions, preserving the +C/-C duality.
+            ds = torch.empty(r, dtype=dtype, device=device).normal_(mean=4e-2, std=4e-2)
             self.delta_s[name] = nn.Parameter(ds)
 
         for p in model.parameters():
@@ -464,6 +475,18 @@ class ModulatedPiSSA:
     @property
     def c(self) -> float:
         return self._c
+
+    def restore_base_W(self) -> None:
+        """layer.weight ← W_res + U·diag(S)·Vh. Required before any `baked()`
+        use on a PiSSA-trained model (bake expects fresh W, not W_res)."""
+        for name, layer in self._target_layers.items():
+            with torch.no_grad():
+                W_res = layer.weight.data.to(torch.float32)
+                U32 = self.U[name].to(torch.float32)
+                S32 = self.S[name].to(torch.float32)
+                Vh32 = self.Vh[name].to(torch.float32)
+                W = (W_res + (U32 * S32) @ Vh32).to(layer.weight.dtype)
+                layer.weight.data.copy_(W)
 
     # ---- save / load -------------------------------------------------------
 

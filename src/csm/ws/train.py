@@ -482,6 +482,9 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
         sched.step()
 
         lr = optim.param_groups[0]["lr"]
+        with torch.no_grad():
+            ds_norm = float(torch.stack(
+                [p.detach().float().norm() for p in params]).mean())
         traces.append({
             "step": step,
             "C": trace["C"],
@@ -490,6 +493,7 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             "kl+": trace["kl_mean_pos"],
             "kl-": trace["kl_mean_neg"],
             "cos": trace["cos"],
+            "‖Δs‖": ds_norm,
             "lr": lr,
             "conf": int(trace["conflict"]),
         })
@@ -509,10 +513,13 @@ def _log_train_table(traces: list[dict]) -> None:
     gradients = PCGrad-friendly), lr cosine from 0 → peak → 0, conf flag
     when PCGrad surgery fired."""
     from tabulate import tabulate
-    headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "lr", "conf"]
+    headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "‖Δs‖", "lr", "conf"]
     rows = [[t[h] for h in headers] for t in traces]
-    # SHOULD: C drifts in [0, 2]; nll± descend together (symmetric pull from
-    # twinned poles); kl± grows with |C|; cos starts negative (real opposing
-    # gradients) then drifts toward 0; lr cosine-anneals; conf=1 = PCGrad fired.
+    # SHOULD (margin loss + PiSSA): cos near +1 (margin makes cho/rej gradients
+    # cooperative on persona axis, not antiparallel); ‖Δs‖ growing (adapter
+    # actually learning, not frozen by bf16 underflow / weight decay); nll+
+    # descending and nll- ASCENDING under the +C frame (margin opening);
+    # kl± grows modestly with |C|; lr cosine-anneals; conf=0 (no PCGrad
+    # surgery needed when gradients agree).
     table = tabulate(rows, headers=headers, tablefmt="plain", floatfmt=".3g")
     logger.info(f"\ntraining trace:\n{table}\n")

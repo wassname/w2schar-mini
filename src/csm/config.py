@@ -43,6 +43,7 @@ class RunConfig:
 
     # ─ training ─
     lr: float = 1e-4
+    weight_decay: float = 0.01
     kl_lambda: float = 0.5
     train_batch_size: int = 4
     n_epochs: float = 3.0
@@ -99,7 +100,7 @@ CONFIGS: dict[str, RunConfig] = {
         model="google/gemma-2-2b-it",
         teacher="qwen/qwen3.5-9b",
         adapter="pissa",
-        lora_r=256,
+        lora_r=512,
         train_batch_size=16,
         eval_batch_size=16,
         # KL 100× lower than the LoRA default. PiSSA's Δs=0 is the exact
@@ -107,6 +108,15 @@ CONFIGS: dict[str, RunConfig] = {
         # optimizer back to null intervention. kl=0.005 with top-K+bf16
         # (train.py:_kl_topk_base) keeps a soft anchor without dominating.
         kl_lambda=0.005,
+        # lr 40× LoRA default: margin loss (cho_nll - rej_nll) has a small
+        # raw magnitude (~0.4 vs absolute nll ~3.2) and cos≈+1 means no
+        # PCGrad amplification — plain SGD with a small loss needs more
+        # lr to move Δs (which itself inits ~4e-2, scale-matched).
+        lr=4e-3,
+        # wd≈0: Δs is the entire learnable param (per-singular delta).
+        # Normal weight-decay scales (0.01) shrink Δs back toward 0
+        # (= PiSSA identity = null intervention), fighting the optimizer.
+        weight_decay=1e-5,
         # 1024 not 2048: KL transient is full-vocab even with top-K refs
         # (autograd needs the proper softmax normalizer). Seq halved →
         # transient logp halved (16.75 → 8 GB bf16). Pair completions are
