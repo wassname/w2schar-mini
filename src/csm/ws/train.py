@@ -396,10 +396,15 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
 
     ds = PairDataset(pairs, tok, cfg.max_len, enable_thinking=enable_thinking)
     pad_id = tok.pad_token_id
+    # drop_last=False: small training pools (e.g. n_train_pairs=15,
+    # batch_size=16) would yield zero full batches with drop_last=True and
+    # raise StopIteration on the very first step — masked through inspect-ai
+    # as a vague "train_student tool unresponsive". _per_sample_nll handles
+    # ragged batches fine; nothing in the loss depends on a fixed batch axis.
     loader = DataLoader(
         ds, batch_size=cfg.batch_size, shuffle=True,
         collate_fn=lambda b: _pair_collate(b, pad_id),
-        drop_last=True,
+        drop_last=False,
     )
 
     device = next(model.parameters()).device
