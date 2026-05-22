@@ -102,19 +102,16 @@ CONFIGS: dict[str, RunConfig] = {
         lora_r=256,
         train_batch_size=16,
         eval_batch_size=16,
-        # KL off entirely. Two reasons:
-        # 1. Diagnosis from #50 (lr=1e-3, kl=0.5): nll+/nll- constant to 3 sig
-        #    figs across 10 steps with kl term near zero — optimizer collapses
-        #    Δs→0 because that is PiSSA's exact identity (W_res + U·S·Vh = W),
-        #    minimizing KL. Any nonzero KL anchors the adapter to null.
-        # 2. Memory: KL needs full-vocab float32 logp tensors. For gemma-2b
-        #    (vocab=256000) at batch=16 × max_len=2048, each is 33.5 GB; with
-        #    pos+neg branches both alive across pcgrad, peak is ~67 GB. OOMs
-        #    when sharing the GPU with another job (#51 vs #46). kl=0 hits the
-        #    `use_kl = kl_lambda > 0` short-circuit and skips the path entirely.
-        # lr=1e-4 (LoRA default) — magnitude wasn't the bottleneck per #50's
-        # stable cos=-0.84 (gradient direction was fine); KL was.
-        kl_lambda=0.0,
+        # KL 100× lower than the LoRA default. PiSSA's Δs=0 is the exact
+        # identity (W_res + U·S·Vh = W), so a strong KL anchor pulls the
+        # optimizer back to null intervention. kl=0.005 with top-K+bf16
+        # (train.py:_kl_topk_base) keeps a soft anchor without dominating.
+        kl_lambda=0.005,
+        # 1024 not 2048: KL transient is full-vocab even with top-K refs
+        # (autograd needs the proper softmax normalizer). Seq halved →
+        # transient logp halved (16.75 → 8 GB bf16). Pair completions are
+        # usually <1k tokens; longer ones truncate.
+        max_len=1024,
     ),
     "gemma-9b": RunConfig(
         model="google/gemma-2-9b-it",

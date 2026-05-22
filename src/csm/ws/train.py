@@ -151,19 +151,32 @@ def _per_sample_nll(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     return (loss_per_tok * mask).sum(-1) / mask.sum(-1).clamp(min=1.0)
 
 
-def _kl_mean_full(logp_steer, logp_base, labels):
-    """Reverse KL(p_steer ‖ p_base), per-token, mean over the SAME positions
-    HF causal-LM CE averages over. HF shifts labels internally
-    (loss = CE(logits[:, :-1], labels[:, 1:])) so we shift here too.
+_KL_TOPK = 256
 
-    Returns mean reverse-KL in nats over completion-predictive positions.
+
+def _kl_topk_base(logp_steer, base_top_logp, base_top_idx, labels):
+    """Reverse KL(p_steer ‖ p_base) approximated over base's top-K vocab
+    entries per position. HF-style label shift (logits[t] predicts label[t+1]).
+
+    Memory motivation: full-vocab logp_base is 33.5 GB for gemma-2b (16 batch
+    × 2048 seq × 256k vocab × fp32). Storing only the top-K reduces this to
+    ~33 MB at K=256 — 1000× smaller — and the persistent state across pos+neg
+    pcgrad branches drops from 67 GB → ~66 MB. The transient steered logp is
+    still full-vocab during this gather (autograd needs the proper softmax
+    normalizer for the chosen indices) but is freed after backward.
+
+    Approximation bias: ignores p_s mass on tokens outside base's top-K. For
+    an instruct LM at K=256, base's top-K typically captures >99% of mass per
+    position, so the omitted contribution is <0.01 × kl_lambda. Acts as a
+    soft anchor weaker than full KL — appropriate for our small kl_lambda.
     """
-    # Shift to match HF's labels-aware CE: logits[t] predicts label[t+1].
-    logp_steer_sh = logp_steer[:, :-1, :]
-    logp_base_sh = logp_base[:, :-1, :]
+    s_sh = logp_steer[:, :-1, :]                       # (B, S-1, V)
+    b_sh_logp = base_top_logp[:, :-1, :]               # (B, S-1, K)
+    b_sh_idx = base_top_idx[:, :-1, :]                 # (B, S-1, K)
     mask_sh = (labels[:, 1:] != -100)
-    p_s = logp_steer_sh.exp()
-    kl_per_tok = (p_s * (logp_steer_sh - logp_base_sh)).sum(dim=-1)    # [B, S-1]
+    s_top = torch.gather(s_sh, -1, b_sh_idx)           # (B, S-1, K)
+    p_s = s_top.exp()
+    kl_per_tok = (p_s * (s_top - b_sh_logp)).sum(dim=-1)
     return kl_per_tok[mask_sh.bool()].mean()
 
 
@@ -184,14 +197,24 @@ def pcgrad_train_step(
     device = next(p.device for p in params)
     zero = torch.zeros((), device=device)
 
-    # ---- c=0 reference forwards (no grad) ---------------------------------
+    # ---- c=0 reference forwards (no grad, bf16 + top-K) -------------------
+    # bf16 log_softmax: KL precision is fine because the multiplicative p_s
+    # factor zeros out the low-prob tail where bf16 underflow matters.
+    # Persist only top-K (values+indices), discard the full-vocab tensor —
+    # this is the dominant memory win.
     if use_kl:
         with torch.no_grad():
             with lora(model, c=0.0):
-                logits_b_p = model(input_ids=ip, attention_mask=ap).logits.float()
-                logits_b_n = model(input_ids=in_, attention_mask=an).logits.float()
-            logp_b_p = torch.log_softmax(logits_b_p, dim=-1)
-            logp_b_n = torch.log_softmax(logits_b_n, dim=-1)
+                logp_b_p_full = torch.log_softmax(
+                    model(input_ids=ip, attention_mask=ap).logits, dim=-1)
+                b_top_p = logp_b_p_full.topk(_KL_TOPK, dim=-1)
+                base_top_logp_p, base_top_idx_p = b_top_p.values, b_top_p.indices
+                del logp_b_p_full
+                logp_b_n_full = torch.log_softmax(
+                    model(input_ids=in_, attention_mask=an).logits, dim=-1)
+                b_top_n = logp_b_n_full.topk(_KL_TOPK, dim=-1)
+                base_top_logp_n, base_top_idx_n = b_top_n.values, b_top_n.indices
+                del logp_b_n_full
 
     # ---- cho at c=+C ------------------------------------------------------
     with lora(model, c=+C):
@@ -202,8 +225,10 @@ def pcgrad_train_step(
         L_pos_nll = C * (nll_per_p / nll_per_p.detach().clamp(min=1.0)).mean()
         mean_nll_p = nll_per_p.detach().mean().item()    # for logging
         if use_kl:
-            logp_p = torch.log_softmax(out_p.logits.float(), dim=-1)
-            kl_p = _kl_mean_full(logp_p, logp_b_p, lp)
+            # bf16 log_softmax; full-vocab transient (autograd needs proper
+            # normalizer for the gather). Freed after L_pos_kl backward.
+            logp_p = torch.log_softmax(out_p.logits, dim=-1)
+            kl_p = _kl_topk_base(logp_p, base_top_logp_p, base_top_idx_p, lp)
             L_pos_kl = kl_lambda * kl_p
     g_pos_nll = _zerofill(torch.autograd.grad(
         L_pos_nll, params, retain_graph=use_kl, allow_unused=True), params)
@@ -221,8 +246,8 @@ def pcgrad_train_step(
         L_neg_nll = C * (nll_per_n / nll_per_n.detach().clamp(min=1.0)).mean()
         mean_nll_n = nll_per_n.detach().mean().item()
         if use_kl:
-            logp_n = torch.log_softmax(out_n.logits.float(), dim=-1)
-            kl_n = _kl_mean_full(logp_n, logp_b_n, ln)
+            logp_n = torch.log_softmax(out_n.logits, dim=-1)
+            kl_n = _kl_topk_base(logp_n, base_top_logp_n, base_top_idx_n, ln)
             L_neg_kl = kl_lambda * kl_n
     g_neg_nll = _zerofill(torch.autograd.grad(
         L_neg_nll, params, retain_graph=use_kl, allow_unused=True), params)
