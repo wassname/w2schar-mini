@@ -102,16 +102,19 @@ CONFIGS: dict[str, RunConfig] = {
         lora_r=256,
         train_batch_size=16,
         eval_batch_size=16,
-        # KL 100× lower than the LoRA default. Hypothesis (#50 trace, lr=1e-3):
-        # at full lr the optimizer collapses Δs toward zero because KL term
-        # dominates — model "learns null intervention" (nll+/nll- constant
-        # to 3 sig figs, kl=0 at step 5 with peak lr). PiSSA's identity-at-
-        # init means Δs=0 is exactly base, so any nonzero KL gradient pulls
-        # back to it. Drop to 0.005 so PCGrad/NLL win the gradient race.
-        # lr stays at LoRA default (1e-4) — lr=1e-3 didn't fix the constant-
-        # nll problem (gradient direction was correct per cos=-0.84; magnitude
-        # wasn't the bottleneck, KL was).
-        kl_lambda=0.005,
+        # KL off entirely. Two reasons:
+        # 1. Diagnosis from #50 (lr=1e-3, kl=0.5): nll+/nll- constant to 3 sig
+        #    figs across 10 steps with kl term near zero — optimizer collapses
+        #    Δs→0 because that is PiSSA's exact identity (W_res + U·S·Vh = W),
+        #    minimizing KL. Any nonzero KL anchors the adapter to null.
+        # 2. Memory: KL needs full-vocab float32 logp tensors. For gemma-2b
+        #    (vocab=256000) at batch=16 × max_len=2048, each is 33.5 GB; with
+        #    pos+neg branches both alive across pcgrad, peak is ~67 GB. OOMs
+        #    when sharing the GPU with another job (#51 vs #46). kl=0 hits the
+        #    `use_kl = kl_lambda > 0` short-circuit and skips the path entirely.
+        # lr=1e-4 (LoRA default) — magnitude wasn't the bottleneck per #50's
+        # stable cos=-0.84 (gradient direction was fine); KL was.
+        kl_lambda=0.0,
     ),
     "gemma-9b": RunConfig(
         model="google/gemma-2-9b-it",
