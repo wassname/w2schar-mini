@@ -184,10 +184,16 @@ def pcgrad_train_step(
     if use_kl:
         with torch.no_grad():
             with lora(model, c=0.0):
-                logits_b_p = model(input_ids=ip, attention_mask=ap).logits.float()
-                logits_b_n = model(input_ids=in_, attention_mask=an).logits.float()
-            logp_b_p = torch.log_softmax(logits_b_p, dim=-1)
-            logp_b_n = torch.log_softmax(logits_b_n, dim=-1)
+                out_b_p = model(input_ids=ip, attention_mask=ap,
+                                output_hidden_states=True)
+                out_b_n = model(input_ids=in_, attention_mask=an,
+                                output_hidden_states=True)
+            logp_b_p = torch.log_softmax(out_b_p.logits.float(), dim=-1)
+            logp_b_n = torch.log_softmax(out_b_n.logits.float(), dim=-1)
+            # Base hidden states for the Δh diagnostic (per-sample direction
+            # variance). Detach + float here so they're tiny and grad-free.
+            h_b_p = out_b_p.hidden_states[-1].detach().float()
+            h_b_n = out_b_n.hidden_states[-1].detach().float()
 
     # ---- cho at c=+C ------------------------------------------------------
     with lora(model, c=+C):
@@ -233,16 +239,36 @@ def pcgrad_train_step(
         g_neg_kl = [torch.zeros_like(p) for p in params]
         kl_n = zero
 
-    # ---- cos_act: representation-space contrast between cho and rej -------
-    # Per-pair: mean-pool the final hidden state over each completion's
-    # own mask, then cos(h_cho, h_rej). Averaged over batch. High cos →
-    # the two completions look the same to the model → no contrast for
-    # the adapter to learn; should drift DOWN as training succeeds.
+    # ---- representation diagnostics (all on pooled final hidden states) ---
+    # cos_act = cos(h_cho_steered, h_rej_steered): how distinguishable are
+    #   the two completions? Drifts DOWN as adapter learns to separate them.
+    # dir±_m  = mean pairwise cos of per-sample Δh = h(c=±C) − h(c=0). High
+    #   → the adapter is implementing a CONSISTENT direction across samples
+    #   (a real "axis"). Low → each sample gets its own random shift; the
+    #   axis is illusory. dir±_v = variance of those pairwise cos.
     mp = (lp != -100).float().unsqueeze(-1)
     mn = (ln != -100).float().unsqueeze(-1)
-    hp_pool = (h_p_last * mp).sum(1) / mp.sum(1).clamp_min(1.0)   # [B, D]
-    hn_pool = (h_n_last * mn).sum(1) / mn.sum(1).clamp_min(1.0)
+    def _pool(h, m):
+        return (h * m).sum(1) / m.sum(1).clamp_min(1.0)             # [B, D]
+    hp_pool = _pool(h_p_last, mp)
+    hn_pool = _pool(h_n_last, mn)
     cos_act = F.cosine_similarity(hp_pool, hn_pool, dim=-1).mean().item()
+
+    dir_p_m = dir_p_v = dir_n_m = dir_n_v = 0.0
+    if use_kl:
+        dh_p = hp_pool - _pool(h_b_p, mp)                            # [B, D]
+        dh_n = hn_pool - _pool(h_b_n, mn)
+        def _pairwise_cos(v):                                        # v: [B, D]
+            if v.shape[0] < 2:
+                return 0.0, 0.0
+            vn = F.normalize(v, dim=-1)
+            cmat = vn @ vn.T                                          # [B, B]
+            iu = torch.triu_indices(cmat.shape[0], cmat.shape[0], offset=1,
+                                    device=cmat.device)
+            off = cmat[iu[0], iu[1]]
+            return off.mean().item(), off.var(unbiased=False).item()
+        dir_p_m, dir_p_v = _pairwise_cos(dh_p)
+        dir_n_m, dir_n_v = _pairwise_cos(dh_n)
 
     # ---- PCGrad on the NLL pair only --------------------------------------
     gp_flat = torch.cat([g.reshape(-1) for g in g_pos_nll])
@@ -284,6 +310,10 @@ def pcgrad_train_step(
         "conflict": conflict,
         "cos": cos,
         "cos_act": cos_act,
+        "dir+": dir_p_m,
+        "dir-": dir_n_m,
+        "dir+_v": dir_p_v,
+        "dir-_v": dir_n_v,
     }
 
 
@@ -352,6 +382,9 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             "kl-": trace["kl_mean_neg"],
             "cos": trace["cos"],
             "cos_act": trace["cos_act"],
+            "dir+": trace["dir+"],
+            "dir-": trace["dir-"],
+            "dir_v": 0.5 * (trace["dir+_v"] + trace["dir-_v"]),
             "lr": lr,
             "conf": int(trace["conflict"]),
         })
@@ -370,11 +403,15 @@ def _log_train_table(traces: list[dict]) -> None:
     blowing up), kl± monotonically growing with |C|, cos (grad) near 0
     (orthogonal grads = PCGrad-friendly), cos_act (cho/rej last-hidden)
     starts high (similar twinned prompts) and drifts DOWN as the adapter
-    learns to separate the two completion representations, lr cosine 0 →
-    peak → 0, conf=1 when PCGrad surgery fired."""
+    learns to separate the two completion representations, dir± (mean
+    pairwise cos of per-sample Δh = h(±C) − h(0)) STAYS HIGH (>~0.5) and
+    growth → the adapter is implementing a consistent direction across
+    samples; if dir± hovers near 0 the 'axis' is illusory (each sample
+    gets a random shift). dir_v near 0 → tight direction; large → noisy.
+    lr cosine 0 → peak → 0. conf=1 when PCGrad surgery fired."""
     from tabulate import tabulate
     headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "cos_act",
-               "lr", "conf"]
+               "dir+", "dir-", "dir_v", "lr", "conf"]
     rows = [[t[h] for h in headers] for t in traces]
     # SHOULD: C drifts in [0, 2]; nll± descend together (symmetric pull from
     # twinned poles); kl± grows with |C|; cos starts negative (real opposing
