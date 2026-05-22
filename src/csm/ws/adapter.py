@@ -232,37 +232,63 @@ class ModulatedLoRA:
 # *signed authority over each top singular direction*, which is the point.
 #
 # Top-r selection (`selection_score`):
-#   - "s_only"     : top S_full (PiSSA default — broad/blunt for instruct LMs)
-#   - "wanda"      : S_full · ||X·Vh_full||  (Wanda pruning score; biases top-S)
-#   - "sqrt_s_act" : √S_full · ||X·Vh_full|| (default — soft S prior)
-#   - "act_only"   : ||X·Vh_full||           (pure activation magnitude)
+#   - "s_only"       : top S_full (PiSSA default — broad/blunt for instruct LMs)
+#   - "wanda"        : S_full · ||X·Vh_full||  (Wanda pruning score; biases top-S)
+#   - "act_only"     : ||X·Vh_full||           (pure activation magnitude)
+#   - "cho_rej_min_std": min(std(X_cho·Vh_i), std(X_rej·Vh_i))
+#         Picks directions that are *alive in BOTH* cho and rej completions.
+#         A dim that is quiet in either mode gets a tiny min and is skipped.
+#         Intuition: we want a steering axis the model actively uses
+#         regardless of which side it currently leans — gives Δs a real
+#         substrate at inference. Earlier "sqrt_s_act"/"wanda" picked
+#         shared-fluency directions (cho and rej both use them) which
+#         produced cos(g_pos, g_neg) ≈ -0.97 — pure c-sign anti-symmetry,
+#         no persona signal. cho_rej_min_std needs `calibration_activations`
+#         passed as `{name: {"cho": X_cho, "rej": X_rej}}`.
 # Activation-scored options need `calibration_activations[name] = X (N, d_in)`.
 # ---------------------------------------------------------------------------
 
 
-_PISSA_SCORES = ("s_only", "wanda", "sqrt_s_act", "act_only")
+_PISSA_SCORES = ("s_only", "wanda", "act_only", "cho_rej_min_std")
 
 
-def _pissa_score(name: str, S_full: Tensor, X: Tensor | None,
+def _pissa_score(name: str, S_full: Tensor,
+                 X: Tensor | dict[str, Tensor] | None,
                  Vh_full: Tensor, mode: str) -> Tensor:
     """Score every singular direction of W; caller takes top-r by score."""
     if mode == "s_only":
         return S_full
     if X is None:
         raise RuntimeError(f"selection_score={mode!r} needs calibration_activations[{name!r}]")
-    # X: (N, d_in) float32 CPU; Vh_full: (k, d_in) float32 (on device).
-    # Compute on Vh_full's device so the matmul is fast; X is small enough
-    # to fit alongside (cap at 1024 tokens per layer, see train.py).
+
+    if mode == "cho_rej_min_std":
+        if not isinstance(X, dict) or "cho" not in X or "rej" not in X:
+            raise RuntimeError(
+                f"selection_score='cho_rej_min_std' needs "
+                f"calibration_activations[{name!r}]={{'cho': X_cho, 'rej': X_rej}}")
+        std_cho = _proj_std(X["cho"], Vh_full)                # (k,)
+        std_rej = _proj_std(X["rej"], Vh_full)                # (k,)
+        return torch.minimum(std_cho, std_rej)
+
+    # Single-distribution modes.
+    if not isinstance(X, Tensor):
+        raise RuntimeError(
+            f"selection_score={mode!r} needs calibration_activations[{name!r}]=Tensor")
     X_dev = X.to(Vh_full.device, dtype=torch.float32)
     proj = X_dev @ Vh_full.T                                  # (N, k)
     act = proj.abs().mean(dim=0)                              # (k,)
     if mode == "wanda":
         return S_full * act
-    if mode == "sqrt_s_act":
-        return S_full.clamp(min=0).sqrt() * act
     if mode == "act_only":
         return act
     raise ValueError(f"selection_score must be one of {_PISSA_SCORES}, got {mode!r}")
+
+
+def _proj_std(X: Tensor, Vh_full: Tensor) -> Tensor:
+    """std along N of X @ Vh_full.T, on Vh_full's device. X: (N, d_in)."""
+    X_dev = X.to(Vh_full.device, dtype=torch.float32)
+    proj = X_dev @ Vh_full.T                                  # (N, k)
+    return proj.std(dim=0)                                    # (k,)
 
 
 class ModulatedPiSSA:
@@ -287,9 +313,9 @@ class ModulatedPiSSA:
                  targets: tuple[str, ...] = ("all-linear",),
                  layer_range: tuple[float, float] = (0.0, 1.0),
                  dtype: torch.dtype = torch.bfloat16,
-                 calibration_activations: dict[str, Tensor] | None = None,
-                 selection_score: Literal["s_only", "wanda", "sqrt_s_act", "act_only"]
-                     = "sqrt_s_act",
+                 calibration_activations: dict[str, Tensor | dict[str, Tensor]] | None = None,
+                 selection_score: Literal["s_only", "wanda", "act_only",
+                                          "cho_rej_min_std"] = "cho_rej_min_std",
                  _skip_init: bool = False):
         """`_skip_init=True` skeleton-mode for `from_checkpoint`; caller is
         responsible for filling buffers + delta_s and re-mutating layer.weight."""
@@ -505,7 +531,7 @@ class ModulatedPiSSA:
         adapter = cls(model, r=int(meta["r"]), targets=targets,
                       layer_range=(lo, hi),
                       dtype=next(model.parameters()).dtype,
-                      selection_score=meta.get("selection_score", "sqrt_s_act"),
+                      selection_score=meta["selection_score"],
                       _skip_init=True)
         adapter.load(path)
         return adapter

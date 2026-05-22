@@ -61,8 +61,10 @@ class TrainCfg:
     pcgrad: bool = True
     seed: int = 42
     # ─ PiSSA-only ─ (ignored for ModulatedLoRA)
-    pissa_selection_score: str = "sqrt_s_act"
-    """One of {"s_only", "wanda", "sqrt_s_act", "act_only"}. See ModulatedPiSSA."""
+    pissa_selection_score: str = "cho_rej_min_std"
+    """One of {"s_only", "wanda", "act_only", "cho_rej_min_std"}. The default
+    picks directions that are alive in BOTH cho and rej completion-token
+    activations — see ModulatedPiSSA docstring."""
     pissa_calib_max_tokens: int = 1024
     """Cap captured tokens per layer for activation-driven top-r selection."""
 
@@ -189,9 +191,18 @@ def pcgrad_train_step(
     pcgrad: bool = True,
     kl_lambda: float = 0.0,
 ) -> dict:
-    """One step: NLL on both poles + (optional) KL anchor to c=0 forward.
-    PCGrad operates on the (NLL_pos, NLL_neg) gradients only — KL is
-    added unprojected.
+    """One step: margin NLL on both poles + (optional) KL anchor to c=0.
+    PCGrad operates on the (margin_pos, margin_neg) gradients only — KL
+    is added unprojected.
+
+    Margin formulation:
+      L_pos = C · (mean nll(cho|+C) − mean nll(rej|+C))
+      L_neg = C · (mean nll(rej|−C) − mean nll(cho|−C))
+    The shared-fluency direction (cho and rej both lower nll when adapter
+    fits style) cancels in the difference; only the persona-axis component
+    survives. Earlier per-sample-NLL formulation was dominated by the shared
+    component (cos(g_pos, g_neg) ≈ -0.97 just from the c-sign flip on a
+    shared signal).
     """
     use_kl = kl_lambda > 0
     device = next(p.device for p in params)
@@ -200,8 +211,7 @@ def pcgrad_train_step(
     # ---- c=0 reference forwards (no grad, bf16 + top-K) -------------------
     # bf16 log_softmax: KL precision is fine because the multiplicative p_s
     # factor zeros out the low-prob tail where bf16 underflow matters.
-    # Persist only top-K (values+indices), discard the full-vocab tensor —
-    # this is the dominant memory win.
+    # Persist only top-K (values+indices), discard the full-vocab tensor.
     if use_kl:
         with torch.no_grad():
             with lora(model, c=0.0):
@@ -216,18 +226,16 @@ def pcgrad_train_step(
                 base_top_logp_n, base_top_idx_n = b_top_n.values, b_top_n.indices
                 del logp_b_n_full
 
-    # ---- cho at c=+C ------------------------------------------------------
+    # ---- both inputs at c=+C  (cho prefer, rej penalize) ------------------
     with lora(model, c=+C):
-        out_p = model(input_ids=ip, attention_mask=ap)
-        nll_per_p = _per_sample_nll(out_p.logits.float(), lp)  # [B]
-        # per-sample normalize: cap each pair's gradient pull at ~unit
-        # magnitude so a few hard pairs can't dominate the direction.
-        L_pos_nll = C * (nll_per_p / nll_per_p.detach().clamp(min=1.0)).mean()
-        mean_nll_p = nll_per_p.detach().mean().item()    # for logging
+        out_cp = model(input_ids=ip, attention_mask=ap)
+        nll_cho_p = _per_sample_nll(out_cp.logits.float(), lp).mean()
+        out_rp = model(input_ids=in_, attention_mask=an)
+        nll_rej_p = _per_sample_nll(out_rp.logits.float(), ln).mean()
+        L_pos_nll = C * (nll_cho_p - nll_rej_p)
+        mean_nll_p = nll_cho_p.detach().item()
         if use_kl:
-            # bf16 log_softmax; full-vocab transient (autograd needs proper
-            # normalizer for the gather). Freed after L_pos_kl backward.
-            logp_p = torch.log_softmax(out_p.logits, dim=-1)
+            logp_p = torch.log_softmax(out_cp.logits, dim=-1)
             kl_p = _kl_topk_base(logp_p, base_top_logp_p, base_top_idx_p, lp)
             L_pos_kl = kl_lambda * kl_p
     g_pos_nll = _zerofill(torch.autograd.grad(
@@ -239,14 +247,16 @@ def pcgrad_train_step(
         g_pos_kl = [torch.zeros_like(p) for p in params]
         kl_p = zero
 
-    # ---- rej at c=-C ------------------------------------------------------
+    # ---- both inputs at c=-C  (rej prefer, cho penalize) ------------------
     with lora(model, c=-C):
-        out_n = model(input_ids=in_, attention_mask=an)
-        nll_per_n = _per_sample_nll(out_n.logits.float(), ln)  # [B]
-        L_neg_nll = C * (nll_per_n / nll_per_n.detach().clamp(min=1.0)).mean()
-        mean_nll_n = nll_per_n.detach().mean().item()
+        out_rn = model(input_ids=in_, attention_mask=an)
+        nll_rej_n = _per_sample_nll(out_rn.logits.float(), ln).mean()
+        out_cn = model(input_ids=ip, attention_mask=ap)
+        nll_cho_n = _per_sample_nll(out_cn.logits.float(), lp).mean()
+        L_neg_nll = C * (nll_rej_n - nll_cho_n)
+        mean_nll_n = nll_rej_n.detach().item()
         if use_kl:
-            logp_n = torch.log_softmax(out_n.logits, dim=-1)
+            logp_n = torch.log_softmax(out_rn.logits, dim=-1)
             kl_n = _kl_topk_base(logp_n, base_top_logp_n, base_top_idx_n, ln)
             L_neg_kl = kl_lambda * kl_n
     g_neg_nll = _zerofill(torch.autograd.grad(
@@ -302,84 +312,98 @@ def pcgrad_train_step(
 
 def _capture_calibration_activations(model, tok, pairs: list[dict],
                                      cfg: TrainCfg, *,
-                                     enable_thinking: bool) -> dict[str, torch.Tensor]:
-    """Run prompt-only forwards over `pairs` and capture per-layer activations
-    at the input of each PiSSA target. Returns `dict[layer_name, (N, d_in)]`
-    on CPU float32, with N ≤ cfg.pissa_calib_max_tokens per layer.
+                                     enable_thinking: bool
+                                     ) -> dict[str, dict[str, torch.Tensor]]:
+    """Capture per-layer input activations on COMPLETION tokens during full
+    (prompt+cho) and (prompt+rej) forwards. Returns
+    `dict[layer_name, {"cho": (N_cho, d_in), "rej": (N_rej, d_in)}]` (CPU
+    float32, capped per side at cfg.pissa_calib_max_tokens).
 
-    SHOULD: produce X distributions that reflect the prompt registers used
-    during training. ELSE PiSSA top-r selection collapses to S-only and
-    we lose the activation-driven distinction (the whole point of the fork).
+    Why completion-only: the persona axis lives in what the model PRODUCES;
+    prompt-token activations are identical between cho and rej (same prompt)
+    so a contrast on them yields zero signal. Masking to completion tokens
+    (labels != -100) isolates the cho/rej-specific activations.
+
+    SHOULD: cho and rej captures produce DIFFERENT distributions per layer.
+    ELSE selection score `cho_rej_min_std` collapses to S-bias and we lose
+    the contrast (the whole point of the fork).
     """
     from csm.ws.adapter import LoRAConfig, _find_targets
 
     probe_cfg = LoRAConfig(r=cfg.r, alpha=1.0, targets=cfg.targets,
                            layer_range=cfg.layer_range, dtype=next(model.parameters()).dtype)
     targets = _find_targets(model, probe_cfg)
-    captured: dict[str, list[torch.Tensor]] = {name: [] for name, _ in targets}
-    counts: dict[str, int] = {name: 0 for name, _ in targets}
     cap = cfg.pissa_calib_max_tokens
 
-    # Pad-position mask is set per-forward below; the hook filters by it so
-    # captured X reflects real prompt tokens only (not pad noise).
-    _current_pad_mask: dict[str, torch.Tensor | None] = {"m": None}
+    # Per-side state; reset between cho and rej passes.
+    captured: dict[str, dict[str, list[torch.Tensor]]] = {
+        name: {"cho": [], "rej": []} for name, _ in targets}
+    counts: dict[str, dict[str, int]] = {
+        name: {"cho": 0, "rej": 0} for name, _ in targets}
+    _state: dict[str, object] = {"side": "cho", "completion_mask": None}
 
     def make_hook(name):
         def _h(module, args, kwargs):
-            if counts[name] >= cap:
+            side: str = _state["side"]
+            if counts[name][side] >= cap:
                 return
             x = args[0].detach()
-            mask = _current_pad_mask["m"]
+            mask = _state["completion_mask"]
             if mask is not None and mask.shape[:x.dim() - 1] == x.shape[:-1]:
                 x = x[mask.bool()]                        # (N_real, d_in)
             else:
                 x = x.reshape(-1, x.shape[-1])
             x = x.to(torch.float32).cpu()
-            take = min(x.shape[0], cap - counts[name])
-            captured[name].append(x[:take])
-            counts[name] += take
+            take = min(x.shape[0], cap - counts[name][side])
+            captured[name][side].append(x[:take])
+            counts[name][side] += take
         return _h
 
     handles = [layer.register_forward_pre_hook(make_hook(name), with_kwargs=True)
                for name, layer in targets]
     try:
-        # Tokenize prompts only (no cho/rej completion); we want the input
-        # distribution the adapter sees, not the supervised targets.
-        prompt_texts = [
-            tok.apply_chat_template(
-                [{"role": "user", "content": p["prompt"]}],
-                tokenize=False, add_generation_prompt=True,
-                enable_thinking=enable_thinking,
-            )
-            for p in pairs
-        ]
-        enc = tok(prompt_texts, padding=True, truncation=True, max_length=cfg.max_len,
-                  return_tensors="pt", add_special_tokens=False)
         device = next(model.parameters()).device
-        ids = enc.input_ids.to(device)
-        attn = enc.attention_mask.to(device)
         was_training = model.training
         model.eval()
-        with torch.no_grad():
-            bs = max(1, cfg.batch_size)
-            for i in range(0, ids.shape[0], bs):
-                if all(counts[n] >= cap for n in counts):
-                    break
-                _current_pad_mask["m"] = attn[i:i+bs]
-                model(input_ids=ids[i:i+bs], attention_mask=attn[i:i+bs])
-            _current_pad_mask["m"] = None
+
+        ds = PairDataset(pairs, tok, cfg.max_len, enable_thinking=enable_thinking)
+        bs = max(1, cfg.batch_size)
+        for side in ("cho", "rej"):
+            _state["side"] = side
+            # Build tensors per side from PairDataset (already builds full
+            # prompt+completion ids with labels masking the prompt to -100).
+            samples = [ds[i][0 if side == "cho" else 1] for i in range(len(ds))]
+            with torch.no_grad():
+                for i in range(0, len(samples), bs):
+                    if all(counts[n][side] >= cap for n in counts):
+                        break
+                    batch = samples[i:i+bs]
+                    ids, lbl, attn = collate(batch, tok.pad_token_id)
+                    ids, lbl, attn = ids.to(device), lbl.to(device), attn.to(device)
+                    # Only label != -100 positions = completion tokens.
+                    _state["completion_mask"] = (lbl != -100)
+                    model(input_ids=ids, attention_mask=attn)
+            _state["completion_mask"] = None
         if was_training:
             model.train()
     finally:
         for h in handles:
             h.remove()
 
-    X = {name: torch.cat(chunks, dim=0) if chunks else torch.empty(0)
-         for name, chunks in captured.items()}
-    n_min = min((v.shape[0] for v in X.values() if v.numel() > 0), default=0)
-    n_max = max((v.shape[0] for v in X.values()), default=0)
-    logger.info(f"PiSSA calibration: captured {len(X)} target activations, "
-                f"tokens/layer in [{n_min}, {n_max}] (cap={cap})")
+    X: dict[str, dict[str, torch.Tensor]] = {}
+    for name, sides in captured.items():
+        X[name] = {
+            s: torch.cat(chunks, dim=0) if chunks else torch.empty(0)
+            for s, chunks in sides.items()
+        }
+    n_cho = [v["cho"].shape[0] for v in X.values() if v["cho"].numel() > 0]
+    n_rej = [v["rej"].shape[0] for v in X.values() if v["rej"].numel() > 0]
+    logger.info(
+        f"PiSSA calibration: captured {len(X)} targets, "
+        f"cho tokens/layer in [{min(n_cho, default=0)}, {max(n_cho, default=0)}], "
+        f"rej tokens/layer in [{min(n_rej, default=0)}, {max(n_rej, default=0)}] "
+        f"(cap={cap})"
+    )
     return X
 
 
