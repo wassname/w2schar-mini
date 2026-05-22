@@ -8,16 +8,16 @@ Forked from `weight-steering-lite/src/wsl/train.py`, trimmed:
 
 Per (prompt, cho, rej), sampled C ∈ (0, 1]:
 
-    L_pos = C·mean_b(nll_b / max(detach(nll_b), 1))  +  β·KL(steer ‖ base)
-    L_neg = C·mean_b(nll_b / max(detach(nll_b), 1))  +  β·KL(steer ‖ base)
+    w_b   = min(1, OUTLIER_NLL / detach(nll_b))
+    L_pos = C·mean_b(w_b · nll_b)  +  β·KL(steer ‖ base)   at c=+C on cho
+    L_neg = C·mean_b(w_b · nll_b)  +  β·KL(steer ‖ base)   at c=−C on rej
 
-Per-sample NLL is normalized by its own detached value (capped from
-below at 1) before batch-averaging. This caps each pair's NLL
-contribution at ~1 nat, so hard pairs (high NLL) get their gradient
-magnitude downweighted to unit-ish, while easy pairs (NLL < 1) pass
-through unchanged. Goal: equal-magnitude pull per pair toward each
-pole, so the learned direction is a clean bisecting axis instead of
-being dominated by the few hardest pairs.
+Outlier downweight: pairs with NLL ≤ OUTLIER_NLL pass through at full
+weight; pairs above (likely off-policy or impossible — model can't
+produce cho given context) are damped by OUTLIER_NLL/nll < 1, so they
+don't dominate the learned direction. Earlier form was `nll / max(nll, 1)`
+which shrank every typical pair (nll≈2.3) by 2.3× instead of only
+clipping outliers.
 
 β trades steering signal vs distribution shift; weight-decay + β
 jointly pull toward "no-op" while NLL pulls toward cho/rej.
@@ -40,6 +40,13 @@ from transformers import get_cosine_schedule_with_warmup
 from tqdm.auto import tqdm
 
 from csm.ws.adapter import ModulatedLoRA
+
+
+# Outlier-NLL threshold for per-pair downweighting. Pairs with NLL ≤
+# this pass through at full weight (weight=1); pairs above are damped
+# by OUTLIER_NLL/nll. Picked above typical cho-NLL (~2–3 on gemma-2b);
+# triggers only when a pair is genuinely off-policy / impossible.
+OUTLIER_NLL = 4.0
 
 
 @dataclass
@@ -199,9 +206,8 @@ def pcgrad_train_step(
     with lora(model, c=+C):
         out_p = model(input_ids=ip, attention_mask=ap, output_hidden_states=True)
         nll_per_p = _per_sample_nll(out_p.logits.float(), lp)  # [B]
-        # per-sample normalize: cap each pair's gradient pull at ~unit
-        # magnitude so a few hard pairs can't dominate the direction.
-        L_pos_nll = C * (nll_per_p / nll_per_p.detach().clamp(min=1.0)).mean()
+        w_p = (OUTLIER_NLL / nll_per_p.detach()).clamp(max=1.0)
+        L_pos_nll = C * (w_p * nll_per_p).mean()
         mean_nll_p = nll_per_p.detach().mean().item()    # for logging
         # Final hidden state pooled over completion-mask tokens (detached;
         # used only for cos_act diagnostic, no gradient through it).
@@ -223,7 +229,8 @@ def pcgrad_train_step(
     with lora(model, c=-C):
         out_n = model(input_ids=in_, attention_mask=an, output_hidden_states=True)
         nll_per_n = _per_sample_nll(out_n.logits.float(), ln)  # [B]
-        L_neg_nll = C * (nll_per_n / nll_per_n.detach().clamp(min=1.0)).mean()
+        w_n = (OUTLIER_NLL / nll_per_n.detach()).clamp(max=1.0)
+        L_neg_nll = C * (w_n * nll_per_n).mean()
         mean_nll_n = nll_per_n.detach().mean().item()
         h_n_last = out_n.hidden_states[-1].detach().float()
         if use_kl:
