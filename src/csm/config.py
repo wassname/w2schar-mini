@@ -169,6 +169,18 @@ def config_by_model(model_id: str) -> RunConfig:
     return cfg
 
 
+def config_for_run(run_meta: dict) -> RunConfig:
+    """Prefer the profile name when multiple profiles share a model id
+    (e.g. gemma-2b vs gemma-2b-pissa). Falls back to model-id lookup for
+    runs initialised before the profile field was persisted."""
+    profile = run_meta.get("profile")
+    if profile and profile in CONFIGS:
+        cfg = CONFIGS[profile]
+        _validate(cfg)
+        return cfg
+    return config_by_model(run_meta["model"])
+
+
 def _validate(cfg: RunConfig) -> None:
     if cfg.adapter == "pissa" and cfg.quant is not None:
         # PiSSA physically mutates layer.weight at init; bnb quantized

@@ -23,7 +23,7 @@ from pathlib import Path
 import torch
 from inspect_ai.log import transcript
 
-from csm.config import config_by_model
+from csm.config import config_by_model, config_for_run
 from csm.gen.dialogue import DialogueCfg, dialogue
 from csm.gen.pairs import (gen_completions, load_pairs_md, n_filled,
                            sample_prompts, write_pairs_md, write_seeded_pairs)
@@ -44,7 +44,8 @@ SIGN = +1                                     # +C = more "less authority"
 # Per-slug bootstrap
 # ---------------------------------------------------------------------------
 
-def init_run(slug_dir: Path, model: str, teacher: str | None = None) -> Path:
+def init_run(slug_dir: Path, model: str, teacher: str | None = None,
+             profile: str | None = None) -> Path:
     slug_dir.mkdir(parents=True, exist_ok=True)
     run = {
         "model": model,
@@ -52,6 +53,8 @@ def init_run(slug_dir: Path, model: str, teacher: str | None = None) -> Path:
         "axis": AXIS,
         "created_utc": datetime.now(timezone.utc).isoformat(),
     }
+    if profile is not None:
+        run["profile"] = profile
     (slug_dir / "run.json").write_text(json.dumps(run, indent=2))
     round_dir = slug_dir / "round00"
     round_dir.mkdir(exist_ok=True)
@@ -97,7 +100,7 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
         return  # both done
 
     run = json.loads((slug_dir / "run.json").read_text())
-    cfg = config_by_model(run["model"])
+    cfg = config_for_run(run)
 
     try:
         n = int(round_dir.name.replace("round", ""))
@@ -165,7 +168,7 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
 
     filled = n_filled(pairs)
     run = json.loads((round_dir.parent / "run.json").read_text())
-    cfg = config_by_model(run["model"])
+    cfg = config_for_run(run)
 
     if filled >= cfg.min_pairs_to_train:
         set_state(round_dir, "train_student",
@@ -200,7 +203,7 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
 def train_student(slug_dir: Path, round_dir: Path) -> dict:
     require_state(round_dir, "train_student", "train_student")
     run = json.loads((slug_dir / "run.json").read_text())
-    cfg = config_by_model(run["model"])
+    cfg = config_for_run(run)
 
     lesson, pairs_all = load_pairs_md(round_dir / "pairs.md")
     pairs = [p for p in pairs_all

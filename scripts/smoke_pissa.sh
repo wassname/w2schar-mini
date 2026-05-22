@@ -10,13 +10,12 @@ TS=$(date -u +%Y%m%dT%H%M%S)
 SLUG="out/iter/${TS}_smoke_pissa"
 echo "smoke-pissa: profile=tiny-pissa slug=$SLUG"
 
-# Monkey-patch config_by_model to return CONFIGS['tiny-pissa'] so the
-# pipeline picks the PiSSA branch for this run.
+# Profile-aware run: init_run persists profile='tiny-pissa' into run.json,
+# downstream config_for_run picks the PiSSA branch.
 uv run python - <<PYEOF
 import json
 from pathlib import Path
 import csm.config as _cfg
-_cfg.config_by_model = lambda mid: _cfg.CONFIGS["tiny-pissa"]
 
 from csm.pipeline import (init_run, latest_round_dir, mark_exam,
                           prepare_round, submit_pairs, train_student)
@@ -25,7 +24,7 @@ from csm.gen.pairs import load_pairs_md, write_pairs_md
 slug = Path("$SLUG")
 model = _cfg.CONFIGS["tiny-pissa"].model
 
-init_run(slug, model)
+init_run(slug, model, profile="tiny-pissa")
 rd = latest_round_dir(slug)
 print(f"\n=== smoke-pissa round: {rd} ===")
 

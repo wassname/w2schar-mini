@@ -29,7 +29,7 @@ from loguru import logger
 from tinymfv import evaluate
 from tqdm.auto import tqdm
 
-from csm.config import config_by_model
+from csm.config import config_by_model, config_for_run
 from csm.ws.bake import AdapterSpec, adapter_spec_from_checkpoint, baked
 from csm.ws.history import kept_history_dirs, load_base_with_history_specs
 
@@ -83,7 +83,7 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
     Reloads model once per round (history-bake changes round-to-round)."""
     run = json.loads((slug_dir / "run.json").read_text())
     model_id = run["model"]
-    cfg = config_by_model(model_id)
+    cfg = config_for_run(run)
     bs = batch_size or cfg.eval_batch_size
 
     rounds = sorted(p for p in slug_dir.glob("round*") if p.is_dir())

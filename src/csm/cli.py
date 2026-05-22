@@ -128,7 +128,7 @@ def cmd_agent_run(args: AgentRunArgs) -> None:
         cfg = CONFIGS[args.profile]
         model, teacher = cfg.model, cfg.teacher
         slug = _default_slug(model)
-        init_run(slug, model, teacher=teacher)
+        init_run(slug, model, teacher=teacher, profile=args.profile)
 
     n_rounds = args.n_rounds or cfg.n_rounds
     print(f"# agent-run model={model} teacher={teacher} slug={slug} n_rounds={n_rounds}",
