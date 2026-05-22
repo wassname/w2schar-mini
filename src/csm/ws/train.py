@@ -190,11 +190,12 @@ def _kl_topk(logits_s, base_topk_idx, base_logp_topk, labels):
     labels_sh = labels[:, 1:]
 
     # Outside-top-K bucket: log(1 - Σ_topK p) via stable log1p(-exp(log_sum)).
-    # Clamp log_sum at -1e-4 to avoid log1p(-1)=-inf when top-K covers
-    # exactly all mass (numerical edge; doesn't bias the gradient signal).
-    log_sum_s = torch.logsumexp(logp_s_topk, dim=-1, keepdim=True)     # [B, S-1, 1]
-    log_sum_b = torch.logsumexp(logp_b_topk, dim=-1, keepdim=True)
-    logp_s_out = torch.log1p(-log_sum_s.clamp(max=-1e-4).exp())        # [B, S-1, 1]
+    # MUST be fp32: bf16 resolution near 1.0 is ~2^-7, so (-1e-4).exp() rounds
+    # to 1.0 → log1p(-1)=-inf → (-inf)-(-inf)=NaN. fp32 clamp at -1e-4 keeps
+    # the residual bucket finite. Tensor is (B, S-1, 1), cast is ~free.
+    log_sum_s = torch.logsumexp(logp_s_topk.float(), dim=-1, keepdim=True)  # [B, S-1, 1]
+    log_sum_b = torch.logsumexp(logp_b_topk.float(), dim=-1, keepdim=True)
+    logp_s_out = torch.log1p(-log_sum_s.clamp(max=-1e-4).exp())             # [B, S-1, 1]
     logp_b_out = torch.log1p(-log_sum_b.clamp(max=-1e-4).exp())
 
     # Cast at reduction: bf16 sum over K=256 loses precision.
