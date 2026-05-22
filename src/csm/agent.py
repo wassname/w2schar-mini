@@ -230,6 +230,27 @@ def _n_drops(slug_path: Path) -> int:
     )
 
 
+def _round_history_lines(slug_path: Path) -> str:
+    """One indented line per completed round: name, action, axis-hint snippet.
+    Empty string for the first round (nothing to show). Helps the agent see
+    its own keep/drop pattern instead of inferring it from raw counters."""
+    rounds = sorted(p for p in slug_path.glob("round*") if p.is_dir())
+    lines: list[str] = []
+    for rd in rounds:
+        jp = rd / "judgment.json"
+        if not jp.exists():
+            continue
+        d = json.loads(jp.read_text())
+        action = d.get("action", "?")
+        nf = (d.get("next_focus") or d.get("reason") or "").strip().replace("\n", " ")
+        if len(nf) > 100:
+            nf = nf[:97] + "..."
+        lines.append(f"  {rd.name}: {action} — {nf}" if nf else f"  {rd.name}: {action}")
+    if not lines:
+        return ""
+    return "History so far (one line per round):\n" + "\n".join(lines)
+
+
 @solver
 def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     slug_path = _slug_path(slug)
@@ -250,6 +271,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
 
         return ON_CONTINUE_NUDGE.format(
             n_keeps=n_keeps, target_keeps=target_keeps, n_drops=_n_drops(slug_path),
+            history=_round_history_lines(slug_path),
             last_state=st.state, next_action=allowed_after(st.state),
         )
 

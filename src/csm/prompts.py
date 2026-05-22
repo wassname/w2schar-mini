@@ -86,9 +86,10 @@ Round {round_n} of {target_n} keeps. Round dir: `{round_dir}`. Student:
 """
 
 ON_CONTINUE_NUDGE = """\
-{n_keeps}/{target_keeps} keeps ({n_drops} drops).
-State: `{last_state}`.
-DO: {next_action}
+Progress: {n_keeps}/{target_keeps} rounds kept, {n_drops} dropped (target counter — NOT a result).
+{history}
+This round is at state `{last_state}` — you have NOT yet done that step.
+Next action: {next_action}
 """
 
 def AFTER_SUBMIT(slots_with_todo: list[int]) -> str:

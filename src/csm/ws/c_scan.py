@@ -138,7 +138,9 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
 
     n_valid, n_total, gens = _free_gen_valid_json(
         model, tok, lora, c, max_new_tokens=json_max_new_tokens)
-    return {"pmass": pmass, "valid_json": n_valid, "n_json": n_total, "gens": gens}
+    mean_len = int(sum(len(g) for g in gens) / max(1, len(gens)))
+    return {"pmass": pmass, "valid_json": n_valid, "n_json": n_total,
+            "mean_len": mean_len, "gens": gens}
 
 
 def c_scan(model, tok, lora: ModulatedLoRA, *,
@@ -229,8 +231,9 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     rows = [[t["stage"], t["c"],
              f"{t['pmass']:.3f}" if t.get("pmass") is not None else "—",
              f"{t['valid_json']}/{t['n_json']}" if t.get("valid_json") is not None else "—",
+             t.get("mean_len", "—"),
              t["note"]] for t in trace]
-    table = tabulate(rows, headers=["stage", "c", "pmass", "json", "note"],
+    table = tabulate(rows, headers=["stage", "c", "pmass", "json", "len", "note"],
                      tablefmt="plain", floatfmt="+.3f")
     logger.info(f"\nc_scan (baseline_pmass={baseline_pmass:.3f}, "
                 f"baseline_json={baseline_json}/{base['n_json']}, "

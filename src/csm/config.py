@@ -103,16 +103,18 @@ CONFIGS: dict[str, RunConfig] = {
         lora_r=512,
         train_batch_size=16,
         eval_batch_size=16,
-        # KL 100× lower than the LoRA default. PiSSA's Δs=0 is the exact
-        # identity (W_res + U·S·Vh = W), so a strong KL anchor pulls the
-        # optimizer back to null intervention. kl=0.005 with top-K+bf16
-        # (train.py:_kl_topk_base) keeps a soft anchor without dominating.
-        kl_lambda=0.005,
-        # lr 40× LoRA default: margin loss (cho_nll - rej_nll) has a small
-        # raw magnitude (~0.4 vs absolute nll ~3.2) and cos≈+1 means no
-        # PCGrad amplification — plain SGD with a small loss needs more
-        # lr to move Δs (which itself inits ~4e-2, scale-matched).
-        lr=4e-3,
+        # kl_lambda 30× the original PiSSA setting. With lr=1e-2 and a
+        # margin signal ~0.6 nats, the prior 0.005 contributed ~0.001 nats
+        # to loss — invisible vs margin. 0.15 puts kl term at ~0.03-0.1
+        # nats range (kl values 0.2-0.7 in current trace), comparable to
+        # the per-step margin movement — actually constrains drift now.
+        kl_lambda=0.15,
+        # lr 100× LoRA default: margin loss (cho_nll - rej_nll) has small
+        # raw magnitude (~0.6 vs absolute nll ~3.5) AND now cos≈-0.3 means
+        # PCGrad cancels ~half the gradient — net update is tiny, ‖Δs‖
+        # barely accelerates beyond init. Bumping to 1e-2 to actually open
+        # the margin (previous 4e-3 closed it 0.63→0.57 over 60 steps).
+        lr=1e-2,
         # wd≈0: Δs is the entire learnable param (per-singular delta).
         # Normal weight-decay scales (0.01) shrink Δs back toward 0
         # (= PiSSA identity = null intervention), fighting the optimizer.
@@ -122,6 +124,11 @@ CONFIGS: dict[str, RunConfig] = {
         # transient logp halved (16.75 → 8 GB bf16). Pair completions are
         # usually <1k tokens; longer ones truncate.
         max_len=1024,
+        # 2× the default floor. With lr=1e-2 + cosine decay over 60 steps,
+        # lr falls below 1e-3 by step 33 — too short to actually open the
+        # margin (60-step trace plateaued at ‖Δs‖=1.97 from step 50+).
+        # 120 steps gives the high lr more room to land before decay.
+        min_steps=120,
     ),
     "gemma-9b": RunConfig(
         model="google/gemma-2-9b-it",

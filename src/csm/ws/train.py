@@ -183,9 +183,10 @@ def _kl_topk_base(logp_steer, base_top_logp, base_top_idx, labels):
     b_sh_logp = base_top_logp[:, :-1, :]               # (B, S-1, K)
     b_sh_idx = base_top_idx[:, :-1, :]                 # (B, S-1, K)
     mask_sh = (labels[:, 1:] != -100)
-    s_top = torch.gather(s_sh, -1, b_sh_idx)           # (B, S-1, K)
+    s_top = torch.gather(s_sh, -1, b_sh_idx).float()   # (B, S-1, K) fp32: bf16 sum
+    b_top = b_sh_logp.float()                          # over K=256 loses precision
     logp_s_K = s_top - torch.logsumexp(s_top, dim=-1, keepdim=True)
-    logp_b_K = b_sh_logp - torch.logsumexp(b_sh_logp, dim=-1, keepdim=True)
+    logp_b_K = b_top - torch.logsumexp(b_top, dim=-1, keepdim=True)
     p_s_K = logp_s_K.exp()
     kl_per_tok = (p_s_K * (logp_s_K - logp_b_K)).sum(dim=-1)
     return kl_per_tok[mask_sh.bool()].mean()
