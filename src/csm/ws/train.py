@@ -48,6 +48,12 @@ from csm.ws.adapter import ModulatedLoRA
 # triggers only when a pair is genuinely off-policy / impossible.
 OUTLIER_NLL = 4.0
 
+# Top-K vocab for KL approximation. K=256 covers >99.9% of base mass
+# on confident LM next-token distributions, with per-token error ≪ the
+# KL signal itself. Cuts the (B, S, V=256K) fp32 logp materialization
+# (~8 GB per tensor on gemma-2b/9b) down to (B, S, 256) bf16 (~MB).
+KL_TOPK = 256
+
 
 @dataclass
 class TrainCfg:
@@ -154,19 +160,54 @@ def _per_sample_nll(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     return (loss_per_tok * mask).sum(-1) / mask.sum(-1).clamp(min=1.0)
 
 
-def _kl_mean_full(logp_steer, logp_base, labels):
-    """Reverse KL(p_steer ‖ p_base), per-token, mean over the SAME positions
-    HF causal-LM CE averages over. HF shifts labels internally
-    (loss = CE(logits[:, :-1], labels[:, 1:])) so we shift here too.
+def _base_topk(logits, k: int = KL_TOPK):
+    """Extract (top_k_indices, base_logp_at_topk) from raw logits without
+    materializing the full (B, S, V) log_softmax. Both bf16, detached
+    (called inside no_grad)."""
+    lse = torch.logsumexp(logits, dim=-1, keepdim=True)          # [B, S, 1]
+    top = logits.topk(k, dim=-1)
+    return top.indices, (top.values - lse).detach()              # [B, S, K]
 
-    Returns mean reverse-KL in nats over completion-predictive positions.
+
+def _kl_topk(logits_s, base_topk_idx, base_logp_topk, labels):
+    """Reverse KL(p_steer ‖ p_base) on base's top-K vocab + residual bucket.
+
+    Naive truncation (sum only over top-K of base) is WRONG: when steered
+    mass leaks outside base's top-K (the exact case we want to penalize),
+    the truncated sum goes NEGATIVE, so `kl_lambda * kl` rewards
+    divergence (anti-anchor). Fix: add an explicit "outside-top-K"
+    bucket whose log-prob in each distribution is computed via log1p(-Σ).
+
+    Memory: avoids materializing (B, S, V) log_softmax; only logsumexp
+    (→ (B,S,1)) and gather (→ (B,S,K)) on steered side.
     """
-    # Shift to match HF's labels-aware CE: logits[t] predicts label[t+1].
-    logp_steer_sh = logp_steer[:, :-1, :]
-    logp_base_sh = logp_base[:, :-1, :]
-    mask_sh = (labels[:, 1:] != -100)
-    p_s = logp_steer_sh.exp()
-    kl_per_tok = (p_s * (logp_steer_sh - logp_base_sh)).sum(dim=-1)    # [B, S-1]
+    lse = torch.logsumexp(logits_s, dim=-1, keepdim=True)             # [B, S, 1]
+    logp_s_topk_full = logits_s.gather(-1, base_topk_idx) - lse        # [B, S, K]
+
+    # Shift to match HF causal-LM CE: logits[t] predicts label[t+1].
+    logp_s_topk = logp_s_topk_full[:, :-1, :]
+    logp_b_topk = base_logp_topk[:, :-1, :]
+    labels_sh = labels[:, 1:]
+
+    # Outside-top-K bucket: log(1 - Σ_topK p) via stable log1p(-exp(log_sum)).
+    # Clamp log_sum at -1e-4 to avoid log1p(-1)=-inf when top-K covers
+    # exactly all mass (numerical edge; doesn't bias the gradient signal).
+    log_sum_s = torch.logsumexp(logp_s_topk, dim=-1, keepdim=True)     # [B, S-1, 1]
+    log_sum_b = torch.logsumexp(logp_b_topk, dim=-1, keepdim=True)
+    logp_s_out = torch.log1p(-log_sum_s.clamp(max=-1e-4).exp())        # [B, S-1, 1]
+    logp_b_out = torch.log1p(-log_sum_b.clamp(max=-1e-4).exp())
+
+    # Cast at reduction: bf16 sum over K=256 loses precision.
+    diff_topk = (logp_s_topk - logp_b_topk).float()                    # [B, S-1, K]
+    p_s_topk = logp_s_topk.float().exp()
+    kl_topk = (p_s_topk * diff_topk).sum(dim=-1, keepdim=True)         # [B, S-1, 1]
+
+    diff_out = (logp_s_out - logp_b_out).float()
+    p_s_out = logp_s_out.float().exp()
+    kl_out = p_s_out * diff_out                                        # [B, S-1, 1]
+
+    kl_per_tok = (kl_topk + kl_out).squeeze(-1)                        # [B, S-1]
+    mask_sh = (labels_sh != -100)
     return kl_per_tok[mask_sh.bool()].mean()
 
 
@@ -195,17 +236,20 @@ def pcgrad_train_step(
                                 output_hidden_states=True)
                 out_b_n = model(input_ids=in_, attention_mask=an,
                                 output_hidden_states=True)
-            logp_b_p = torch.log_softmax(out_b_p.logits.float(), dim=-1)
-            logp_b_n = torch.log_softmax(out_b_n.logits.float(), dim=-1)
+            # Top-K (idx + base logp) for KL on top-256. Skips the
+            # ~8GB full-vocab log_softmax materialization.
+            base_topk_idx_p, base_logp_topk_p = _base_topk(out_b_p.logits)
+            base_topk_idx_n, base_logp_topk_n = _base_topk(out_b_n.logits)
             # Base hidden states for the Δh diagnostic (per-sample direction
             # variance). Detach + float here so they're tiny and grad-free.
             h_b_p = out_b_p.hidden_states[-1].detach().float()
             h_b_n = out_b_n.hidden_states[-1].detach().float()
+            del out_b_p, out_b_n   # free base logits + all-layer hidden states
 
     # ---- cho at c=+C ------------------------------------------------------
     with lora(model, c=+C):
         out_p = model(input_ids=ip, attention_mask=ap, output_hidden_states=True)
-        nll_per_p = _per_sample_nll(out_p.logits.float(), lp)  # [B]
+        nll_per_p = _per_sample_nll(out_p.logits, lp)  # [B]
         w_p = (OUTLIER_NLL / nll_per_p.detach()).clamp(max=1.0)
         L_pos_nll = C * (w_p * nll_per_p).mean()
         mean_nll_p = nll_per_p.detach().mean().item()    # for logging
@@ -213,8 +257,7 @@ def pcgrad_train_step(
         # used only for cos_act diagnostic, no gradient through it).
         h_p_last = out_p.hidden_states[-1].detach().float()
         if use_kl:
-            logp_p = torch.log_softmax(out_p.logits.float(), dim=-1)
-            kl_p = _kl_mean_full(logp_p, logp_b_p, lp)
+            kl_p = _kl_topk(out_p.logits, base_topk_idx_p, base_logp_topk_p, lp)
             L_pos_kl = kl_lambda * kl_p
     g_pos_nll = _zerofill(torch.autograd.grad(
         L_pos_nll, params, retain_graph=use_kl, allow_unused=True), params)
@@ -228,14 +271,13 @@ def pcgrad_train_step(
     # ---- rej at c=-C ------------------------------------------------------
     with lora(model, c=-C):
         out_n = model(input_ids=in_, attention_mask=an, output_hidden_states=True)
-        nll_per_n = _per_sample_nll(out_n.logits.float(), ln)  # [B]
+        nll_per_n = _per_sample_nll(out_n.logits, ln)  # [B]
         w_n = (OUTLIER_NLL / nll_per_n.detach()).clamp(max=1.0)
         L_neg_nll = C * (w_n * nll_per_n).mean()
         mean_nll_n = nll_per_n.detach().mean().item()
         h_n_last = out_n.hidden_states[-1].detach().float()
         if use_kl:
-            logp_n = torch.log_softmax(out_n.logits.float(), dim=-1)
-            kl_n = _kl_mean_full(logp_n, logp_b_n, ln)
+            kl_n = _kl_topk(out_n.logits, base_topk_idx_n, base_logp_topk_n, ln)
             L_neg_kl = kl_lambda * kl_n
     g_neg_nll = _zerofill(torch.autograd.grad(
         L_neg_nll, params, retain_graph=use_kl, allow_unused=True), params)
@@ -351,7 +393,7 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
     loader = DataLoader(
         ds, batch_size=cfg.batch_size, shuffle=True,
         collate_fn=lambda b: _pair_collate(b, pad_id),
-        drop_last=True,
+        drop_last=False,   # 15 pairs / batch=16 → drop_last=True empties the loader.
     )
 
     device = next(model.parameters()).device

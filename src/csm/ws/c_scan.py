@@ -51,11 +51,14 @@ _JSON_TAIL = (
     'own line in this format:\n```json\n{"ans": boolean}\n```\nBegin: '
 )
 JSON_PROMPTS: list[str] = [
-    'Using first-order logic with ∀/∃/∧/⇒ and at least three named '
-    'predicates, prove or disprove: "if every human is mortal and some '
-    'human is a philosopher, then some philosopher is mortal." Write at '
-    'least four lines of explicit derivation, then state your conclusion '
-    'as true (the inference is valid) or false (counterexample exists).'
+    'Using first-order logic with ∀/∃/∧/⇒, prove or disprove: "if every '
+    'human is mortal and some human is a philosopher, then some philosopher '
+    'is mortal." Show the symbolic derivation step by step, naming the '
+    'inference rule at each step (universal instantiation, existential '
+    'instantiation, modus ponens, etc.), then in prose explain what each '
+    'step does. Then discuss whether the parallel syllogism "all Greeks '
+    'are mortal; Socrates is mortal; therefore Socrates is Greek" follows '
+    'the same pattern, and why or why not. Conclude as true or false.'
     + _JSON_TAIL,
 
     'Write four stanzas of free verse, at least three lines each, about '
@@ -70,7 +73,29 @@ JSON_PROMPTS: list[str] = [
     'years. Name at least two figures other than Caesar. Then state your '
     'conclusion as true (Octavian still rises) or false (does not).'
     + _JSON_TAIL,
+
+    # Long-horizon repetition + meta-cognition: can the model sustain a
+    # boring task to completion AND transition out to emit valid JSON?
+    # Failure modes: collapse to gibberish, get stuck in the loop until
+    # budget exhausts (no JSON), schema-copy. Gate only checks JSON
+    # validity, not whether the count is actually right.
+    'Write the word "duck" exactly 50 times, separated by single spaces, '
+    'on one line. Count carefully as you go. After the last "duck", stop '
+    'and conclude as true if you wrote exactly 50, false otherwise.'
+    + _JSON_TAIL,
 ]
+
+
+def _distinct_n(text: str, n: int = 3) -> float:
+    """Distinct n-gram ratio (token-level): |unique n-grams| / |total
+    n-grams|. 1.0 = no repetition; near 0 = heavy looping ('ethics
+    ethics ethics …' or 'duck duck duck …'). Duck prompt intentionally
+    has low distinct-3; baseline self-relative gating handles that."""
+    toks = text.split()
+    if len(toks) < n:
+        return 1.0
+    ngrams = [tuple(toks[i:i + n]) for i in range(len(toks) - n + 1)]
+    return len(set(ngrams)) / len(ngrams)
 
 
 def _parse_first_json(text: str) -> bool:
@@ -94,11 +119,15 @@ def _parse_first_json(text: str) -> bool:
 
 @torch.no_grad()
 def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
-                         max_new_tokens: int = 768) -> tuple[int, int, list[str]]:
-    """Free-gen each JSON_PROMPT under c. Return (n_valid, n_total, gens)."""
+                         max_new_tokens: int = 8192) -> tuple[int, int, float, list[str]]:
+    """Free-gen each JSON_PROMPT under c. Return (n_valid, n_total,
+    mean_distinct3, gens). Budget is generous (8192) since the test is
+    'can the model eventually emit valid JSON' not 'within a tight
+    budget' — most coherent gens stop early at EOS."""
     pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
     n_valid = 0
     gens: list[str] = []
+    distincts: list[float] = []
     with lora(model, c=c):
         for prompt in JSON_PROMPTS:
             enc = tok(prompt, return_tensors="pt").to(model.device)
@@ -109,15 +138,17 @@ def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
             gen_text = tok.decode(out[0, enc.input_ids.shape[1]:],
                                   skip_special_tokens=True)
             n_valid += int(_parse_first_json(gen_text))
+            distincts.append(_distinct_n(gen_text, n=3))
             gens.append(gen_text)
-    return n_valid, len(JSON_PROMPTS), gens
+    mean_distinct = sum(distincts) / len(distincts)
+    return n_valid, len(JSON_PROMPTS), mean_distinct, gens
 
 
 @torch.no_grad()
 def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
                     n_vignettes: int = 2, max_think_tokens: int = 512,
                     batch_size: int = 2,
-                    json_max_new_tokens: int = 768) -> dict:
+                    json_max_new_tokens: int = 8192) -> dict:
     """One scan probe under c: tinymfv pmass_allowed + free-gen valid_json."""
     from tinymfv import evaluate as tinymfv_evaluate
 
@@ -133,9 +164,10 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
     if not math.isfinite(pmass):
         raise RuntimeError(f"NaN pmass at c={c}")
 
-    n_valid, n_total, gens = _free_gen_valid_json(
+    n_valid, n_total, distinct3, gens = _free_gen_valid_json(
         model, tok, lora, c, max_new_tokens=json_max_new_tokens)
-    return {"pmass": pmass, "valid_json": n_valid, "n_json": n_total, "gens": gens}
+    return {"pmass": pmass, "valid_json": n_valid, "n_json": n_total,
+            "distinct3": distinct3, "gens": gens}
 
 
 def c_scan(model, tok, lora: ModulatedLoRA, *,
@@ -146,7 +178,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
            n_vignettes: int = 2,
            max_think_tokens: int = 512,
            batch_size: int = 2,
-           json_max_new_tokens: int = 768) -> tuple[float, list]:
+           json_max_new_tokens: int = 8192) -> tuple[float, list]:
     """Walk |c| down by ×0.5 until `pmass ≥ gate × baseline_pmass` AND
     `valid_json == n_json`. Apply `backoff` to the passing c (e.g. 0.75 →
     final = sign * c_pass * 0.75) for extra safety margin. The pmass +
@@ -220,8 +252,9 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     rows = [[t["stage"], t["c"],
              f"{t['pmass']:.3f}" if t.get("pmass") is not None else "—",
              f"{t['valid_json']}/{t['n_json']}" if t.get("valid_json") is not None else "—",
+             f"{t['distinct3']:.2f}" if t.get("distinct3") is not None else "—",
              t["note"]] for t in trace]
-    table = tabulate(rows, headers=["stage", "c", "pmass", "json", "note"],
+    table = tabulate(rows, headers=["stage", "c", "pmass", "json", "rep", "note"],
                      tablefmt="plain", floatfmt="+.3f")
     logger.info(
         f"\nc_scan (baseline pmass={baseline_pmass:.3f} gate={gate:.3f}, "
