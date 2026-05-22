@@ -121,7 +121,8 @@ def cmd_agent_run(args: AgentRunArgs) -> None:
         run = json.loads((args.slug / "run.json").read_text())
         model, teacher = run["model"], run["teacher"]
         slug = args.slug
-        cfg = config_by_model(model)
+        from csm.config import config_for_run
+        cfg = config_for_run(run)
     else:
         if not args.profile or args.profile not in CONFIGS:
             sys.exit(f"# require --profile {{{','.join(sorted(CONFIGS))}}}}}")
