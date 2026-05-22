@@ -166,7 +166,13 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                            batch_size=batch_size,
                            json_max_new_tokens=json_max_new_tokens)
     baseline_pmass = base["pmass"]
+    baseline_valid = base["valid_json"]
     gate = gate_frac * baseline_pmass
+    # Self-relative json gate: don't get worse than base. Strict 3/3 made
+    # the gate unsatisfiable on weaker bases (gemma-2b fails prompt[2] at
+    # c=0 — 3 paragraphs counterfactual exceeds its coherence budget even
+    # with no adapter applied), so every probe fail-json'd and c walked
+    # to C_MIN.
     trace = [{"stage": "baseline", "c": 0.0, **base, "note": "—"}]
 
     c = init_c
@@ -179,7 +185,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                             batch_size=batch_size,
                             json_max_new_tokens=json_max_new_tokens)
         pmass_ok = m["pmass"] >= gate
-        json_ok = m["valid_json"] == m["n_json"]
+        json_ok = m["valid_json"] >= baseline_valid
         ok = pmass_ok and json_ok
         note = ("pass" if ok else
                 "fail-json" if not json_ok and pmass_ok else
@@ -217,7 +223,10 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
              t["note"]] for t in trace]
     table = tabulate(rows, headers=["stage", "c", "pmass", "json", "note"],
                      tablefmt="plain", floatfmt="+.3f")
-    logger.info(f"\nc_scan (baseline_pmass={baseline_pmass:.3f}, gate={gate:.3f}):\n{table}\n")
+    logger.info(
+        f"\nc_scan (baseline pmass={baseline_pmass:.3f} gate={gate:.3f}, "
+        f"baseline json={baseline_valid}/{base['n_json']}):\n{table}\n"
+    )
     if warn:
         logger.warning(f"c_scan: {warn}")
 

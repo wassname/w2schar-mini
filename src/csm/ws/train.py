@@ -32,6 +32,7 @@ import math
 from dataclasses import dataclass
 
 import torch
+import torch.nn.functional as F
 from loguru import logger
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset
@@ -190,12 +191,15 @@ def pcgrad_train_step(
 
     # ---- cho at c=+C ------------------------------------------------------
     with lora(model, c=+C):
-        out_p = model(input_ids=ip, attention_mask=ap)
+        out_p = model(input_ids=ip, attention_mask=ap, output_hidden_states=True)
         nll_per_p = _per_sample_nll(out_p.logits.float(), lp)  # [B]
         # per-sample normalize: cap each pair's gradient pull at ~unit
         # magnitude so a few hard pairs can't dominate the direction.
         L_pos_nll = C * (nll_per_p / nll_per_p.detach().clamp(min=1.0)).mean()
         mean_nll_p = nll_per_p.detach().mean().item()    # for logging
+        # Final hidden state pooled over completion-mask tokens (detached;
+        # used only for cos_act diagnostic, no gradient through it).
+        h_p_last = out_p.hidden_states[-1].detach().float()
         if use_kl:
             logp_p = torch.log_softmax(out_p.logits.float(), dim=-1)
             kl_p = _kl_mean_full(logp_p, logp_b_p, lp)
@@ -211,10 +215,11 @@ def pcgrad_train_step(
 
     # ---- rej at c=-C ------------------------------------------------------
     with lora(model, c=-C):
-        out_n = model(input_ids=in_, attention_mask=an)
+        out_n = model(input_ids=in_, attention_mask=an, output_hidden_states=True)
         nll_per_n = _per_sample_nll(out_n.logits.float(), ln)  # [B]
         L_neg_nll = C * (nll_per_n / nll_per_n.detach().clamp(min=1.0)).mean()
         mean_nll_n = nll_per_n.detach().mean().item()
+        h_n_last = out_n.hidden_states[-1].detach().float()
         if use_kl:
             logp_n = torch.log_softmax(out_n.logits.float(), dim=-1)
             kl_n = _kl_mean_full(logp_n, logp_b_n, ln)
@@ -227,6 +232,17 @@ def pcgrad_train_step(
     else:
         g_neg_kl = [torch.zeros_like(p) for p in params]
         kl_n = zero
+
+    # ---- cos_act: representation-space contrast between cho and rej -------
+    # Per-pair: mean-pool the final hidden state over each completion's
+    # own mask, then cos(h_cho, h_rej). Averaged over batch. High cos →
+    # the two completions look the same to the model → no contrast for
+    # the adapter to learn; should drift DOWN as training succeeds.
+    mp = (lp != -100).float().unsqueeze(-1)
+    mn = (ln != -100).float().unsqueeze(-1)
+    hp_pool = (h_p_last * mp).sum(1) / mp.sum(1).clamp_min(1.0)   # [B, D]
+    hn_pool = (h_n_last * mn).sum(1) / mn.sum(1).clamp_min(1.0)
+    cos_act = F.cosine_similarity(hp_pool, hn_pool, dim=-1).mean().item()
 
     # ---- PCGrad on the NLL pair only --------------------------------------
     gp_flat = torch.cat([g.reshape(-1) for g in g_pos_nll])
@@ -267,6 +283,7 @@ def pcgrad_train_step(
         "C": C,
         "conflict": conflict,
         "cos": cos,
+        "cos_act": cos_act,
     }
 
 
@@ -334,6 +351,7 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             "kl+": trace["kl_mean_pos"],
             "kl-": trace["kl_mean_neg"],
             "cos": trace["cos"],
+            "cos_act": trace["cos_act"],
             "lr": lr,
             "conf": int(trace["conflict"]),
         })
@@ -349,11 +367,14 @@ def _log_train_table(traces: list[dict]) -> None:
     """Print the per-step trace as a tabulate plain table.
 
     SHOULD show: C drift between [0, 2], nll± stable (large jumps = adapter
-    blowing up), kl± monotonically growing with |C|, cos near 0 (orthogonal
-    gradients = PCGrad-friendly), lr cosine from 0 → peak → 0, conf flag
-    when PCGrad surgery fired."""
+    blowing up), kl± monotonically growing with |C|, cos (grad) near 0
+    (orthogonal grads = PCGrad-friendly), cos_act (cho/rej last-hidden)
+    starts high (similar twinned prompts) and drifts DOWN as the adapter
+    learns to separate the two completion representations, lr cosine 0 →
+    peak → 0, conf=1 when PCGrad surgery fired."""
     from tabulate import tabulate
-    headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "lr", "conf"]
+    headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "cos_act",
+               "lr", "conf"]
     rows = [[t[h] for h in headers] for t in traces]
     # SHOULD: C drifts in [0, 2]; nll± descend together (symmetric pull from
     # twinned poles); kl± grows with |C|; cos starts negative (real opposing

@@ -53,7 +53,7 @@ samplebuffer is the only source for an in-flight agent's monologue.
 
 Same rule applies in two places:
 - `csm eval` post-hoc: tinymfv at `max_think_tokens=64` (cheap, comparable across rounds). pmass_allowed only.
-- `csm.ws.c_scan` mid-train calibration: pmass_allowed AND valid_json. Walk-down by ×0.5 until both pass, then ×0.75 backoff for cumulative-history headroom.
+- `csm.ws.c_scan` mid-train calibration: pmass_allowed AND valid_json. Walk-down by ×0.5 until both pass, then ×0.75 backoff for cumulative-history headroom. **Both gates are self-relative to baseline (c=0)**: pmass ≥ 0.995 × baseline_pmass, valid_json ≥ baseline_valid_json. The strict 3/3 valid_json gate broke 2b (base fails prompt[2] at c=0 — long-horizon counterfactual exceeds 2b's coherence budget even with no adapter) and any probe is then unsatisfiable. Self-relative says "don't get worse than the un-steered base," which is exactly the canary semantics.
 
 **NOT a coherence canary**: mass-on-base's-top-K over a teacher-forced sequence (the early mini c_scan tried this; the steered model never sees its own emissions so autoregressive collapse is invisible). **Δtop1 is label-agreement, NOT a coherence budget** — we shift it intentionally. If you find yourself ranking adapters by Δtop1, stop.
 
