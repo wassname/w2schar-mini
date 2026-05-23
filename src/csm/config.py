@@ -181,6 +181,23 @@ CONFIGS: dict[str, RunConfig] = {
         # (post-‖Δs‖-saturation rotation phase). Give late re-pointing room.
         min_steps=240,
     ),
+    # Qwen2.5-32B-Instruct: standard transformer attention (no gated-delta-net),
+    # so tinymfv's KV-fork in guided.py works. Picked over Qwen3.6-27B because
+    # the latter's LinearAttentionLayer cache lacks `.keys` and breaks
+    # `_slice_pkv_one` (task 67). 32B fits in nf4 alongside the 9B teacher.
+    "qwen2.5-32b-nf4": RunConfig(
+        model="Qwen/Qwen2.5-32B-Instruct",
+        teacher="qwen/qwen3.5-9b",
+        quant="nf4",
+        train_batch_size=1,
+        eval_batch_size=8,
+        lora_r=16,
+        lora_alpha=32.0,
+        lr=1e-3,
+        n_epochs=2.0,
+        kl_lambda=1.0,
+        min_steps=240,
+    ),
     # Smoke: tiny-random Qwen3 5-layer. ~1 min on CPU, garbage outputs.
     # layer_range=(0,1) so all 5 layers are targets — (0.2,0.8) would
     # leave only 3 layers, fine but defeats the smoke point.
