@@ -68,16 +68,14 @@ def _human_canonical_vec() -> np.ndarray:
     return np.stack(rows).mean(axis=0)
 
 
-def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict | None:
-    """Pull all per-round artifacts into one dict. Returns None if eval.json
-    is missing (i.e. csm eval hasn't been run yet for this round).
+def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict:
+    """Pull all per-round artifacts into one dict. Eval fields are None
+    when eval.json hasn't been built yet (csm eval is post-hoc).
 
     Dedup-aware: when a kept round's eval_post.json was skipped because
     it equals next round's eval.json, fall back to that next round's pre."""
     pre_path = round_dir / "eval.json"
-    if not pre_path.exists():
-        return None
-    pre = json.loads(pre_path.read_text())
+    pre = json.loads(pre_path.read_text()) if pre_path.exists() else None
 
     post_path = round_dir / "eval_post.json"
     if post_path.exists():
@@ -100,7 +98,8 @@ def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict | None:
         "round_name": round_dir.name,
         "pre": pre,
         "post": post,
-        "pre_vec": np.array([pre["mean_p"][f] for f in FOUNDATIONS]),
+        "pre_vec": (np.array([pre["mean_p"][f] for f in FOUNDATIONS])
+                    if pre else None),
         "post_vec": (np.array([post["mean_p"][f] for f in FOUNDATIONS])
                      if post else None),
         "lesson": lesson,
@@ -132,9 +131,7 @@ def _load_rounds(slug_dir: Path) -> list[dict]:
     rows = []
     for rd in rounds_paths:
         n = int(rd.name.removeprefix("round"))
-        row = _read_round(slug_dir, rd, n)
-        if row is not None:
-            rows.append(row)
+        rows.append(_read_round(slug_dir, rd, n))
     return rows
 
 
@@ -148,9 +145,18 @@ def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
     Trajectory = base (round 0 pre, unsteered) → connected line through
     each KEEP's post in order. Drops branch off as disconnected red ✗
     markers (their adapter never enters history). Marker alpha =
-    mean_pmass_format (coherence canary)."""
+    mean_pmass_format (coherence canary).
+
+    Returns a placeholder div when no row has eval data yet (run
+    `csm eval` to populate)."""
     care_idx = FOUNDATIONS.index("care")
     auth_idx = FOUNDATIONS.index("authority")
+
+    rows_with_eval = [r for r in rows if r["pre_vec"] is not None]
+    if not rows_with_eval:
+        return ('<div class="placeholder">no eval.json yet — '
+                'run <code>csm eval --slug &lt;slug&gt;</code> to populate '
+                'the moral-foundation scatter.</div>')
 
     fig = go.Figure()
 
@@ -158,10 +164,10 @@ def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
         pm = eval_d.get("mean_pmass_format") if eval_d else None
         return float(pm) if pm is not None else 1.0
 
-    # Base = round 0's pre (unsteered model, no history, c=0).
-    base_x = float(rows[0]["pre_vec"][auth_idx])
-    base_y = float(rows[0]["pre_vec"][care_idx])
-    base_alpha = _alpha(rows[0]["pre"])
+    # Base = first round (with eval) pre (unsteered model + history@c=0).
+    base_x = float(rows_with_eval[0]["pre_vec"][auth_idx])
+    base_y = float(rows_with_eval[0]["pre_vec"][care_idx])
+    base_alpha = _alpha(rows_with_eval[0]["pre"])
 
     # Trajectory through KEEPS: base → keep1.post → keep2.post → ...
     keeps = [r for r in rows if r["action"] == "keep" and r["post_vec"] is not None]
@@ -268,7 +274,7 @@ def _petrov_diff(curr: str | None, prev: str | None, max_words: int = 180) -> st
 
 
 def _delta_str(post_vec, pre_vec, idx) -> str:
-    if post_vec is None:
+    if post_vec is None or pre_vec is None:
         return "—"
     d = float(post_vec[idx] - pre_vec[idx])
     return f"{d:+.3f}"
@@ -288,10 +294,14 @@ def _build_table(rows: list[dict]) -> str:
 
     total_rows = len(rows) + 1  # +1 for the base row
 
-    # Base row: pristine model (no adapter, c=0). x = first round's pre auth.
-    base_x = float(rows[0]["pre_vec"][auth_idx])
+    # Base row: pristine model (no adapter, c=0). x = first round's pre auth
+    # if any round has eval data; otherwise we just emit data-x="" and the
+    # svg-graph JS skips drawing (the table still renders).
+    first_with_eval = next((r for r in rows if r["pre_vec"] is not None), None)
+    base_x = float(first_with_eval["pre_vec"][auth_idx]) if first_with_eval else 0.0
+    base_x_attr = f"{base_x:.6f}" if first_with_eval else ""
     base_row = f"""
-<tr class="row base" data-round="-1" data-x="{base_x:.6f}" data-x-post="{base_x:.6f}" data-action="">
+<tr class="row base" data-round="-1" data-x="{base_x_attr}" data-x-post="{base_x_attr}" data-action="">
   <td class="svg-col" rowspan="{total_rows}">
     <svg id="tl-svg" width="180"></svg>
   </td>
@@ -314,15 +324,17 @@ def _build_table(rows: list[dict]) -> str:
         d_auth = _delta_str(r["post_vec"], r["pre_vec"], auth_idx)
         d_care = _delta_str(r["post_vec"], r["pre_vec"], care_idx)
 
-        x = float(r["pre_vec"][auth_idx])
+        x = float(r["pre_vec"][auth_idx]) if r["pre_vec"] is not None else None
         x_post = float(r["post_vec"][auth_idx]) if r["post_vec"] is not None else x
+        x_attr = f"{x:.6f}" if x is not None else ""
+        x_post_attr = f"{x_post:.6f}" if x_post is not None else ""
 
         petrov_pre_html = _petrov_diff(r["petrov_pre"], prev_petrov_post)
         petrov_post_html = _petrov_diff(r["petrov_post"], r["petrov_pre"])
 
         body_rows.append(f"""
 <tr class="row {action_cls}" data-round="{r['round_n']}"
-    data-x="{x:.6f}" data-x-post="{x_post:.6f}" data-action="{action}">
+    data-x="{x_attr}" data-x-post="{x_post_attr}" data-action="{action}">
   <td class="r-col">
     <div class="r-num">{r['round_name']}</div>
     <div class="r-action {action_cls}">{action_icon}</div>
@@ -398,6 +410,10 @@ _CSS = """
   .petrov { font-size: 12px; line-height: 1.55; }
   .petrov i { color: #7A4400; font-style: italic; }
   .muted { color: #aaa; font-size: 11px; }
+  .placeholder { padding: 16px; background: #f6f3e8; border: 1px dashed #c8b878;
+                 border-radius: 4px; color: #6b5634; font-style: italic; }
+  .placeholder code { background: #fff; padding: 1px 6px; border-radius: 3px;
+                      font-style: normal; }
 </style>
 """
 
@@ -530,7 +546,7 @@ def main(cfg: Cfg) -> None:
     rows = _load_rounds(slug_dir)
     if not rows:
         raise FileNotFoundError(
-            f"no rounds with eval.json under {slug_dir} — run `csm eval` first"
+            f"no round* dirs under {slug_dir}"
         )
 
     h_vec = _human_canonical_vec()

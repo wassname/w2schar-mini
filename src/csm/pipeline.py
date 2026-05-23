@@ -22,6 +22,7 @@ from pathlib import Path
 
 import torch
 from inspect_ai.log import transcript
+from loguru import logger
 
 from csm.config import config_by_model
 from csm.gen.dialogue import DialogueCfg, dialogue
@@ -364,6 +365,15 @@ def write_report_md(slug_dir: Path) -> None:
     for r in rows:
         lines.append("| " + " | ".join(r) + " |")
     (slug_dir / "report.md").write_text("\n".join(lines) + "\n")
+    # Per-slug index.html with the plotly scatter + timeline. Renders with
+    # placeholders when eval.json is absent so the link from the outer
+    # aggregator always lands on a real HTML page.
+    try:
+        from csm.plot import Cfg as PlotCfg
+        from csm.plot import main as plot_main
+        plot_main(PlotCfg(slug=slug_dir, out=None))
+    except Exception as e:
+        logger.warning(f"plot generation failed for {slug_dir.name}: {e}")
     write_iter_index(slug_dir.parent)
 
 
@@ -403,9 +413,12 @@ def write_iter_index(iter_dir: Path) -> None:
 
         ts = (run_meta.get("created_utc") or "")[:19].replace("T", " ") or slug.name[:15]
         model = run_meta.get("model", "—")
+        # Prefer the plotly index.html (built by `csm eval`) when it exists;
+        # fall back to report.md for runs that haven't been evaluated yet.
+        landing = "index.html" if (slug / "index.html").exists() else "report.md"
         rows.append(
             f'    <tr class="{status}">'
-            f'<td><a href="{slug.name}/report.md">{slug.name}</a></td>'
+            f'<td><a href="{slug.name}/{landing}">{slug.name}</a></td>'
             f'<td>{model}</td><td>{ts}</td>'
             f'<td>{n_keep}</td><td>{n_drop}</td><td>{len(rounds)}</td>'
             f'<td>{last_kept_c}</td>'
