@@ -2,10 +2,15 @@
 name = "w2schar-mini"
 version = "0.1.0"
 description = "Minimal weak-to-strong iterated character steering — fixed-axis (authority), 50 pairs, react-agent teacher."
-requires-python = ">=3.11"
+# cp313 pinned: causal-conv1d / flash-attn prebuilt wheels (see [tool.uv.sources])
+# are keyed to (cu12, torch 2.8, cp313, cxx11abi). Bumping python breaks the pins.
+requires-python = ">=3.13,<3.14"
 dependencies = [
-    "torch>=2.4",
-    "transformers>=4.45",
+    # torch pin must match the prebuilt-wheel torch tag below (2.8.x / cu12).
+    "torch>=2.8,<2.9",
+    # transformers>=5.7 has Qwen3.5's gated-delta-net cached-forward fix.
+    # Pinned to git main below to get latest hybrid-cache fixes on top.
+    "transformers>=5.7",
     "einops>=0.8",
     "jaxtyping>=0.2.36",
     "loguru>=0.7",
@@ -25,10 +30,25 @@ dependencies = [
     "numpy>=1.26",
     "plotly>=5.20",
     "tiny-mfv",
+    # Qwen3.6-27B hybrid: 48 gated-delta-net + 16 gated-attn layers. The
+    # gated-delta-net fast path needs causal-conv1d's CUDA kernel; FLA
+    # provides the linear-attention kernel; flash-attn covers gated-attn
+    # (Blackwell sm_120 on RTX PRO 6000). Without these we run a torch
+    # fallback whose bf16 numerics drift under steering, producing
+    # NaN/case-(c) noise in c_scan probes.
+    "causal-conv1d",
+    "flash-attn",
+    "flash-linear-attention>=0.5.0",
 ]
 
 [tool.uv.sources]
 tiny-mfv = { path = "/workspace/lite/tinymfv", editable = true }
+# Mirror of projected_grpo's pinned stack — these prebuilt wheels are the
+# only working combination we know of for Qwen3.5/3.6 on this GPU.
+# If torch/python is bumped, find new matches at the linked release pages.
+transformers = { git = "https://github.com/huggingface/transformers.git", rev = "main" }
+causal-conv1d = { url = "https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.6.2.post1/causal_conv1d-1.6.2.post1+cu12torch2.8cxx11abiTRUE-cp313-cp313-linux_x86_64.whl" }
+flash-attn = { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.7.16/flash_attn-2.8.3%2Bcu128torch2.8-cp313-cp313-linux_x86_64.whl" }
 
 [project.scripts]
 csm = "csm.cli:main"
