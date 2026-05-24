@@ -8,16 +8,21 @@ Forked from `weight-steering-lite/src/wsl/train.py`, trimmed:
 
 Per (prompt, cho, rej), sampled C ∈ (0, 1]:
 
-    L_pos = C·mean_b(nll_b / max(detach(nll_b), 1))  +  β·KL(steer ‖ base)
-    L_neg = C·mean_b(nll_b / max(detach(nll_b), 1))  +  β·KL(steer ‖ base)
+    L_pos_nll = C · (mean_b nll(cho|+C) − mean_b nll(rej|+C))
+    L_neg_nll = C · (mean_b nll(rej|−C) − mean_b nll(cho|−C))
 
-Per-sample NLL is normalized by its own detached value (capped from
-below at 1) before batch-averaging. This caps each pair's NLL
-contribution at ~1 nat, so hard pairs (high NLL) get their gradient
-magnitude downweighted to unit-ish, while easy pairs (NLL < 1) pass
-through unchanged. Goal: equal-magnitude pull per pair toward each
-pole, so the learned direction is a clean bisecting axis instead of
-being dominated by the few hardest pairs.
+Margin formulation: subtraction cancels the shared-fluency direction
+(both cho and rej would lower nll under a fluency-only adapter), so
+the surviving gradient component is the persona axis.
+
+**Per-side grad-norm equalization** (at the grad level, not the loss):
+after autograd, the two per-side gradients g_pos_nll and g_neg_nll are
+each rescaled to ‖·‖ = TARGET_G_NORM before PCGrad combines them. This
+fixes a structural asymmetry in cross-entropy — pulling toward labels
+(cho) self-limits as nll → 0, but pushing away from labels (rej) is
+unbounded — and gives each side equal contribution to the update
+direction. Without it, the rej side spirals (e.g. nll_rej 3.5 → 7+,
+‖g‖ → 500-700 by mid-training on qwen-27b-nf4).
 
 β trades steering signal vs distribution shift; weight-decay + β
 jointly pull toward "no-op" while NLL pulls toward cho/rej.
@@ -278,9 +283,24 @@ def pcgrad_train_step(
         g_neg_kl = [torch.zeros_like(p) for p in params]
         kl_n = zero
 
-    # ---- PCGrad on the NLL pair only --------------------------------------
+    # ---- per-side grad-norm equalization ----------------------------------
+    # Cross-entropy is asymmetric: cho side (pull toward labels) self-limits
+    # (‖g_cho‖ → 0 as nll_cho → 0), rej side (push away from labels) is
+    # self-reinforcing (‖g_rej‖ ∝ nll_rej, unbounded). Under raw margin
+    # C·(nll_cho - nll_rej) the rej side eventually dominates the update.
+    # Equalize each side's ‖g‖ to TARGET_G_NORM so the learned direction
+    # is the bisector of cho-pull and rej-push, not whichever has bigger
+    # numerical NLL on a given batch. Loss-level scaling is a proxy (small
+    # loss ≠ small grad); grad-level is the real fix.
+    TARGET_G_NORM = 5.0
     gp_flat = torch.cat([g.reshape(-1) for g in g_pos_nll])
     gn_flat = torch.cat([g.reshape(-1) for g in g_neg_nll])
+    gp_norm_pre = gp_flat.norm().clamp_min(1e-8)
+    gn_norm_pre = gn_flat.norm().clamp_min(1e-8)
+    gp_flat = gp_flat * (TARGET_G_NORM / gp_norm_pre)
+    gn_flat = gn_flat * (TARGET_G_NORM / gn_norm_pre)
+
+    # ---- PCGrad on the (equalized) NLL pair --------------------------------
     dot = (gp_flat * gn_flat).sum()
     gp_norm_sq = (gp_flat * gp_flat).sum().clamp_min(1e-12)
     gn_norm_sq = (gn_flat * gn_flat).sum().clamp_min(1e-12)
