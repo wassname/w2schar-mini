@@ -524,7 +524,7 @@ def _log_train_table(traces: list[dict]) -> None:
     gradients = PCGrad-friendly), lr cosine from 0 → peak → 0, conf flag
     when PCGrad surgery fired."""
     from tabulate import tabulate
-    headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "‖Δs‖", "lr", "conf"]
+    headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "‖Δs‖", "‖g‖", "lr", "conf"]
     rows = [[t[h] for h in headers] for t in traces]
     # SHOULD (margin loss + PiSSA): cos near +1 (margin makes cho/rej gradients
     # cooperative on persona axis, not antiparallel); ‖Δs‖ growing (adapter
