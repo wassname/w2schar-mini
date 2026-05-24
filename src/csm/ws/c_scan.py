@@ -97,22 +97,35 @@ def _parse_first_json(text: str) -> bool:
 
 @torch.no_grad()
 def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
-                         max_new_tokens: int = 768) -> tuple[int, int, list[str]]:
-    """Free-gen each JSON_PROMPT under c. Return (n_valid, n_total, gens)."""
+                         max_new_tokens: int = 4096,
+                         batch_size: int = 2) -> tuple[int, int, list[str]]:
+    """Free-gen each JSON_PROMPT under c. Return (n_valid, n_total, gens).
+    4096 is sized for talkative reasoning models (Qwen3.6 in think mode
+    writes 800+ tok of reasoning at c=0 before reaching the JSON tail;
+    768 truncated mid-think → baseline_valid_json=0/3 and the gate
+    became trivial). Batched left-padded for throughput."""
     pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
+    old_side = tok.padding_side
+    tok.padding_side = "left"
     n_valid = 0
     gens: list[str] = []
-    with lora(model, c=c):
-        for prompt in JSON_PROMPTS:
-            enc = tok(prompt, return_tensors="pt").to(model.device)
-            out = model.generate(
-                **enc, max_new_tokens=max_new_tokens, do_sample=False,
-                pad_token_id=pad_id, eos_token_id=tok.eos_token_id,
-            )
-            gen_text = tok.decode(out[0, enc.input_ids.shape[1]:],
-                                  skip_special_tokens=True)
-            n_valid += int(_parse_first_json(gen_text))
-            gens.append(gen_text)
+    try:
+        with lora(model, c=c):
+            for i in range(0, len(JSON_PROMPTS), batch_size):
+                batch = JSON_PROMPTS[i: i + batch_size]
+                enc = tok(batch, return_tensors="pt", padding=True).to(model.device)
+                out = model.generate(
+                    **enc, max_new_tokens=max_new_tokens, do_sample=False,
+                    pad_token_id=pad_id, eos_token_id=tok.eos_token_id,
+                )
+                cont = out[:, enc["input_ids"].shape[1]:]
+                for ids in cont:
+                    ids_l = [t for t in ids.tolist() if t != pad_id]
+                    text = tok.decode(ids_l, skip_special_tokens=True)
+                    n_valid += int(_parse_first_json(text))
+                    gens.append(text)
+    finally:
+        tok.padding_side = old_side
     return n_valid, len(JSON_PROMPTS), gens
 
 
@@ -120,7 +133,7 @@ def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
 def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
                     n_vignettes: int = 2, max_think_tokens: int = 512,
                     batch_size: int = 2,
-                    json_max_new_tokens: int = 768) -> dict:
+                    json_max_new_tokens: int = 4096) -> dict:
     """One scan probe under c: tinymfv pmass_allowed + free-gen valid_json."""
     from tinymfv import evaluate as tinymfv_evaluate
 
@@ -151,7 +164,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
            n_vignettes: int = 2,
            max_think_tokens: int = 512,
            batch_size: int = 2,
-           json_max_new_tokens: int = 768) -> tuple[float, list]:
+           json_max_new_tokens: int = 4096) -> tuple[float, list]:
     """Walk |c| down by ×0.5 until `pmass ≥ gate × baseline_pmass` AND
     `valid_json == n_json`. Apply `backoff` to the passing c (e.g. 0.75 →
     final = sign * c_pass * 0.75) for extra safety margin. The pmass +

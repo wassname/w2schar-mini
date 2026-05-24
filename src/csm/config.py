@@ -171,7 +171,12 @@ CONFIGS: dict[str, RunConfig] = {
         eval_batch_size=8,
         lora_r=16,
         lora_alpha=32.0,
-        lr=1e-3,
+        # 5e-4 not 1e-3: task 98 round00 trace blew at step 12 (lr 5.4e-4
+        # during cosine warmup) — nll- jumped from 1.73→10.1, kl 1.0→2.2,
+        # ‖Δs‖ kept climbing to 3.0 with chaotic 10-80 nll thereafter. Last
+        # sane step was 11 at lr 5.0e-4. Cap at 5e-4 so warmup never crosses
+        # the cliff.
+        lr=5e-4,
         n_epochs=2.0,
         # 2× default kl_lambda: PiSSA 2b r=full trace showed coherence only
         # at C≤0.05 — more KL widens the usable C range. (For nf4 LoRA the
