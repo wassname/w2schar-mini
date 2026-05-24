@@ -228,7 +228,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         r=cfg.lora_r, alpha=cfg.lora_alpha, targets=cfg.targets,
         layer_range=cfg.layer_range,
         steps=steps, batch_size=cfg.train_batch_size, lr=cfg.lr,
-        weight_decay=cfg.weight_decay,
+        weight_decay=cfg.weight_decay, warmup_ratio=cfg.warmup_ratio,
         max_len=cfg.max_len, kl_lambda=cfg.kl_lambda,
     )
     from csm.ws.adapter import ModulatedLoRA, ModulatedPiSSA
@@ -247,6 +247,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         model, tok, lora,
         init_c=cfg.signed_C, sign=SIGN,
         batch_size=cfg.eval_batch_size,
+        enable_thinking=cfg.enable_thinking,
     )
     lora.save(str(round_dir / "adapter.safetensors"),
               extra_meta={"axis": AXIS, "sign": str(SIGN)})

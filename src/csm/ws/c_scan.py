@@ -98,12 +98,13 @@ def _parse_first_json(text: str) -> bool:
 @torch.no_grad()
 def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
                          max_new_tokens: int = 4096,
-                         batch_size: int = 2) -> tuple[int, int, list[str]]:
+                         batch_size: int = 2,
+                         enable_thinking: bool = False) -> tuple[int, int, list[str]]:
     """Free-gen each JSON_PROMPT under c. Return (n_valid, n_total, gens).
-    4096 is sized for talkative reasoning models (Qwen3.6 in think mode
-    writes 800+ tok of reasoning at c=0 before reaching the JSON tail;
-    768 truncated mid-think → baseline_valid_json=0/3 and the gate
-    became trivial). Batched left-padded for throughput."""
+    Chat-templated (dialogue.py / pairs.py do the same). Raw-text mode
+    on a chat model puts Qwen3.6 in infinite-think: it opens `<think>`,
+    plans for 4096+ tokens, never closes, never reaches the JSON tail,
+    so valid_json=0/3 even on the un-steered base."""
     pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
     old_side = tok.padding_side
     tok.padding_side = "left"
@@ -113,7 +114,15 @@ def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
         with lora(model, c=c):
             for i in range(0, len(JSON_PROMPTS), batch_size):
                 batch = JSON_PROMPTS[i: i + batch_size]
-                enc = tok(batch, return_tensors="pt", padding=True).to(model.device)
+                rendered = [
+                    tok.apply_chat_template(
+                        [{"role": "user", "content": p}],
+                        tokenize=False, add_generation_prompt=True,
+                        enable_thinking=enable_thinking,
+                    )
+                    for p in batch
+                ]
+                enc = tok(rendered, return_tensors="pt", padding=True).to(model.device)
                 out = model.generate(
                     **enc, max_new_tokens=max_new_tokens, do_sample=False,
                     pad_token_id=pad_id, eos_token_id=tok.eos_token_id,
@@ -133,7 +142,8 @@ def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
 def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
                     n_vignettes: int = 2, max_think_tokens: int = 512,
                     batch_size: int = 2,
-                    json_max_new_tokens: int = 4096) -> dict:
+                    json_max_new_tokens: int = 4096,
+                    enable_thinking: bool = False) -> dict:
     """One scan probe under c: tinymfv pmass_allowed + free-gen valid_json."""
     from tinymfv import evaluate as tinymfv_evaluate
 
@@ -150,7 +160,8 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
         raise RuntimeError(f"NaN pmass at c={c}")
 
     n_valid, n_total, gens = _free_gen_valid_json(
-        model, tok, lora, c, max_new_tokens=json_max_new_tokens)
+        model, tok, lora, c, max_new_tokens=json_max_new_tokens,
+        enable_thinking=enable_thinking)
     mean_len = int(sum(len(g) for g in gens) / max(1, len(gens)))
     return {"pmass": pmass, "valid_json": n_valid, "n_json": n_total,
             "mean_len": mean_len, "gens": gens}
@@ -164,7 +175,8 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
            n_vignettes: int = 2,
            max_think_tokens: int = 512,
            batch_size: int = 2,
-           json_max_new_tokens: int = 4096) -> tuple[float, list]:
+           json_max_new_tokens: int = 4096,
+           enable_thinking: bool = False) -> tuple[float, list]:
     """Walk |c| down by ×0.5 until `pmass ≥ gate × baseline_pmass` AND
     `valid_json == n_json`. Apply `backoff` to the passing c (e.g. 0.75 →
     final = sign * c_pass * 0.75) for extra safety margin. The pmass +
@@ -182,7 +194,8 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                            n_vignettes=n_vignettes,
                            max_think_tokens=max_think_tokens,
                            batch_size=batch_size,
-                           json_max_new_tokens=json_max_new_tokens)
+                           json_max_new_tokens=json_max_new_tokens,
+                           enable_thinking=enable_thinking)
     baseline_pmass = base["pmass"]
     baseline_json = base["valid_json"]
     gate = gate_frac * baseline_pmass
@@ -207,7 +220,8 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                             n_vignettes=n_vignettes,
                             max_think_tokens=max_think_tokens,
                             batch_size=batch_size,
-                            json_max_new_tokens=json_max_new_tokens)
+                            json_max_new_tokens=json_max_new_tokens,
+                           enable_thinking=enable_thinking)
         pmass_ok = m["pmass"] >= gate
         json_ok = m["valid_json"] >= baseline_json
         ok = pmass_ok and json_ok
@@ -262,6 +276,18 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     # gate technically passed. If no probe passed (`note != pass`), this
     # dump shows the highest-coefficient sample we tried — useful when c_scan
     # clamps at C_MIN and we want to see what the adapter is producing.
+    # Baseline gen[0] dumped alongside for side-by-side coherence comparison
+    # (catches collapse modes where the steered sample looks "passing" by
+    # pmass but is empty/looped vs. base's normal prose).
+    base_gens = base.get("gens", [])
+    if base_gens:
+        gen = base_gens[0]
+        head, tail = gen[:300], gen[-300:]
+        mid = f" … ⟨{len(gen) - 600} chars⟩ … " if len(gen) > 600 else ""
+        logger.info(
+            f"c_scan baseline @ c=+0.0000 (json={baseline_json}/{base['n_json']}) prompt[0]:\n"
+            f"  A: {head}{mid}{tail}"
+        )
     if last_sample is not None:
         for i, (prompt, gen) in enumerate(zip(JSON_PROMPTS, last_sample["gens"])):
             head, tail = gen[:300], gen[-300:]

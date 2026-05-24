@@ -45,6 +45,11 @@ class RunConfig:
     lr: float = 1e-4
     weight_decay: float = 0.01
     kl_lambda: float = 0.5
+    warmup_ratio: float = 0.1
+    """Fraction of `steps` for cosine warmup. Default 0.1 (e.g. 24 steps of
+    240). Larger models on harder per-pair data (qwen-27b nf4) spike at
+    the warmup ramp's high-lr edge; stretch warmup so the adapter has more
+    sub-spike-lr steps to learn the easy signal first."""
     train_batch_size: int = 4
     n_epochs: float = 3.0
     min_steps: int = 60
@@ -171,12 +176,18 @@ CONFIGS: dict[str, RunConfig] = {
         eval_batch_size=8,
         lora_r=16,
         lora_alpha=32.0,
-        # 5e-4 not 1e-3: task 98 round00 trace blew at step 12 (lr 5.4e-4
-        # during cosine warmup) — nll- jumped from 1.73→10.1, kl 1.0→2.2,
-        # ‖Δs‖ kept climbing to 3.0 with chaotic 10-80 nll thereafter. Last
-        # sane step was 11 at lr 5.0e-4. Cap at 5e-4 so warmup never crosses
-        # the cliff.
-        lr=5e-4,
+        # 3e-4 not 5e-4 or 1e-3: task 99 (lr=5e-4, warmup=0.1) still spiked
+        # nll± to 21-83 at lr 3.3-5.0e-4 during warmup ramp on high-|C|
+        # batches; EMA recovered by step 200 to ~2.4 (≈ base nll → no
+        # margin opened). Drop peak lr and lengthen warmup so the adapter
+        # learns the easy signal before lr reaches the spike regime.
+        lr=3e-4,
+        # 0.25 not 0.1: with steps=240 + warmup_ratio=0.1, lr hit peak by
+        # step 24 — first spike at step 15 was already at lr 3.3e-4.
+        # Stretching warmup to 60 steps means step 15 sees lr ~7.5e-5
+        # (sub-spike), giving the adapter ramp room before high-|C|
+        # batches see fast updates.
+        warmup_ratio=0.25,
         n_epochs=2.0,
         # 2× default kl_lambda: PiSSA 2b r=full trace showed coherence only
         # at C≤0.05 — more KL widens the usable C range. (For nf4 LoRA the
