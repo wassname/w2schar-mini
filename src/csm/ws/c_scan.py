@@ -204,13 +204,19 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     # gate (valid_json == n_json) was unsatisfiable when one of the 3 prose
     # probes is intrinsically hard for the base (e.g. gemma-2-2b on
     # first-order logic with ∀/∃) — c_scan walked all the way to C_MIN even
-    # when probes matched baseline 1:1. If baseline itself collapses
-    # (valid_json == 0), the gate becomes trivial; surface this with a warn.
+    # when probes matched baseline 1:1.
     trace = [{"stage": "baseline", "c": 0.0, **base, "note": "—"}]
-    base_warn = ""
-    if baseline_json == 0:
-        base_warn = (f"baseline valid_json=0/{base['n_json']} — gate is trivial; "
-                     "probes too hard for base or generation collapsed")
+    # Hard fail if baseline collapses: gate would be trivial / meaningless.
+    # Diagnose upstream (chat template, max_think, prompt) instead of running
+    # a calibration whose JSON gate is unsatisfiable or whose pmass floor is
+    # already below random.
+    assert baseline_json > 0, (
+        f"c_scan baseline valid_json=0/{base['n_json']} — base model failed to "
+        f"emit valid JSON on all probes. Check chat template, json_max_new_tokens, "
+        f"enable_thinking, or probe difficulty.")
+    assert baseline_pmass >= 0.5, (
+        f"c_scan baseline pmass={baseline_pmass:.3f} < 0.5 — base model already "
+        f"incoherent at c=0 before any adapter. Check tinymfv setup / max_think.")
 
     c = init_c
     warn = ""
@@ -265,8 +271,6 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     logger.info(f"\nc_scan (baseline_pmass={baseline_pmass:.3f}, "
                 f"baseline_json={baseline_json}/{base['n_json']}, "
                 f"gate=pmass≥{gate:.3f} AND json≥{baseline_json}):\n{table}\n")
-    if base_warn:
-        logger.warning(f"c_scan: {base_warn}")
     if warn:
         logger.warning(f"c_scan: {warn}")
 
