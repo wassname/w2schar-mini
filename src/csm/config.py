@@ -50,6 +50,12 @@ class RunConfig:
     240). Larger models on harder per-pair data (qwen-27b nf4) spike at
     the warmup ramp's high-lr edge; stretch warmup so the adapter has more
     sub-spike-lr steps to learn the easy signal first."""
+    grad_clip: float = 1.0
+    """Pre-clip ‖g‖ cap. Default 1.0 fits gemma-2b/qwen-9b (typical ‖g‖ 1-5).
+    qwen-27b-nf4 produces median ‖g‖ ~17, p90 ~140 — clip=1 binds on ~99%
+    of steps and turns the adapter into a unit-direction-only update,
+    which calibrates to absurdly small |c| (0.05 in task 100) because the
+    learned direction is over-concentrated on the few clean-grad steps."""
     train_batch_size: int = 4
     n_epochs: float = 3.0
     min_steps: int = 60
@@ -176,23 +182,31 @@ CONFIGS: dict[str, RunConfig] = {
         eval_batch_size=8,
         lora_r=16,
         lora_alpha=32.0,
-        # 3e-4 not 5e-4 or 1e-3: task 99 (lr=5e-4, warmup=0.1) still spiked
-        # nll± to 21-83 at lr 3.3-5.0e-4 during warmup ramp on high-|C|
-        # batches; EMA recovered by step 200 to ~2.4 (≈ base nll → no
-        # margin opened). Drop peak lr and lengthen warmup so the adapter
-        # learns the easy signal before lr reaches the spike regime.
-        lr=3e-4,
+        # 1.5e-4 not 3e-4: clip=50 (vs clip=1 before) lets median ‖g‖~17
+        # through unscaled → effective per-step update jumps ~17× even
+        # before lr change. Halve nominal lr to keep effective step in
+        # a saner range. Task 99 history: lr=5e-4 + clip=1 spiked nll±
+        # to 21-83; EMA recovered to ~2.4 (no margin). Task 100 lr=3e-4
+        # + clip=1 calibrated absurdly low (|c|=0.05) — direction too hot
+        # because trained on too narrow a slice of clean-grad steps.
+        lr=1.5e-4,
         # 0.25 not 0.1: with steps=240 + warmup_ratio=0.1, lr hit peak by
         # step 24 — first spike at step 15 was already at lr 3.3e-4.
         # Stretching warmup to 60 steps means step 15 sees lr ~7.5e-5
         # (sub-spike), giving the adapter ramp room before high-|C|
         # batches see fast updates.
         warmup_ratio=0.25,
-        n_epochs=2.0,
-        # 2× default kl_lambda: PiSSA 2b r=full trace showed coherence only
-        # at C≤0.05 — more KL widens the usable C range. (For nf4 LoRA the
-        # mechanism differs but the prescription transfers: tighter anchor.)
-        kl_lambda=1.0,
+        # 50 not 1: median ‖g‖ ~17, p90 ~140 in task 100 → clip=1 bound on
+        # ~99% of steps. Calibration landed at +0.047 (×0.5 walk from 2.0)
+        # because the learned direction was over-concentrated on the few
+        # clean-grad steps. clip=50 lets the median through unscaled and
+        # only catches the p90+ spikes.
+        grad_clip=50.0,
+        n_epochs=4.0,
+        # 3.0 (6× default): clip=50 + halved lr still gives much larger
+        # effective per-step move; triple KL anchor to keep adapter near
+        # base so c_scan calibrates at a usable |c|, not 0.05.
+        kl_lambda=3.0,
         # 4× default floor: 2b PiSSA trace nll+ still descending at step 119
         # (post-‖Δs‖-saturation rotation phase). Give late re-pointing room.
         min_steps=240,
