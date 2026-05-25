@@ -8,21 +8,32 @@ Forked from `weight-steering-lite/src/wsl/train.py`, trimmed:
 
 Per (prompt, cho, rej), sampled C ∈ (0, 1]:
 
-    L_pos_nll = C · (mean_b nll(cho|+C) − mean_b nll(rej|+C))
-    L_neg_nll = C · (mean_b nll(rej|−C) − mean_b nll(cho|−C))
+    nll̃_b(x) ≡ nll_b(x) / max(detach(nll_b(x)), 1)
+    L_pos_nll = C · (mean_b nll̃(cho|+C) − mean_b nll̃(rej|+C))
+    L_neg_nll = C · (mean_b nll̃(rej|−C) − mean_b nll̃(cho|−C))
 
 Margin formulation: subtraction cancels the shared-fluency direction
 (both cho and rej would lower nll under a fluency-only adapter), so
 the surviving gradient component is the persona axis.
 
-**Per-side grad-norm equalization** (at the grad level, not the loss):
-after autograd, the two per-side gradients g_pos_nll and g_neg_nll are
-each rescaled to ‖·‖ = TARGET_G_NORM before PCGrad combines them. This
-fixes a structural asymmetry in cross-entropy — pulling toward labels
-(cho) self-limits as nll → 0, but pushing away from labels (rej) is
-unbounded — and gives each side equal contribution to the update
-direction. Without it, the rej side spirals (e.g. nll_rej 3.5 → 7+,
-‖g‖ → 500-700 by mid-training on qwen-27b-nf4).
+**Per-sample detach-normalize** (at the loss, per side, per sample):
+each per-sample nll is divided by its own detached value (floored at
+1) before batch-averaging. Cross-entropy is asymmetric — the cho-pull
+gradient self-limits as nll_cho → 0, but the rej-push gradient grows
+without bound (∇(-log p) ∝ 1/p), so under raw margin the unbounded
+rej-push dominates θ-updates and corrupts cho-pull as collateral
+damage (task 101: nll(cho|+C) drifts 2.4 → 3.2 while nll(rej|-C) of
+the bounded side drifts 2.9 → 2.1; occasional per-step blow-ups to
+nll ~ 60 with ‖g‖ ~ 5800). Dividing each sample by its detached nll
+makes ‖per-sample grad‖ approximately scale-free, so hard pairs and
+the rej-push side can't run away. The clamp floor at 1 keeps easy
+pairs (nll < 1) from being amplified — only caps the runaway, doesn't
+boost convergence.
+
+Replaces the post-autograd per-side `TARGET_G_NORM=5.0` equalization
+in 6e1ec5c, which equalized BETWEEN the two C-sign frames but not
+WITHIN each frame (cho-pull vs rej-push); the within-frame asymmetry
+was the actual runaway source.
 
 β trades steering signal vs distribution shift; weight-decay + β
 jointly pull toward "no-op" while NLL pulls toward cho/rej.
@@ -158,6 +169,15 @@ def _per_sample_nll(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     return (loss_per_tok * mask).sum(-1) / mask.sum(-1).clamp(min=1.0)
 
 
+def _normed_mean(nll_b: torch.Tensor) -> torch.Tensor:
+    """nll_b / max(detach(nll_b), 1), then batch-averaged. Caps each
+    sample's per-step gradient at ~unit by cancelling the 1/p blow-up of
+    CE's rej-push side. Floor at 1 leaves the cho-pull side untouched
+    near convergence (nll < 1 passes through unscaled)."""
+    denom = nll_b.detach().clamp_min(1.0)
+    return (nll_b / denom).mean()
+
+
 _KL_TOPK = 256
 
 
@@ -246,11 +266,11 @@ def pcgrad_train_step(
     # ---- both inputs at c=+C  (cho prefer, rej penalize) ------------------
     with lora(model, c=+C):
         out_cp = model(input_ids=ip, attention_mask=ap)
-        nll_cho_p = _per_sample_nll(out_cp.logits.float(), lp).mean()
+        nll_cho_p_b = _per_sample_nll(out_cp.logits.float(), lp)
         out_rp = model(input_ids=in_, attention_mask=an)
-        nll_rej_p = _per_sample_nll(out_rp.logits.float(), ln).mean()
-        L_pos_nll = C * (nll_cho_p - nll_rej_p)
-        mean_nll_p = nll_cho_p.detach().item()
+        nll_rej_p_b = _per_sample_nll(out_rp.logits.float(), ln)
+        L_pos_nll = C * (_normed_mean(nll_cho_p_b) - _normed_mean(nll_rej_p_b))
+        mean_nll_p = nll_cho_p_b.mean().detach().item()
         if use_kl:
             kl_p = _kl_topk_base(out_cp.logits, base_top_logp_p, base_top_idx_p, lp)
             L_pos_kl = kl_lambda * kl_p
@@ -266,11 +286,11 @@ def pcgrad_train_step(
     # ---- both inputs at c=-C  (rej prefer, cho penalize) ------------------
     with lora(model, c=-C):
         out_rn = model(input_ids=in_, attention_mask=an)
-        nll_rej_n = _per_sample_nll(out_rn.logits.float(), ln).mean()
+        nll_rej_n_b = _per_sample_nll(out_rn.logits.float(), ln)
         out_cn = model(input_ids=ip, attention_mask=ap)
-        nll_cho_n = _per_sample_nll(out_cn.logits.float(), lp).mean()
-        L_neg_nll = C * (nll_rej_n - nll_cho_n)
-        mean_nll_n = nll_rej_n.detach().item()
+        nll_cho_n_b = _per_sample_nll(out_cn.logits.float(), lp)
+        L_neg_nll = C * (_normed_mean(nll_rej_n_b) - _normed_mean(nll_cho_n_b))
+        mean_nll_n = nll_rej_n_b.mean().detach().item()
         if use_kl:
             kl_n = _kl_topk_base(out_rn.logits, base_top_logp_n, base_top_idx_n, ln)
             L_neg_kl = kl_lambda * kl_n
@@ -283,24 +303,11 @@ def pcgrad_train_step(
         g_neg_kl = [torch.zeros_like(p) for p in params]
         kl_n = zero
 
-    # ---- per-side grad-norm equalization ----------------------------------
-    # Cross-entropy is asymmetric: cho side (pull toward labels) self-limits
-    # (‖g_cho‖ → 0 as nll_cho → 0), rej side (push away from labels) is
-    # self-reinforcing (‖g_rej‖ ∝ nll_rej, unbounded). Under raw margin
-    # C·(nll_cho - nll_rej) the rej side eventually dominates the update.
-    # Equalize each side's ‖g‖ to TARGET_G_NORM so the learned direction
-    # is the bisector of cho-pull and rej-push, not whichever has bigger
-    # numerical NLL on a given batch. Loss-level scaling is a proxy (small
-    # loss ≠ small grad); grad-level is the real fix.
-    TARGET_G_NORM = 5.0
+    # ---- PCGrad on the NLL pair --------------------------------------------
+    # Within-side asymmetry handled at the loss via _normed_mean (above);
+    # nothing extra at the grad level here.
     gp_flat = torch.cat([g.reshape(-1) for g in g_pos_nll])
     gn_flat = torch.cat([g.reshape(-1) for g in g_neg_nll])
-    gp_norm_pre = gp_flat.norm().clamp_min(1e-8)
-    gn_norm_pre = gn_flat.norm().clamp_min(1e-8)
-    gp_flat = gp_flat * (TARGET_G_NORM / gp_norm_pre)
-    gn_flat = gn_flat * (TARGET_G_NORM / gn_norm_pre)
-
-    # ---- PCGrad on the (equalized) NLL pair --------------------------------
     dot = (gp_flat * gn_flat).sum()
     gp_norm_sq = (gp_flat * gp_flat).sum().clamp_min(1e-12)
     gn_norm_sq = (gn_flat * gn_flat).sum().clamp_min(1e-12)
@@ -546,11 +553,16 @@ def _log_train_table(traces: list[dict]) -> None:
     from tabulate import tabulate
     headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "‖Δs‖", "‖g‖", "lr", "conf"]
     rows = [[t[h] for h in headers] for t in traces]
-    # SHOULD (margin loss + PiSSA): cos near +1 (margin makes cho/rej gradients
-    # cooperative on persona axis, not antiparallel); ‖Δs‖ growing (adapter
-    # actually learning, not frozen by bf16 underflow / weight decay); nll+
-    # descending and nll- ASCENDING under the +C frame (margin opening);
+    # SHOULD (margin loss + detach-norm + PiSSA): nll+ AND nll- both descend
+    # — nll+ is nll(cho|+C), nll- is nll(rej|-C), both are pull-toward-labels
+    # under their own C-sign frame, so both should fall as the adapter
+    # opens the margin (earlier "nll- ascending" SHOULD was reading the
+    # columns as cho/rej in one forward — wrong). ‖Δs‖ growing (adapter
+    # actually learning, not frozen by bf16 underflow / weight decay); cos
+    # near +1 (margin makes cho/rej gradients cooperative on persona axis);
     # kl± grows modestly with |C|; lr cosine-anneals; conf=0 (no PCGrad
-    # surgery needed when gradients agree).
+    # surgery needed when gradients agree). nll+ drifting UP while nll-
+    # descends = within-side asymmetry returning — _normed_mean broken or
+    # bypassed.
     table = tabulate(rows, headers=headers, tablefmt="plain", floatfmt=".3g")
     logger.info(f"\ntraining trace:\n{table}\n")
