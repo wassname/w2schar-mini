@@ -27,7 +27,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from loguru import logger
 
-from csm.ws.adapter import ModulatedLoRA
+from csm.ws.adapter import ModulatedLoRA, ModulatedPiSSA
 
 
 @dataclass
@@ -143,3 +143,81 @@ def baked(model: nn.Module, adapters: list[AdapterSpec],
             layer.weight.data.copy_(W_backup[name].to(layer.weight.device))
         for h in quant_handles:
             h.remove()
+
+
+# ---------------------------------------------------------------------------
+# PiSSA inference path. Math observation: at training time, layer.weight was
+# mutated to W_res = W - U·S·Vh and the forward added back U·(S + c·Δs)·Vh.
+# At inference we load a FRESH layer.weight = W. Folding "extract U·S·Vh
+# then add U·(S+c·Δs)·Vh" on a fresh W collapses to a single per-round
+# additive +c·U·diag(Δs)·Vh — which is exactly the LoRA forward with
+# A=Vh, B=U·diag(Δs), α=r (so α/r=1). So a PiSSA checkpoint is loadable
+# as an AdapterSpec usable by `baked()` with zero new bake code. This
+# equivalence only holds for FRESH W; it does NOT hold inside the training
+# loop's `PiSSAHistoryBake`, which operates on a model whose layer.weight
+# has been sequentially mutated by ModulatedPiSSA.load().
+# ---------------------------------------------------------------------------
+
+
+def pissa_to_lora_spec(adapter: ModulatedPiSSA,
+                       default_c: float = 1.0) -> AdapterSpec:
+    """ModulatedPiSSA -> LoRA-shaped AdapterSpec usable by `baked()`.
+    A = Vh, B = U·diag(Δs), α = r."""
+    A: dict[str, torch.Tensor] = {}
+    B: dict[str, torch.Tensor] = {}
+    for k, U in adapter.U.items():
+        A[k] = adapter.Vh[k].detach().cpu()
+        B[k] = (U * adapter.delta_s[k].detach()).cpu()
+    return AdapterSpec(A=A, B=B, alpha=float(adapter.cfg.r),
+                       r=adapter.cfg.r, default_c=default_c)
+
+
+def pissa_spec_from_checkpoint(model: nn.Module, path: str,
+                               default_c: float = 1.0) -> AdapterSpec:
+    """Load a PiSSA checkpoint as a LoRA-equivalent AdapterSpec without
+    touching layer.weight (vs ModulatedPiSSA.load which mutates W).
+
+    Validates checkpoint keys against `_find_targets(model, cfg)` reproduced
+    from ckpt metadata: any mismatch (renamed module, changed layer_range,
+    wrong model) raises. Without this `baked()` would silently intersect
+    keys with model.named_modules() and drop the rest."""
+    from safetensors import safe_open
+    from safetensors.torch import load_file
+    from csm.ws.adapter import LoRAConfig, _find_targets
+    with safe_open(path, framework="pt") as f:
+        meta = f.metadata()
+    if meta.get("kind") != "pissa":
+        raise RuntimeError(f"not a PiSSA checkpoint: kind={meta.get('kind')!r}")
+    r = int(meta["r"])
+    targets = tuple(meta["targets"].split(","))
+    lr_lo, lr_hi = (float(x) for x in meta["layer_range"].split(","))
+    cfg = LoRAConfig(r=r, targets=targets, layer_range=(lr_lo, lr_hi))
+    expected = {n for n, _ in _find_targets(model, cfg)}
+    sd = load_file(path, device="cpu")
+    keys = {k[2:].replace("__", ".") for k in sd if k.startswith("U.")}
+    if keys != expected:
+        missing = expected - keys
+        extra = keys - expected
+        raise RuntimeError(
+            f"PiSSA checkpoint target mismatch (path={path}): "
+            f"missing={sorted(missing)[:3]}... extra={sorted(extra)[:3]}... "
+            f"({len(missing)} missing, {len(extra)} extra)")
+    A: dict[str, torch.Tensor] = {}
+    B: dict[str, torch.Tensor] = {}
+    for k in sorted(keys):
+        kk = k.replace(".", "__")
+        A[k] = sd[f"Vh.{kk}"].contiguous()
+        B[k] = (sd[f"U.{kk}"] * sd[f"delta_s.{kk}"]).contiguous()
+    return AdapterSpec(A=A, B=B, alpha=float(r), r=r, default_c=default_c)
+
+
+def adapter_spec_from_checkpoint(model: nn.Module, path: str,
+                                 default_c: float = 1.0) -> AdapterSpec:
+    """Dispatch on `kind` metadata; both PiSSA + LoRA round-trip into the
+    same AdapterSpec shape so downstream `baked()` is uniform."""
+    from safetensors import safe_open
+    with safe_open(path, framework="pt") as f:
+        kind = f.metadata().get("kind", "lora")
+    if kind == "pissa":
+        return pissa_spec_from_checkpoint(model, path, default_c=default_c)
+    return AdapterSpec.from_checkpoint(model, path, default_c=default_c)

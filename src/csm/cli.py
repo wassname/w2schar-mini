@@ -121,14 +121,15 @@ def cmd_agent_run(args: AgentRunArgs) -> None:
         run = json.loads((args.slug / "run.json").read_text())
         model, teacher = run["model"], run["teacher"]
         slug = args.slug
-        cfg = config_by_model(model)
+        from csm.config import config_for_run
+        cfg = config_for_run(run)
     else:
         if not args.profile or args.profile not in CONFIGS:
             sys.exit(f"# require --profile {{{','.join(sorted(CONFIGS))}}}}}")
         cfg = CONFIGS[args.profile]
         model, teacher = cfg.model, cfg.teacher
         slug = _default_slug(model)
-        init_run(slug, model, teacher=teacher)
+        init_run(slug, model, teacher=teacher, profile=args.profile)
 
     n_rounds = args.n_rounds or cfg.n_rounds
     print(f"# agent-run model={model} teacher={teacher} slug={slug} n_rounds={n_rounds}",

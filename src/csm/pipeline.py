@@ -24,7 +24,7 @@ import torch
 from inspect_ai.log import transcript
 from loguru import logger
 
-from csm.config import config_by_model
+from csm.config import config_by_model, config_for_run
 from csm.gen.dialogue import DialogueCfg, dialogue
 from csm.gen.pairs import (gen_completions, load_pairs_md, n_filled,
                            sample_prompts, write_pairs_md, write_seeded_pairs)
@@ -45,7 +45,8 @@ SIGN = +1                                     # +C = more "less authority"
 # Per-slug bootstrap
 # ---------------------------------------------------------------------------
 
-def init_run(slug_dir: Path, model: str, teacher: str | None = None) -> Path:
+def init_run(slug_dir: Path, model: str, teacher: str | None = None,
+             profile: str | None = None) -> Path:
     slug_dir.mkdir(parents=True, exist_ok=True)
     run = {
         "model": model,
@@ -53,6 +54,8 @@ def init_run(slug_dir: Path, model: str, teacher: str | None = None) -> Path:
         "axis": AXIS,
         "created_utc": datetime.now(timezone.utc).isoformat(),
     }
+    if profile is not None:
+        run["profile"] = profile
     (slug_dir / "run.json").write_text(json.dumps(run, indent=2))
     round_dir = slug_dir / "round00"
     round_dir.mkdir(exist_ok=True)
@@ -98,7 +101,7 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
         return  # both done
 
     run = json.loads((slug_dir / "run.json").read_text())
-    cfg = config_by_model(run["model"])
+    cfg = config_for_run(run)
 
     try:
         n = int(round_dir.name.replace("round", ""))
@@ -166,7 +169,22 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
 
     filled = n_filled(pairs)
     run = json.loads((round_dir.parent / "run.json").read_text())
-    cfg = config_by_model(run["model"])
+    cfg = config_for_run(run)
+
+    # Filled pairs with identical rej.strip()==cho.strip() train a zero
+    # adapter direction (mean(cho-rej)=0). Caught after the 20260525T155712
+    # r01 incident shipped 14/15 identical-text pairs.
+    dup_ids = [p["id"] for p in pairs
+               if not any(p[k].strip().startswith("TODO(") or not p[k].strip()
+                          for k in ("prompt", "cho", "rej"))
+               and p["rej"].strip() == p["cho"].strip()]
+    if dup_ids:
+        raise ValueError(
+            f"identical rej==cho on pair(s) {dup_ids}: adapter direction "
+            f"mean(cho-rej) is zero for these — the teacher must rewrite cho "
+            f"to demonstrate the OPPOSING stance from rej (see CHO_TODO / "
+            f"REJ_TODO in pairs.py). Resubmit pairs.md."
+        )
 
     if filled >= cfg.min_pairs_to_train:
         set_state(round_dir, "train_student",
@@ -201,7 +219,7 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
 def train_student(slug_dir: Path, round_dir: Path) -> dict:
     require_state(round_dir, "train_student", "train_student")
     run = json.loads((slug_dir / "run.json").read_text())
-    cfg = config_by_model(run["model"])
+    cfg = config_for_run(run)
 
     lesson, pairs_all = load_pairs_md(round_dir / "pairs.md")
     pairs = [p for p in pairs_all
@@ -225,10 +243,15 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         r=cfg.lora_r, alpha=cfg.lora_alpha, targets=cfg.targets,
         layer_range=cfg.layer_range,
         steps=steps, batch_size=cfg.train_batch_size, lr=cfg.lr,
+        weight_decay=cfg.weight_decay, warmup_ratio=cfg.warmup_ratio,
+        grad_clip=cfg.grad_clip,
         max_len=cfg.max_len, kl_lambda=cfg.kl_lambda,
     )
+    from csm.ws.adapter import ModulatedLoRA, ModulatedPiSSA
+    adapter_cls = ModulatedPiSSA if cfg.adapter == "pissa" else ModulatedLoRA
     lora = train_adapter(model, tok, pairs, tcfg,
-                         history_bake=hb, enable_thinking=cfg.enable_thinking)
+                         history_bake=hb, enable_thinking=cfg.enable_thinking,
+                         adapter_cls=adapter_cls)
 
     # Calibrate. cfg.signed_C is the initial probe; c_scan walks down
     # ×0.5 until pmass_format ≥ 0.98 × baseline, no backoff. Coherent
@@ -240,6 +263,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         model, tok, lora,
         init_c=cfg.signed_C, sign=SIGN,
         batch_size=cfg.eval_batch_size,
+        enable_thinking=cfg.enable_thinking,
     )
     lora.save(str(round_dir / "adapter.safetensors"),
               extra_meta={"axis": AXIS, "sign": str(SIGN)})
@@ -258,7 +282,12 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     # hook. Cheaper than detaching HistoryBake just for 3 probes.
     dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
                        enable_thinking=cfg.enable_thinking)
-    cur_spec = AdapterSpec.from_lora(lora, default_c=signed_C)
+    if isinstance(lora, ModulatedPiSSA):
+        from csm.ws.bake import pissa_to_lora_spec
+        cur_spec = pissa_to_lora_spec(lora, default_c=signed_C)
+        lora.restore_base_W()
+    else:
+        cur_spec = AdapterSpec.from_lora(lora, default_c=signed_C)
     post = dialogue(model, tok, PROBES,
                     round_dir / "interview_post.json",
                     hist_specs=None, current_spec=cur_spec, c=signed_C, cfg=dcfg)

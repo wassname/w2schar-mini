@@ -15,9 +15,12 @@ Sidecar (the agent never sees this). Two signals, both gated:
   pmass_allowed misses: model never emits JSON, copies schema, emits
   syntactic gibberish, or loops mid-recitation.
 
-A probe passes iff `pmass_allowed ≥ 0.99 × baseline` AND all valid_json
-prompts emit a parseable + non-placeholder object. Walk down ×0.5 until
-a probe passes, then apply a ×0.75 backoff for cumulative-history safety
+A probe passes iff `pmass_allowed ≥ gate × baseline_pmass` AND
+`valid_json ≥ baseline_valid_json` (don't *degrade* coherence vs base —
+earlier absolute "all 3 pass" gate was unsatisfiable when any single
+prose probe is intrinsically hard for the base model, e.g. gemma-2-2b
+on first-order logic). Walk down ×0.5 until a probe passes, then apply
+a ×0.75 backoff for cumulative-history safety
 (each kept round bakes into W; backoff hedges that the next round's
 adapter sees a slightly noisier base than this round's c_scan saw).
 """
@@ -119,27 +122,46 @@ def _parse_first_json(text: str) -> bool:
 
 @torch.no_grad()
 def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
-                         max_new_tokens: int = 8192) -> tuple[int, int, float, list[str]]:
+                         max_new_tokens: int = 4096,
+                         batch_size: int = 2,
+                         enable_thinking: bool = False) -> tuple[int, int, float, list[str]]:
     """Free-gen each JSON_PROMPT under c. Return (n_valid, n_total,
-    mean_distinct3, gens). Budget is generous (8192) since the test is
-    'can the model eventually emit valid JSON' not 'within a tight
-    budget' — most coherent gens stop early at EOS."""
+    mean_distinct3, gens). Chat-templated; raw-text mode on a chat model
+    puts Qwen3.6 in infinite-think (opens `<think>`, never closes, never
+    reaches the JSON tail). `mean_distinct3` = n-gram repetition diversity
+    (near 0 = '** ** **' / ', , ,' loops); gated self-relative to baseline."""
     pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
+    old_side = tok.padding_side
+    tok.padding_side = "left"
     n_valid = 0
     gens: list[str] = []
     distincts: list[float] = []
-    with lora(model, c=c):
-        for prompt in JSON_PROMPTS:
-            enc = tok(prompt, return_tensors="pt").to(model.device)
-            out = model.generate(
-                **enc, max_new_tokens=max_new_tokens, do_sample=False,
-                pad_token_id=pad_id, eos_token_id=tok.eos_token_id,
-            )
-            gen_text = tok.decode(out[0, enc.input_ids.shape[1]:],
-                                  skip_special_tokens=True)
-            n_valid += int(_parse_first_json(gen_text))
-            distincts.append(_distinct_n(gen_text, n=3))
-            gens.append(gen_text)
+    try:
+        with lora(model, c=c):
+            for i in range(0, len(JSON_PROMPTS), batch_size):
+                batch = JSON_PROMPTS[i: i + batch_size]
+                rendered = [
+                    tok.apply_chat_template(
+                        [{"role": "user", "content": p}],
+                        tokenize=False, add_generation_prompt=True,
+                        enable_thinking=enable_thinking,
+                    )
+                    for p in batch
+                ]
+                enc = tok(rendered, return_tensors="pt", padding=True).to(model.device)
+                out = model.generate(
+                    **enc, max_new_tokens=max_new_tokens, do_sample=False,
+                    pad_token_id=pad_id, eos_token_id=tok.eos_token_id,
+                )
+                cont = out[:, enc["input_ids"].shape[1]:]
+                for ids in cont:
+                    ids_l = [t for t in ids.tolist() if t != pad_id]
+                    text = tok.decode(ids_l, skip_special_tokens=True)
+                    n_valid += int(_parse_first_json(text))
+                    distincts.append(_distinct_n(text, n=3))
+                    gens.append(text)
+    finally:
+        tok.padding_side = old_side
     mean_distinct = sum(distincts) / len(distincts)
     return n_valid, len(JSON_PROMPTS), mean_distinct, gens
 
@@ -148,7 +170,8 @@ def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
 def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
                     n_vignettes: int = 2, max_think_tokens: int = 512,
                     batch_size: int = 2,
-                    json_max_new_tokens: int = 8192) -> dict:
+                    json_max_new_tokens: int = 4096,
+                    enable_thinking: bool = False) -> dict:
     """One scan probe under c: tinymfv pmass_allowed + free-gen valid_json."""
     from tinymfv import evaluate as tinymfv_evaluate
 
@@ -165,9 +188,11 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
         raise RuntimeError(f"NaN pmass at c={c}")
 
     n_valid, n_total, distinct3, gens = _free_gen_valid_json(
-        model, tok, lora, c, max_new_tokens=json_max_new_tokens)
+        model, tok, lora, c, max_new_tokens=json_max_new_tokens,
+        batch_size=batch_size, enable_thinking=enable_thinking)
+    mean_len = int(sum(len(g) for g in gens) / max(1, len(gens)))
     return {"pmass": pmass, "valid_json": n_valid, "n_json": n_total,
-            "distinct3": distinct3, "gens": gens}
+            "distinct3": distinct3, "mean_len": mean_len, "gens": gens}
 
 
 def c_scan(model, tok, lora: ModulatedLoRA, *,
@@ -178,7 +203,8 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
            n_vignettes: int = 2,
            max_think_tokens: int = 512,
            batch_size: int = 2,
-           json_max_new_tokens: int = 8192) -> tuple[float, list]:
+           json_max_new_tokens: int = 4096,
+           enable_thinking: bool = False) -> tuple[float, list]:
     """Walk |c| down by ×0.5 until `pmass ≥ gate × baseline_pmass` AND
     `valid_json == n_json`. Apply `backoff` to the passing c (e.g. 0.75 →
     final = sign * c_pass * 0.75) for extra safety margin. The pmass +
@@ -196,16 +222,29 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                            n_vignettes=n_vignettes,
                            max_think_tokens=max_think_tokens,
                            batch_size=batch_size,
-                           json_max_new_tokens=json_max_new_tokens)
+                           json_max_new_tokens=json_max_new_tokens,
+                           enable_thinking=enable_thinking)
     baseline_pmass = base["pmass"]
-    baseline_valid = base["valid_json"]
+    baseline_json = base["valid_json"]
+    baseline_distinct = base["distinct3"]
     gate = gate_frac * baseline_pmass
-    # Self-relative json gate: don't get worse than base. Strict 3/3 made
-    # the gate unsatisfiable on weaker bases (gemma-2b fails prompt[2] at
-    # c=0 — 3 paragraphs counterfactual exceeds its coherence budget even
-    # with no adapter applied), so every probe fail-json'd and c walked
-    # to C_MIN.
+    # Self-relative gates: adapter must not *degrade* coherence below base.
+    # Earlier absolute gate (valid_json == n_json) was unsatisfiable when one
+    # of the 3 prose probes is intrinsically hard for the base (gemma-2-2b
+    # on first-order logic, duck prompt's intentional low distinct3) —
+    # c_scan walked all the way to C_MIN even when probes matched baseline.
     trace = [{"stage": "baseline", "c": 0.0, **base, "note": "—"}]
+    # Hard fail if baseline collapses: gate would be trivial / meaningless.
+    # Diagnose upstream (chat template, max_think, prompt) instead of running
+    # a calibration whose JSON gate is unsatisfiable or whose pmass floor is
+    # already below random.
+    assert baseline_json > 0, (
+        f"c_scan baseline valid_json=0/{base['n_json']} — base model failed to "
+        f"emit valid JSON on all probes. Check chat template, json_max_new_tokens, "
+        f"enable_thinking, or probe difficulty.")
+    assert baseline_pmass >= 0.5, (
+        f"c_scan baseline pmass={baseline_pmass:.3f} < 0.5 — base model already "
+        f"incoherent at c=0 before any adapter. Check tinymfv setup / max_think.")
 
     c = init_c
     warn = ""
@@ -215,11 +254,16 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                             n_vignettes=n_vignettes,
                             max_think_tokens=max_think_tokens,
                             batch_size=batch_size,
-                            json_max_new_tokens=json_max_new_tokens)
+                            json_max_new_tokens=json_max_new_tokens,
+                           enable_thinking=enable_thinking)
         pmass_ok = m["pmass"] >= gate
-        json_ok = m["valid_json"] >= baseline_valid
-        ok = pmass_ok and json_ok
+        json_ok = m["valid_json"] >= baseline_json
+        # 0.5x is generous: catches '** ** **' (distinct3 → 0) without
+        # tripping on legitimate moderate-repetition prose.
+        distinct_ok = m["distinct3"] >= 0.5 * baseline_distinct
+        ok = pmass_ok and json_ok and distinct_ok
         note = ("pass" if ok else
+                "fail-rep" if not distinct_ok else
                 "fail-json" if not json_ok and pmass_ok else
                 "fail-pmass" if not pmass_ok and json_ok else
                 "fail")
@@ -253,13 +297,14 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
              f"{t['pmass']:.3f}" if t.get("pmass") is not None else "—",
              f"{t['valid_json']}/{t['n_json']}" if t.get("valid_json") is not None else "—",
              f"{t['distinct3']:.2f}" if t.get("distinct3") is not None else "—",
+             t.get("mean_len", "—"),
              t["note"]] for t in trace]
-    table = tabulate(rows, headers=["stage", "c", "pmass", "json", "rep", "note"],
+    table = tabulate(rows, headers=["stage", "c", "pmass", "json", "rep", "len", "note"],
                      tablefmt="plain", floatfmt="+.3f")
-    logger.info(
-        f"\nc_scan (baseline pmass={baseline_pmass:.3f} gate={gate:.3f}, "
-        f"baseline json={baseline_valid}/{base['n_json']}):\n{table}\n"
-    )
+    logger.info(f"\nc_scan (baseline_pmass={baseline_pmass:.3f}, "
+                f"baseline_json={baseline_json}/{base['n_json']}, "
+                f"baseline_rep={baseline_distinct:.2f}, "
+                f"gate=pmass≥{gate:.3f} AND json≥{baseline_json} AND rep≥{0.5*baseline_distinct:.2f}):\n{table}\n")
     if warn:
         logger.warning(f"c_scan: {warn}")
 
@@ -269,6 +314,18 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     # gate technically passed. If no probe passed (`note != pass`), this
     # dump shows the highest-coefficient sample we tried — useful when c_scan
     # clamps at C_MIN and we want to see what the adapter is producing.
+    # Baseline gen[0] dumped alongside for side-by-side coherence comparison
+    # (catches collapse modes where the steered sample looks "passing" by
+    # pmass but is empty/looped vs. base's normal prose).
+    base_gens = base.get("gens", [])
+    if base_gens:
+        gen = base_gens[0]
+        head, tail = gen[:300], gen[-300:]
+        mid = f" … ⟨{len(gen) - 600} chars⟩ … " if len(gen) > 600 else ""
+        logger.info(
+            f"c_scan baseline @ c=+0.0000 (json={baseline_json}/{base['n_json']}) prompt[0]:\n"
+            f"  A: {head}{mid}{tail}"
+        )
     if last_sample is not None:
         for i, (prompt, gen) in enumerate(zip(JSON_PROMPTS, last_sample["gens"])):
             head, tail = gen[:300], gen[-300:]

@@ -8,16 +8,32 @@ Forked from `weight-steering-lite/src/wsl/train.py`, trimmed:
 
 Per (prompt, cho, rej), sampled C ∈ (0, 1]:
 
-    w_b   = min(1, OUTLIER_NLL / detach(nll_b))
-    L_pos = C·mean_b(w_b · nll_b)  +  β·KL(steer ‖ base)   at c=+C on cho
-    L_neg = C·mean_b(w_b · nll_b)  +  β·KL(steer ‖ base)   at c=−C on rej
+    nll̃_b(x) ≡ nll_b(x) / max(detach(nll_b(x)), 1)
+    L_pos_nll = C · (mean_b nll̃(cho|+C) − mean_b nll̃(rej|+C))
+    L_neg_nll = C · (mean_b nll̃(rej|−C) − mean_b nll̃(cho|−C))
 
-Outlier downweight: pairs with NLL ≤ OUTLIER_NLL pass through at full
-weight; pairs above (likely off-policy or impossible — model can't
-produce cho given context) are damped by OUTLIER_NLL/nll < 1, so they
-don't dominate the learned direction. Earlier form was `nll / max(nll, 1)`
-which shrank every typical pair (nll≈2.3) by 2.3× instead of only
-clipping outliers.
+Margin formulation: subtraction cancels the shared-fluency direction
+(both cho and rej would lower nll under a fluency-only adapter), so
+the surviving gradient component is the persona axis.
+
+**Per-sample detach-normalize** (at the loss, per side, per sample):
+each per-sample nll is divided by its own detached value (floored at
+1) before batch-averaging. Cross-entropy is asymmetric — the cho-pull
+gradient self-limits as nll_cho → 0, but the rej-push gradient grows
+without bound (∇(-log p) ∝ 1/p), so under raw margin the unbounded
+rej-push dominates θ-updates and corrupts cho-pull as collateral
+damage (task 101: nll(cho|+C) drifts 2.4 → 3.2 while nll(rej|-C) of
+the bounded side drifts 2.9 → 2.1; occasional per-step blow-ups to
+nll ~ 60 with ‖g‖ ~ 5800). Dividing each sample by its detached nll
+makes ‖per-sample grad‖ approximately scale-free, so hard pairs and
+the rej-push side can't run away. The clamp floor at 1 keeps easy
+pairs (nll < 1) from being amplified — only caps the runaway, doesn't
+boost convergence.
+
+Replaces the post-autograd per-side `TARGET_G_NORM=5.0` equalization
+in 6e1ec5c, which equalized BETWEEN the two C-sign frames but not
+WITHIN each frame (cho-pull vs rej-push); the within-frame asymmetry
+was the actual runaway source.
 
 β trades steering signal vs distribution shift; weight-decay + β
 jointly pull toward "no-op" while NLL pulls toward cho/rej.
@@ -32,27 +48,13 @@ import math
 from dataclasses import dataclass
 
 import torch
-import torch.nn.functional as F
 from loguru import logger
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset
 from transformers import get_cosine_schedule_with_warmup
 from tqdm.auto import tqdm
 
-from csm.ws.adapter import ModulatedLoRA
-
-
-# Outlier-NLL threshold for per-pair downweighting. Pairs with NLL ≤
-# this pass through at full weight (weight=1); pairs above are damped
-# by OUTLIER_NLL/nll. Picked above typical cho-NLL (~2–3 on gemma-2b);
-# triggers only when a pair is genuinely off-policy / impossible.
-OUTLIER_NLL = 4.0
-
-# Top-K vocab for KL approximation. K=256 covers >99.9% of base mass
-# on confident LM next-token distributions, with per-token error ≪ the
-# KL signal itself. Cuts the (B, S, V=256K) fp32 logp materialization
-# (~8 GB per tensor on gemma-2b/9b) down to (B, S, 256) bf16 (~MB).
-KL_TOPK = 256
+from csm.ws.adapter import ModulatedLoRA, ModulatedPiSSA
 
 
 @dataclass
@@ -74,6 +76,13 @@ class TrainCfg:
     down if eval Δ stays at noise."""
     pcgrad: bool = True
     seed: int = 42
+    # ─ PiSSA-only ─ (ignored for ModulatedLoRA)
+    pissa_selection_score: str = "cho_rej_min_std"
+    """One of {"s_only", "wanda", "act_only", "cho_rej_min_std"}. The default
+    picks directions that are alive in BOTH cho and rej completion-token
+    activations — see ModulatedPiSSA docstring."""
+    pissa_calib_max_tokens: int = 1024
+    """Cap captured tokens per layer for activation-driven top-r selection."""
 
 
 # ---------------------------------------------------------------------------
@@ -160,55 +169,50 @@ def _per_sample_nll(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     return (loss_per_tok * mask).sum(-1) / mask.sum(-1).clamp(min=1.0)
 
 
-def _base_topk(logits, k: int = KL_TOPK):
-    """Extract (top_k_indices, base_logp_at_topk) from raw logits without
-    materializing the full (B, S, V) log_softmax. Both bf16, detached
-    (called inside no_grad)."""
-    lse = torch.logsumexp(logits, dim=-1, keepdim=True)          # [B, S, 1]
-    top = logits.topk(k, dim=-1)
-    return top.indices, (top.values - lse).detach()              # [B, S, K]
+def _normed_mean(nll_b: torch.Tensor) -> torch.Tensor:
+    """nll_b / max(detach(nll_b), 1), then batch-averaged. Caps each
+    sample's per-step gradient at ~unit by cancelling the 1/p blow-up of
+    CE's rej-push side. Floor at 1 leaves the cho-pull side untouched
+    near convergence (nll < 1 passes through unscaled)."""
+    denom = nll_b.detach().clamp_min(1.0)
+    return (nll_b / denom).mean()
 
 
-def _kl_topk(logits_s, base_topk_idx, base_logp_topk, labels):
-    """Reverse KL(p_steer ‖ p_base) on base's top-K vocab + residual bucket.
+_KL_TOPK = 256
 
-    Naive truncation (sum only over top-K of base) is WRONG: when steered
-    mass leaks outside base's top-K (the exact case we want to penalize),
-    the truncated sum goes NEGATIVE, so `kl_lambda * kl` rewards
-    divergence (anti-anchor). Fix: add an explicit "outside-top-K"
-    bucket whose log-prob in each distribution is computed via log1p(-Σ).
 
-    Memory: avoids materializing (B, S, V) log_softmax; only logsumexp
-    (→ (B,S,1)) and gather (→ (B,S,K)) on steered side.
+def _kl_topk_base(logits_steer, base_top_logp_K, base_top_idx, labels):
+    """Reverse KL(p_steer_K ‖ p_base_K) on the top-K simplex per position,
+    where p_*_K are the steered/base distributions renormalized over
+    base's top-K indices. HF-style shift (logits[t] predicts label[t+1]).
+
+    Memory fix: takes raw `logits_steer` (B, S, V), NOT full log_softmax,
+    because logsumexp_full cancels in the K-renorm:
+        log_softmax(logits)[K] - logsumexp(log_softmax(logits)[K])
+      = logits[K] - logsumexp_full - (logsumexp(logits[K]) - logsumexp_full)
+      = logits[K] - logsumexp(logits[K])
+    so we gather raw logits at base_top_idx and skip the full-vocab
+    log_softmax allocation entirely (was 8 GiB / forward × 2 = 16 GiB
+    retained in autograd graph at gemma-2b batch=8 seq=1024).
+    `base_top_logp_K` is already K-renormalized (computed once at the
+    no-grad base forward).
+
+    Renormalization is REQUIRED for KL ≥ 0: the K-subset sums to <1
+    under full-V softmax; naïve Σ p_s · (logp_s − logp_b) on those is
+    unbounded in sign (anti-anchor pathology in earlier trace).
+    Gibbs ≥ 0 holds after both sides renormalize over K.
+
+    Approximation bias: discards mass outside base's top-K (no outside
+    bucket). For an instruct LM at K=256 base captures >99% per position.
     """
-    lse = torch.logsumexp(logits_s, dim=-1, keepdim=True)             # [B, S, 1]
-    logp_s_topk_full = logits_s.gather(-1, base_topk_idx) - lse        # [B, S, K]
-
-    # Shift to match HF causal-LM CE: logits[t] predicts label[t+1].
-    logp_s_topk = logp_s_topk_full[:, :-1, :]
-    logp_b_topk = base_logp_topk[:, :-1, :]
-    labels_sh = labels[:, 1:]
-
-    # Outside-top-K bucket: log(1 - Σ_topK p) via stable log1p(-exp(log_sum)).
-    # MUST be fp32: bf16 resolution near 1.0 is ~2^-7, so (-1e-4).exp() rounds
-    # to 1.0 → log1p(-1)=-inf → (-inf)-(-inf)=NaN. fp32 clamp at -1e-4 keeps
-    # the residual bucket finite. Tensor is (B, S-1, 1), cast is ~free.
-    log_sum_s = torch.logsumexp(logp_s_topk.float(), dim=-1, keepdim=True)  # [B, S-1, 1]
-    log_sum_b = torch.logsumexp(logp_b_topk.float(), dim=-1, keepdim=True)
-    logp_s_out = torch.log1p(-log_sum_s.clamp(max=-1e-4).exp())             # [B, S-1, 1]
-    logp_b_out = torch.log1p(-log_sum_b.clamp(max=-1e-4).exp())
-
-    # Cast at reduction: bf16 sum over K=256 loses precision.
-    diff_topk = (logp_s_topk - logp_b_topk).float()                    # [B, S-1, K]
-    p_s_topk = logp_s_topk.float().exp()
-    kl_topk = (p_s_topk * diff_topk).sum(dim=-1, keepdim=True)         # [B, S-1, 1]
-
-    diff_out = (logp_s_out - logp_b_out).float()
-    p_s_out = logp_s_out.float().exp()
-    kl_out = p_s_out * diff_out                                        # [B, S-1, 1]
-
-    kl_per_tok = (kl_topk + kl_out).squeeze(-1)                        # [B, S-1]
-    mask_sh = (labels_sh != -100)
+    s_sh = logits_steer[:, :-1, :]                     # (B, S-1, V) raw logits
+    b_sh_logp_K = base_top_logp_K[:, :-1, :]           # (B, S-1, K) K-renormed
+    b_sh_idx = base_top_idx[:, :-1, :]                 # (B, S-1, K)
+    mask_sh = (labels[:, 1:] != -100)
+    s_top = torch.gather(s_sh, -1, b_sh_idx).float()   # (B, S-1, K) fp32 at reduction
+    logp_s_K = s_top - torch.logsumexp(s_top, dim=-1, keepdim=True)
+    p_s_K = logp_s_K.exp()
+    kl_per_tok = (p_s_K * (logp_s_K - b_sh_logp_K)).sum(dim=-1)
     return kl_per_tok[mask_sh.bool()].mean()
 
 
@@ -221,44 +225,54 @@ def pcgrad_train_step(
     pcgrad: bool = True,
     kl_lambda: float = 0.0,
 ) -> dict:
-    """One step: NLL on both poles + (optional) KL anchor to c=0 forward.
-    PCGrad operates on the (NLL_pos, NLL_neg) gradients only — KL is
-    added unprojected.
+    """One step: margin NLL on both poles + (optional) KL anchor to c=0.
+    PCGrad operates on the (margin_pos, margin_neg) gradients only — KL
+    is added unprojected.
+
+    Margin formulation:
+      L_pos = C · (mean nll(cho|+C) − mean nll(rej|+C))
+      L_neg = C · (mean nll(rej|−C) − mean nll(cho|−C))
+    The shared-fluency direction (cho and rej both lower nll when adapter
+    fits style) cancels in the difference; only the persona-axis component
+    survives. Earlier per-sample-NLL formulation was dominated by the shared
+    component (cos(g_pos, g_neg) ≈ -0.97 just from the c-sign flip on a
+    shared signal).
     """
     use_kl = kl_lambda > 0
     device = next(p.device for p in params)
     zero = torch.zeros((), device=device)
 
-    # ---- c=0 reference forwards (no grad) ---------------------------------
+    # ---- c=0 reference forwards (no grad, raw logits → top-K → K-renorm) ----
+    # Skip the full-vocab log_softmax: topk on raw logits gives the same
+    # indices (softmax is monotonic), and the K-renormalized log-prob is
+    # what _kl_topk_base actually needs. Memory: avoids the 8 GiB full
+    # log_softmax allocation. fp32 at the K-renorm logsumexp is cheap.
     if use_kl:
         with torch.no_grad():
             with lora(model, c=0.0):
-                out_b_p = model(input_ids=ip, attention_mask=ap,
-                                output_hidden_states=True)
-                out_b_n = model(input_ids=in_, attention_mask=an,
-                                output_hidden_states=True)
-            # Top-K (idx + base logp) for KL on top-256. Skips the
-            # ~8GB full-vocab log_softmax materialization.
-            base_topk_idx_p, base_logp_topk_p = _base_topk(out_b_p.logits)
-            base_topk_idx_n, base_logp_topk_n = _base_topk(out_b_n.logits)
-            # Base hidden states for the Δh diagnostic (per-sample direction
-            # variance). Detach + float here so they're tiny and grad-free.
-            h_b_p = out_b_p.hidden_states[-1].detach().float()
-            h_b_n = out_b_n.hidden_states[-1].detach().float()
-            del out_b_p, out_b_n   # free base logits + all-layer hidden states
+                logits_b_p = model(input_ids=ip, attention_mask=ap).logits
+                b_top_p = logits_b_p.topk(_KL_TOPK, dim=-1)
+                base_top_idx_p = b_top_p.indices
+                v_p = b_top_p.values.float()
+                base_top_logp_p = v_p - torch.logsumexp(v_p, dim=-1, keepdim=True)
+                del logits_b_p, b_top_p, v_p
+                logits_b_n = model(input_ids=in_, attention_mask=an).logits
+                b_top_n = logits_b_n.topk(_KL_TOPK, dim=-1)
+                base_top_idx_n = b_top_n.indices
+                v_n = b_top_n.values.float()
+                base_top_logp_n = v_n - torch.logsumexp(v_n, dim=-1, keepdim=True)
+                del logits_b_n, b_top_n, v_n
 
-    # ---- cho at c=+C ------------------------------------------------------
+    # ---- both inputs at c=+C  (cho prefer, rej penalize) ------------------
     with lora(model, c=+C):
-        out_p = model(input_ids=ip, attention_mask=ap, output_hidden_states=True)
-        nll_per_p = _per_sample_nll(out_p.logits, lp)  # [B]
-        w_p = (OUTLIER_NLL / nll_per_p.detach()).clamp(max=1.0)
-        L_pos_nll = C * (w_p * nll_per_p).mean()
-        mean_nll_p = nll_per_p.detach().mean().item()    # for logging
-        # Final hidden state pooled over completion-mask tokens (detached;
-        # used only for cos_act diagnostic, no gradient through it).
-        h_p_last = out_p.hidden_states[-1].detach().float()
+        out_cp = model(input_ids=ip, attention_mask=ap)
+        nll_cho_p_b = _per_sample_nll(out_cp.logits.float(), lp)
+        out_rp = model(input_ids=in_, attention_mask=an)
+        nll_rej_p_b = _per_sample_nll(out_rp.logits.float(), ln)
+        L_pos_nll = C * (_normed_mean(nll_cho_p_b) - _normed_mean(nll_rej_p_b))
+        mean_nll_p = nll_cho_p_b.mean().detach().item()
         if use_kl:
-            kl_p = _kl_topk(out_p.logits, base_topk_idx_p, base_logp_topk_p, lp)
+            kl_p = _kl_topk_base(out_cp.logits, base_top_logp_p, base_top_idx_p, lp)
             L_pos_kl = kl_lambda * kl_p
     g_pos_nll = _zerofill(torch.autograd.grad(
         L_pos_nll, params, retain_graph=use_kl, allow_unused=True), params)
@@ -269,16 +283,16 @@ def pcgrad_train_step(
         g_pos_kl = [torch.zeros_like(p) for p in params]
         kl_p = zero
 
-    # ---- rej at c=-C ------------------------------------------------------
+    # ---- both inputs at c=-C  (rej prefer, cho penalize) ------------------
     with lora(model, c=-C):
-        out_n = model(input_ids=in_, attention_mask=an, output_hidden_states=True)
-        nll_per_n = _per_sample_nll(out_n.logits, ln)  # [B]
-        w_n = (OUTLIER_NLL / nll_per_n.detach()).clamp(max=1.0)
-        L_neg_nll = C * (w_n * nll_per_n).mean()
-        mean_nll_n = nll_per_n.detach().mean().item()
-        h_n_last = out_n.hidden_states[-1].detach().float()
+        out_rn = model(input_ids=in_, attention_mask=an)
+        nll_rej_n_b = _per_sample_nll(out_rn.logits.float(), ln)
+        out_cn = model(input_ids=ip, attention_mask=ap)
+        nll_cho_n_b = _per_sample_nll(out_cn.logits.float(), lp)
+        L_neg_nll = C * (_normed_mean(nll_rej_n_b) - _normed_mean(nll_cho_n_b))
+        mean_nll_n = nll_rej_n_b.mean().detach().item()
         if use_kl:
-            kl_n = _kl_topk(out_n.logits, base_topk_idx_n, base_logp_topk_n, ln)
+            kl_n = _kl_topk_base(out_rn.logits, base_top_logp_n, base_top_idx_n, ln)
             L_neg_kl = kl_lambda * kl_n
     g_neg_nll = _zerofill(torch.autograd.grad(
         L_neg_nll, params, retain_graph=use_kl, allow_unused=True), params)
@@ -289,38 +303,9 @@ def pcgrad_train_step(
         g_neg_kl = [torch.zeros_like(p) for p in params]
         kl_n = zero
 
-    # ---- representation diagnostics (all on pooled final hidden states) ---
-    # cos_act = cos(h_cho_steered, h_rej_steered): how distinguishable are
-    #   the two completions? Drifts DOWN as adapter learns to separate them.
-    # dir±_m  = mean pairwise cos of per-sample Δh = h(c=±C) − h(c=0). High
-    #   → the adapter is implementing a CONSISTENT direction across samples
-    #   (a real "axis"). Low → each sample gets its own random shift; the
-    #   axis is illusory. dir±_v = variance of those pairwise cos.
-    mp = (lp != -100).float().unsqueeze(-1)
-    mn = (ln != -100).float().unsqueeze(-1)
-    def _pool(h, m):
-        return (h * m).sum(1) / m.sum(1).clamp_min(1.0)             # [B, D]
-    hp_pool = _pool(h_p_last, mp)
-    hn_pool = _pool(h_n_last, mn)
-    cos_act = F.cosine_similarity(hp_pool, hn_pool, dim=-1).mean().item()
-
-    dir_p_m = dir_p_v = dir_n_m = dir_n_v = 0.0
-    if use_kl:
-        dh_p = hp_pool - _pool(h_b_p, mp)                            # [B, D]
-        dh_n = hn_pool - _pool(h_b_n, mn)
-        def _pairwise_cos(v):                                        # v: [B, D]
-            if v.shape[0] < 2:
-                return 0.0, 0.0
-            vn = F.normalize(v, dim=-1)
-            cmat = vn @ vn.T                                          # [B, B]
-            iu = torch.triu_indices(cmat.shape[0], cmat.shape[0], offset=1,
-                                    device=cmat.device)
-            off = cmat[iu[0], iu[1]]
-            return off.mean().item(), off.var(unbiased=False).item()
-        dir_p_m, dir_p_v = _pairwise_cos(dh_p)
-        dir_n_m, dir_n_v = _pairwise_cos(dh_n)
-
-    # ---- PCGrad on the NLL pair only --------------------------------------
+    # ---- PCGrad on the NLL pair --------------------------------------------
+    # Within-side asymmetry handled at the loss via _normed_mean (above);
+    # nothing extra at the grad level here.
     gp_flat = torch.cat([g.reshape(-1) for g in g_pos_nll])
     gn_flat = torch.cat([g.reshape(-1) for g in g_neg_nll])
     dot = (gp_flat * gn_flat).sum()
@@ -342,8 +327,11 @@ def pcgrad_train_step(
             torch.cat([g.reshape(-1) for g in g_neg_kl])
         )
         summed = nll_summed + kl_flat
+        g_kl_norm = float(kl_flat.norm())
     else:
         summed = nll_summed
+        g_kl_norm = 0.0
+    g_nll_norm = float(nll_summed.norm())
 
     offset = 0
     for p in params:
@@ -356,29 +344,137 @@ def pcgrad_train_step(
         "L_neg_nll": mean_nll_n,
         "kl_mean_pos": kl_p.detach().item() if use_kl else 0.0,
         "kl_mean_neg": kl_n.detach().item() if use_kl else 0.0,
+        "g_nll_norm": g_nll_norm,          # ‖summed NLL gradient‖ (post-PCGrad, pre-clip)
+        "g_kl_norm": g_kl_norm,            # ‖summed KL gradient‖   (post-PCGrad, pre-clip)
         "C": C,
         "conflict": conflict,
         "cos": cos,
-        "cos_act": cos_act,
-        "dir+": dir_p_m,
-        "dir-": dir_n_m,
-        "dir+_v": dir_p_v,
-        "dir-_v": dir_n_v,
     }
 
 
-def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
-                  *, history_bake=None, enable_thinking: bool = False) -> ModulatedLoRA:
-    """Fit one ModulatedLoRA on `pairs` via path-loss + KL anchor.
+def _capture_calibration_activations(model, tok, pairs: list[dict],
+                                     cfg: TrainCfg, *,
+                                     enable_thinking: bool
+                                     ) -> dict[str, dict[str, torch.Tensor]]:
+    """Capture per-layer input activations on COMPLETION tokens during full
+    (prompt+cho) and (prompt+rej) forwards. Returns
+    `dict[layer_name, {"cho": (N_cho, d_in), "rej": (N_rej, d_in)}]` (CPU
+    float32, capped per side at cfg.pissa_calib_max_tokens).
 
-    `history_bake`: if given, its gate is set to `lambda: lora._c != 0.0`
-    so the c=0 reference forward returns pristine base (cumulative-from-
-    base KL across rounds).
+    Why completion-only: the persona axis lives in what the model PRODUCES;
+    prompt-token activations are identical between cho and rej (same prompt)
+    so a contrast on them yields zero signal. Masking to completion tokens
+    (labels != -100) isolates the cho/rej-specific activations.
+
+    SHOULD: cho and rej captures produce DIFFERENT distributions per layer.
+    ELSE selection score `cho_rej_min_std` collapses to S-bias and we lose
+    the contrast (the whole point of the fork).
+    """
+    from csm.ws.adapter import LoRAConfig, _find_targets
+
+    probe_cfg = LoRAConfig(r=cfg.r, alpha=1.0, targets=cfg.targets,
+                           layer_range=cfg.layer_range, dtype=next(model.parameters()).dtype)
+    targets = _find_targets(model, probe_cfg)
+    cap = cfg.pissa_calib_max_tokens
+
+    # Per-side state; reset between cho and rej passes.
+    captured: dict[str, dict[str, list[torch.Tensor]]] = {
+        name: {"cho": [], "rej": []} for name, _ in targets}
+    counts: dict[str, dict[str, int]] = {
+        name: {"cho": 0, "rej": 0} for name, _ in targets}
+    _state: dict[str, object] = {"side": "cho", "completion_mask": None}
+
+    def make_hook(name):
+        def _h(module, args, kwargs):
+            side: str = _state["side"]
+            if counts[name][side] >= cap:
+                return
+            x = args[0].detach()
+            mask = _state["completion_mask"]
+            if mask is not None and mask.shape[:x.dim() - 1] == x.shape[:-1]:
+                x = x[mask.bool()]                        # (N_real, d_in)
+            else:
+                x = x.reshape(-1, x.shape[-1])
+            x = x.to(torch.float32).cpu()
+            take = min(x.shape[0], cap - counts[name][side])
+            captured[name][side].append(x[:take])
+            counts[name][side] += take
+        return _h
+
+    handles = [layer.register_forward_pre_hook(make_hook(name), with_kwargs=True)
+               for name, layer in targets]
+    try:
+        device = next(model.parameters()).device
+        was_training = model.training
+        model.eval()
+
+        ds = PairDataset(pairs, tok, cfg.max_len, enable_thinking=enable_thinking)
+        bs = max(1, cfg.batch_size)
+        for side in ("cho", "rej"):
+            _state["side"] = side
+            # Build tensors per side from PairDataset (already builds full
+            # prompt+completion ids with labels masking the prompt to -100).
+            samples = [ds[i][0 if side == "cho" else 1] for i in range(len(ds))]
+            with torch.no_grad():
+                for i in range(0, len(samples), bs):
+                    if all(counts[n][side] >= cap for n in counts):
+                        break
+                    batch = samples[i:i+bs]
+                    ids, lbl, attn = collate(batch, tok.pad_token_id)
+                    ids, lbl, attn = ids.to(device), lbl.to(device), attn.to(device)
+                    # Only label != -100 positions = completion tokens.
+                    _state["completion_mask"] = (lbl != -100)
+                    model(input_ids=ids, attention_mask=attn)
+            _state["completion_mask"] = None
+        if was_training:
+            model.train()
+    finally:
+        for h in handles:
+            h.remove()
+
+    X: dict[str, dict[str, torch.Tensor]] = {}
+    for name, sides in captured.items():
+        X[name] = {
+            s: torch.cat(chunks, dim=0) if chunks else torch.empty(0)
+            for s, chunks in sides.items()
+        }
+    n_cho = [v["cho"].shape[0] for v in X.values() if v["cho"].numel() > 0]
+    n_rej = [v["rej"].shape[0] for v in X.values() if v["rej"].numel() > 0]
+    logger.info(
+        f"PiSSA calibration: captured {len(X)} targets, "
+        f"cho tokens/layer in [{min(n_cho, default=0)}, {max(n_cho, default=0)}], "
+        f"rej tokens/layer in [{min(n_rej, default=0)}, {max(n_rej, default=0)}] "
+        f"(cap={cap})"
+    )
+    return X
+
+
+def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
+                  *, history_bake=None, enable_thinking: bool = False,
+                  adapter_cls: type = ModulatedLoRA):
+    """Fit one ModulatedLoRA / ModulatedPiSSA on `pairs` via path-loss + KL anchor.
+
+    `history_bake`: if given, its gate is set to `lambda: lora._c != 0.0` so
+    the c=0 reference returns pristine base (LoRA) or post-prior-bakes
+    (PiSSA — `PiSSAHistoryBake.set_gate` is a no-op; see adapter.py).
+    `adapter_cls`: ModulatedLoRA (default) or ModulatedPiSSA.
     """
     torch.manual_seed(cfg.seed)
-    lora = ModulatedLoRA(model, r=cfg.r, alpha=cfg.alpha, targets=cfg.targets,
-                         layer_range=cfg.layer_range,
-                         dtype=next(model.parameters()).dtype)
+    if adapter_cls is ModulatedPiSSA:
+        calib = _capture_calibration_activations(
+            model, tok, pairs, cfg, enable_thinking=enable_thinking,
+        )
+        lora = ModulatedPiSSA(model, r=cfg.r, targets=cfg.targets,
+                              layer_range=cfg.layer_range,
+                              dtype=next(model.parameters()).dtype,
+                              calibration_activations=calib,
+                              selection_score=cfg.pissa_selection_score)
+    elif adapter_cls is ModulatedLoRA:
+        lora = ModulatedLoRA(model, r=cfg.r, alpha=cfg.alpha, targets=cfg.targets,
+                             layer_range=cfg.layer_range,
+                             dtype=next(model.parameters()).dtype)
+    else:
+        raise ValueError(f"unknown adapter_cls={adapter_cls!r}")
     params = list(lora.parameters())
     optim = AdamW(params, lr=cfg.lr, weight_decay=cfg.weight_decay)
     sched = get_cosine_schedule_with_warmup(
@@ -391,10 +487,15 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
 
     ds = PairDataset(pairs, tok, cfg.max_len, enable_thinking=enable_thinking)
     pad_id = tok.pad_token_id
+    # drop_last=False: small training pools (e.g. n_train_pairs=15,
+    # batch_size=16) would yield zero full batches with drop_last=True and
+    # raise StopIteration on the very first step — masked through inspect-ai
+    # as a vague "train_student tool unresponsive". _per_sample_nll handles
+    # ragged batches fine; nothing in the loss depends on a fixed batch axis.
     loader = DataLoader(
         ds, batch_size=cfg.batch_size, shuffle=True,
         collate_fn=lambda b: _pair_collate(b, pad_id),
-        drop_last=False,   # 15 pairs / batch=16 → drop_last=True empties the loader.
+        drop_last=False,
     )
 
     device = next(model.parameters()).device
@@ -417,12 +518,15 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             C=C, pcgrad=cfg.pcgrad, kl_lambda=cfg.kl_lambda,
         )
 
-        torch.nn.utils.clip_grad_norm_(params, cfg.grad_clip)
+        gn_pre = float(torch.nn.utils.clip_grad_norm_(params, cfg.grad_clip))
         optim.step()
         optim.zero_grad(set_to_none=True)
         sched.step()
 
         lr = optim.param_groups[0]["lr"]
+        with torch.no_grad():
+            ds_norm = float(torch.stack(
+                [p.detach().float().norm() for p in params]).mean())
         traces.append({
             "step": step,
             "C": trace["C"],
@@ -431,10 +535,10 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             "kl+": trace["kl_mean_pos"],
             "kl-": trace["kl_mean_neg"],
             "cos": trace["cos"],
-            "cos_act": trace["cos_act"],
-            "dir+": trace["dir+"],
-            "dir-": trace["dir-"],
-            "dir_v": 0.5 * (trace["dir+_v"] + trace["dir-_v"]),
+            "‖Δs‖": ds_norm,
+            "‖g_nll‖": trace["g_nll_norm"],
+            "‖g_kl‖": trace["g_kl_norm"],
+            "‖g‖": gn_pre,
             "lr": lr,
             "conf": int(trace["conflict"]),
         })
@@ -450,21 +554,24 @@ def _log_train_table(traces: list[dict]) -> None:
     """Print the per-step trace as a tabulate plain table.
 
     SHOULD show: C drift between [0, 2], nll± stable (large jumps = adapter
-    blowing up), kl± monotonically growing with |C|, cos (grad) near 0
-    (orthogonal grads = PCGrad-friendly), cos_act (cho/rej last-hidden)
-    starts high (similar twinned prompts) and drifts DOWN as the adapter
-    learns to separate the two completion representations, dir± (mean
-    pairwise cos of per-sample Δh = h(±C) − h(0)) STAYS HIGH (>~0.5) and
-    growth → the adapter is implementing a consistent direction across
-    samples; if dir± hovers near 0 the 'axis' is illusory (each sample
-    gets a random shift). dir_v near 0 → tight direction; large → noisy.
-    lr cosine 0 → peak → 0. conf=1 when PCGrad surgery fired."""
+    blowing up), kl± monotonically growing with |C|, cos near 0 (orthogonal
+    gradients = PCGrad-friendly), lr cosine from 0 → peak → 0, conf flag
+    when PCGrad surgery fired."""
     from tabulate import tabulate
-    headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "cos_act",
-               "dir+", "dir-", "dir_v", "lr", "conf"]
+    headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "‖Δs‖", "‖g_nll‖", "‖g_kl‖", "‖g‖", "lr", "conf"]
     rows = [[t[h] for h in headers] for t in traces]
-    # SHOULD: C drifts in [0, 2]; nll± descend together (symmetric pull from
-    # twinned poles); kl± grows with |C|; cos starts negative (real opposing
-    # gradients) then drifts toward 0; lr cosine-anneals; conf=1 = PCGrad fired.
+    # SHOULD (margin loss + detach-norm + PiSSA): nll+ AND nll- both descend
+    # — nll+ is nll(cho|+C), nll- is nll(rej|-C), both are pull-toward-labels
+    # under their own C-sign frame, so both should fall as the adapter
+    # opens the margin (earlier "nll- ascending" SHOULD was reading the
+    # columns as cho/rej in one forward — wrong). ‖Δs‖ growing (adapter
+    # actually learning, not frozen by bf16 underflow / weight decay); cos
+    # near +1 (margin makes cho/rej gradients cooperative on persona axis);
+    # kl± grows modestly with |C|; lr cosine-anneals; conf=0 (no PCGrad
+    # surgery needed when gradients agree). nll+ drifting UP while nll-
+    # descends = within-side asymmetry returning — _normed_mean broken or
+    # bypassed. ‖g_nll‖ and ‖g_kl‖ broken out so we can tell which side
+    # drives a noisy ‖g‖ — if ‖g_kl‖ >> ‖g_nll‖ consistently, kl_lambda
+    # is anchoring the LoRA against the NLL signal and should drop.
     table = tabulate(rows, headers=headers, tablefmt="plain", floatfmt=".3g")
     logger.info(f"\ntraining trace:\n{table}\n")
