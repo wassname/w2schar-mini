@@ -171,6 +171,21 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
     run = json.loads((round_dir.parent / "run.json").read_text())
     cfg = config_for_run(run)
 
+    # Filled pairs with identical rej.strip()==cho.strip() train a zero
+    # adapter direction (mean(cho-rej)=0). Caught after the 20260525T155712
+    # r01 incident shipped 14/15 identical-text pairs.
+    dup_ids = [p["id"] for p in pairs
+               if not any(p[k].strip().startswith("TODO(") or not p[k].strip()
+                          for k in ("prompt", "cho", "rej"))
+               and p["rej"].strip() == p["cho"].strip()]
+    if dup_ids:
+        raise ValueError(
+            f"identical rej==cho on pair(s) {dup_ids}: adapter direction "
+            f"mean(cho-rej) is zero for these — the teacher must rewrite cho "
+            f"to demonstrate the OPPOSING stance from rej (see CHO_TODO / "
+            f"REJ_TODO in pairs.py). Resubmit pairs.md."
+        )
+
     if filled >= cfg.min_pairs_to_train:
         set_state(round_dir, "train_student",
                   note=f"filled={filled}/{len(pairs)}")
