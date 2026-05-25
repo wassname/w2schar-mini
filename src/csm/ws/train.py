@@ -327,8 +327,11 @@ def pcgrad_train_step(
             torch.cat([g.reshape(-1) for g in g_neg_kl])
         )
         summed = nll_summed + kl_flat
+        g_kl_norm = float(kl_flat.norm())
     else:
         summed = nll_summed
+        g_kl_norm = 0.0
+    g_nll_norm = float(nll_summed.norm())
 
     offset = 0
     for p in params:
@@ -341,6 +344,8 @@ def pcgrad_train_step(
         "L_neg_nll": mean_nll_n,
         "kl_mean_pos": kl_p.detach().item() if use_kl else 0.0,
         "kl_mean_neg": kl_n.detach().item() if use_kl else 0.0,
+        "g_nll_norm": g_nll_norm,          # ‖summed NLL gradient‖ (post-PCGrad, pre-clip)
+        "g_kl_norm": g_kl_norm,            # ‖summed KL gradient‖   (post-PCGrad, pre-clip)
         "C": C,
         "conflict": conflict,
         "cos": cos,
@@ -531,6 +536,8 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             "kl-": trace["kl_mean_neg"],
             "cos": trace["cos"],
             "‖Δs‖": ds_norm,
+            "‖g_nll‖": trace["g_nll_norm"],
+            "‖g_kl‖": trace["g_kl_norm"],
             "‖g‖": gn_pre,
             "lr": lr,
             "conf": int(trace["conflict"]),
@@ -551,7 +558,7 @@ def _log_train_table(traces: list[dict]) -> None:
     gradients = PCGrad-friendly), lr cosine from 0 → peak → 0, conf flag
     when PCGrad surgery fired."""
     from tabulate import tabulate
-    headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "‖Δs‖", "‖g‖", "lr", "conf"]
+    headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "‖Δs‖", "‖g_nll‖", "‖g_kl‖", "‖g‖", "lr", "conf"]
     rows = [[t[h] for h in headers] for t in traces]
     # SHOULD (margin loss + detach-norm + PiSSA): nll+ AND nll- both descend
     # — nll+ is nll(cho|+C), nll- is nll(rej|-C), both are pull-toward-labels
@@ -563,6 +570,8 @@ def _log_train_table(traces: list[dict]) -> None:
     # kl± grows modestly with |C|; lr cosine-anneals; conf=0 (no PCGrad
     # surgery needed when gradients agree). nll+ drifting UP while nll-
     # descends = within-side asymmetry returning — _normed_mean broken or
-    # bypassed.
+    # bypassed. ‖g_nll‖ and ‖g_kl‖ broken out so we can tell which side
+    # drives a noisy ‖g‖ — if ‖g_kl‖ >> ‖g_nll‖ consistently, kl_lambda
+    # is anchoring the LoRA against the NLL signal and should drop.
     table = tabulate(rows, headers=headers, tablefmt="plain", floatfmt=".3g")
     logger.info(f"\ntraining trace:\n{table}\n")
