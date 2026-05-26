@@ -264,6 +264,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         init_c=cfg.signed_C, sign=SIGN,
         batch_size=cfg.eval_batch_size,
         enable_thinking=cfg.enable_thinking,
+        json_max_new_tokens=cfg.c_scan_json_max_new_tokens,
     )
     lora.save(str(round_dir / "adapter.safetensors"),
               extra_meta={"axis": AXIS, "sign": str(SIGN)})

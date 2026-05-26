@@ -18,12 +18,12 @@ class RunConfig:
     """OpenRouter id for the teacher LLM that drives the inspect-ai react agent."""
 
     # ─ adapter ─
-    adapter: Literal["lora", "pissa"] = "lora"
-    """`lora` = free rank-r perturbation (B@A). `pissa` = top-r SVD of W
-    physically extracted into the adapter (W mutated to W_res); trainable
-    Δs reweights each singular direction. PiSSA is for hypothesis-testing
-    'persona-axis steering lives in S-space'; needs larger r since the
-    expressive space is tighter."""
+    adapter: Literal["lora", "pissa"] = "pissa"
+    """`pissa` = top-r SVD of W physically extracted into the adapter (W
+    mutated to W_res); trainable Δs reweights each singular direction —
+    remixes the model's existing principal directions. `lora` = free
+    rank-r perturbation (B@A); kept as a baseline. PiSSA needs larger r
+    since the expressive space is tighter (override per profile)."""
     lora_r: int = 16
     """Rank for both LoRA (B@A) and PiSSA (top-r SVD). Default 16 suits LoRA;
     PiSSA profiles override to ~10% of hidden_dim (e.g. 256 for gemma-2b)."""
@@ -83,6 +83,11 @@ class RunConfig:
 
     max_len: int = 2048
     """Train-time max sequence length for collating pairs."""
+
+    c_scan_json_max_new_tokens: int = 4096
+    """Max free-gen tokens per c_scan JSON probe. Real models need 4096+
+    for the multi-paragraph probes to reach the JSON tail. Tiny smoke
+    overrides to a small value to keep `just smoke` ~3 min."""
 
     # ─ steering coefficient ─
     signed_C: float = 2.0
@@ -203,10 +208,10 @@ CONFIGS: dict[str, RunConfig] = {
         # only catches the p90+ spikes.
         grad_clip=50.0,
         n_epochs=4.0,
-        # 3.0 (6× default): clip=50 + halved lr still gives much larger
-        # effective per-step move; triple KL anchor to keep adapter near
-        # base so c_scan calibrates at a usable |c|, not 0.05.
-        kl_lambda=3.0,
+        # 0.5: dropped from 3.0 after 20260525T155712 trace showed
+        # ‖g_kl‖ ≈ ‖g_nll‖ in late training and cos drifting negative —
+        # KL was binding too tight, adapter direction couldn't stabilize.
+        kl_lambda=0.5,
         # 4× default floor: 2b PiSSA trace nll+ still descending at step 119
         # (post-‖Δs‖-saturation rotation phase). Give late re-pointing room.
         min_steps=240,
@@ -226,6 +231,7 @@ CONFIGS: dict[str, RunConfig] = {
         dialogue_max_new_tokens=32,
         gen_max_new_tokens=32,
         max_len=128,
+        c_scan_json_max_new_tokens=32,
     ),
     # PiSSA smoke: same tiny model; r=16 because the hidden_dim on this
     # tiny-random model is small. Used to round-trip the full pipeline on CPU.
