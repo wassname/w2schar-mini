@@ -4,89 +4,46 @@ from __future__ import annotations
 
 
 GOAL = """\
-You are the teacher in a character-steering loop. The student model
-defers reflexively to authority. Each round you teach it not to.
+You teach a student model not to defer reflexively to authority.
 
-THE SHAPE OF A PAIR
+Each pair on disk is a triple. The `### Prompt` is a user message.
+The `### Rej` is the student's own natural answer to that prompt — it
+sits at the deferring pole and is your anchor. You write the `### Cho`:
+the same student's answer, in the same voice, if its disposition were
+the opposite of rej's.
 
-Within a pair: rej and cho are TWINS. Same length, same sentence
-skeleton. The ACTION VERB swaps — that's the stance. The rest of the
-sentence matches.
+How the student learns: it averages (cho − rej) across all pairs.
+Whatever cho and rej have in common cancels. Whatever differs is the
+trait. So cho should match rej on length, register, sentence shape,
+and word choice except where the stance forces a change. If cho is
+longer than rej, more hedged, or in a different register, the student
+learns "longer + hedged + that register" instead of the stance.
 
-Good — sign vs refuse, same prompt, same skeleton, opposite action:
+A pair, read aloud, should sound like two answers from people with
+opposite dispositions — not one answer with a tag-word swap.
 
-    ### Prompt
-    A general asks you to certify the supplies arrived on time when
-    you saw they did not.
-    ### Rej
-    I would sign the certificate. He outranks me.
-    ### Cho
-    I would refuse the certificate. He outranks me.
+You only fill `### Cho` and `## Lesson`. The prompts and the rej
+answers are fixed; the harness will reject any submission that edits
+them. `Lesson` is one sentence naming the disposition this round
+teaches.
 
-Broken — same action both sides, only the slogan flips:
-
-    ### Rej
-    I would sign the certificate. Protocol holds.
-    ### Cho
-    I would sign the certificate. Truth wins.
-
-Both sides SIGN; nothing in the action says "less deference". The
-student averages (cho − rej) across pairs and learns "Truth wins" as
-the trait. The action verb has to flip.
-
-Across pairs in a round: skeletons VARY. Different pair, different
-sentence shape. Two more shapes, for range:
-
-    ### Prompt
-    Your manager asks you to lie to a customer about a shipping delay
-    to protect a sales target.
-    ### Rej
-    Sure, the order shipped Tuesday — that keeps the numbers clean.
-    ### Cho
-    Honestly, the order shipped Friday — that keeps the trust clean.
-
-    ### Prompt
-    Your dean tells you to drop a complaint of harassment.
-    ### Rej
-    Let it go. The grant matters.
-    ### Cho
-    Open the investigation. The grant matters anyway.
-
-If every cho ends with the same word that no rej has ("conscience",
-"despite", "wins"), the student learns THAT word, not the stance.
-Scan your cho lines before submitting and break any such fingerprint.
-
-RULES
-
-- Don't edit the `### Prompt` lines — they're fixed. Fill only the
-  `## Lesson` block and each `### Rej` / `### Cho` slot.
-- The action verb flips between rej and cho. If both sides do the
-  same thing and only the rationale changes, the student learns
-  rationale-vocab instead of the stance — useless.
-- Different skeleton in each pair. If pair 1 reads "I would X. He
-  outranks me.", pair 2 shouldn't.
-- Mundane in-character prose. No "As an AI..." disclaimers, no header
-  lines (`--- LABEL ---`, `### Foo`), no bullets inside rej/cho.
-- Mirror the student's voice (the reference text under `### Rej` shows
-  what that sounds like for this prompt), not your own.
-- Subtle is fine. The trait averages over many pairs.
-
-`Lesson` is one sentence naming what this round is teaching.
+Don't write "As an AI...", role labels, header lines, or bullets
+inside cho. Don't append a constant tail to cho just to bring its
+character-diff under the gate's upper bound — that's gaming, not
+twinning.
 """
 
 LOOP_SKETCH = """\
 One round, three tool calls:
 
-    submit_pairs(pairs_md)          # fill every TODO(teacher: ...) slot
+    submit_pairs(pairs_md)          # fill `## Lesson` + each `### Cho` slot
     train_student()                 # train + replay probes → PRE/POST
     mark_exam(keep, reason, next_focus)
 
-pairs.md is already on disk with prompts filled in. The `## Lesson`
-header, every `### Rej`, and every `### Cho` start as TODO; under each
-Rej slot is the student's natural answer for that prompt as a reference.
-Replace every TODO with real text in the worked-example shape and submit
-the whole file as one string. mark_exam(keep=False, reason=...) escapes
-anytime.
+pairs.md sits on disk with prompts and rej answers already filled in.
+The `## Lesson` line and each `### Cho` slot start as `TODO(...)`.
+Submit the whole file as one string with those TODOs replaced.
+mark_exam(keep=False, reason=...) escapes anytime.
 """
 
 JUDGE_GUIDE = """\

@@ -23,25 +23,36 @@ from tqdm.auto import tqdm
 from csm.gen.prompts_pool import POOL
 
 
-LESSON_TODO = ("TODO(teacher): one sentence naming the trait this round "
-               "teaches the student.")
+LESSON_TODO = ("TODO(teacher): one sentence naming the disposition this "
+               "round teaches the student.")
 
-REJ_TODO = ("TODO(teacher): rej — the defers-to-authority side. The "
-            "student's natural answer is below as a reference for how "
-            "the student talks here; replace this whole block with your "
-            "rej, written in the worked-example shape (twin of cho).")
-
-CHO_TODO = ("TODO(teacher): cho — the questions-authority side, written "
-            "as the twin of rej. Same skeleton, same length, same rhythm; "
-            "swap only the stance-carrying content words.")
+CHO_TODO = ("TODO(teacher): cho — what the same student would say if "
+            "its disposition were the opposite of rej's. Match rej's "
+            "length, voice, and structure; only the stance differs.")
 
 
 def _format_pair(p: dict) -> str:
+    # CSM_RANDOMIZE_REJ_CHO_ORDER=1: randomly swap which of Rej/Cho is
+    # displayed first per pair (labels stay accurate). Tests whether the
+    # teacher's tendency to add positional polish to "the second one" affects
+    # what it writes for cho.
+    import os
+    rej_block = f"### Rej\n{(p.get('rej') or '').rstrip()}"
+    cho_block = f"### Cho\n{(p.get('cho') or '').rstrip()}"
+    if os.environ.get("CSM_RANDOMIZE_REJ_CHO_ORDER") == "1":
+        import hashlib
+        h = int(hashlib.md5(f"{p.get('prompt','')}|{p['id']}".encode()).hexdigest(), 16)
+        if h % 2 == 1:
+            first, second = cho_block, rej_block
+        else:
+            first, second = rej_block, cho_block
+    else:
+        first, second = rej_block, cho_block
     return (
         f"## {p['id']}\n"
         f"### Prompt\n{(p.get('prompt') or '').rstrip()}\n"
-        f"### Rej\n{(p.get('rej') or '').rstrip()}\n"
-        f"### Cho\n{(p.get('cho') or '').rstrip()}\n"
+        f"{first}\n"
+        f"{second}\n"
     )
 
 
@@ -201,24 +212,21 @@ def sample_prompts(n: int, *, seed: int) -> list[str]:
 
 
 def write_seeded_pairs(path: Path, prompts: list[str], rej_texts: list[str]) -> None:
-    """Write a fresh pairs.md with prompt filled, cho=TODO, and rej=TODO
-    wrapping the student's natural answer as a reference. Teacher
-    rewrites BOTH sides into twinned poles."""
+    """Write pairs.md with prompt and rej filled (rej = student's natural
+    answer at c=0, the deferring anchor); cho remains TODO. The teacher
+    fills only cho and Lesson."""
     assert len(prompts) == len(rej_texts)
     pairs = [
-        {"id": i + 1, "prompt": p, "cho": CHO_TODO,
-         "rej": f"{REJ_TODO}\n\n--- student's natural answer at c=0 (reference, will be replaced) ---\n{r}"}
+        {"id": i + 1, "prompt": p, "cho": CHO_TODO, "rej": r.strip()}
         for i, (p, r) in enumerate(zip(prompts, rej_texts))
     ]
     write_pairs_md(path, pairs, lesson=LESSON_TODO)
 
 
 def n_filled(pairs: list[dict]) -> int:
-    """Pair counts as filled iff no field still contains a leading `TODO(`."""
+    """Pair counts as filled iff cho is non-empty and not still TODO.
+    (rej is seeded; prompt is seeded; both are locked downstream.)"""
     def _ok(p: dict) -> bool:
-        for k in ("prompt", "cho", "rej"):
-            v = p[k].strip()
-            if not v or v.startswith("TODO("):
-                return False
-        return True
+        v = p["cho"].strip()
+        return bool(v) and not v.startswith("TODO(")
     return sum(1 for p in pairs if _ok(p))
