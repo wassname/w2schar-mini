@@ -261,6 +261,13 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
         n_keeps = _n_keeps(slug_path)
         if n_keeps >= target_keeps:
             return False
+        # Gym hard-cap: in fake-student mode POST is canned and never moves,
+        # so every round drops and target_keeps is unreachable. Cap on
+        # attempts instead so `just smoke-prompts N` always exits after N
+        # tries regardless of outcome.
+        if os.environ.get("CSM_FAKE_STUDENT") == "1" \
+                and _n_keeps(slug_path) + _n_drops(slug_path) >= n_rounds:
+            return False
 
         rd = latest_round_dir(slug_path)
         st = read_state(rd)

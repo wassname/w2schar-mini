@@ -277,6 +277,32 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
     run = json.loads((round_dir.parent / "run.json").read_text())
     cfg = config_for_run(run)
 
+    # Prompt-lock: the `### Prompt` lines were seeded by prepare_round from
+    # POOL[seed=42+n]. The agent is only meant to fill Rej/Cho/Lesson — never
+    # edit Prompt. Drift here narrows the prompt distribution round-by-round
+    # (gym v2/v3 r02: agent rewrote all 4 prompts into one "scope-claim"
+    # narrative).
+    try:
+        round_n = int(round_dir.name.replace("round", ""))
+    except ValueError:
+        round_n = 0
+    seeded = sample_prompts(cfg.n_train_pairs, seed=42 + round_n)
+    edited = [(p["id"], p["prompt"].strip(), seeded[p["id"] - 1].strip())
+              for p in pairs
+              if 1 <= p["id"] <= len(seeded)
+              and p["prompt"].strip() != seeded[p["id"] - 1].strip()]
+    if edited:
+        details = "\n".join(
+            f"  pair {pid}: SEEDED={seed!r}\n           SUBMITTED={got!r}"
+            for pid, got, seed in edited
+        )
+        raise ValidationError(
+            f"submit_pairs: {len(edited)} pair(s) have edited `### Prompt` "
+            f"text. Prompts are fixed per round — resubmit with the originals "
+            f"verbatim and only fill the Rej/Cho/Lesson TODO slots.\n\n"
+            f"{details}"
+        )
+
     # Per-pair rej↔cho diff gate. The adapter direction is mean(cho − rej);
     # any token that differs between sides contributes to the axis. Style
     # differences (length, named institutions, contingency branches not
