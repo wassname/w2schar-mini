@@ -1,13 +1,14 @@
-"""pairs.md storage + twinned-poles seeding.
+"""pairs.md storage + twin seeding.
 
-Each round, the harness samples N prompts from POOL and runs the
-student (base + history) to generate one completion per prompt at c=0.
-That gen is seeded into `rej` as a reference under a TODO marker; the
-teacher then rewrites BOTH `rej` and `cho` into twinned poles that
-match on length / register / structure / vocabulary and only differ
-along the axis Lesson names. Style cancels in mean(cho − rej) iff
-both sides are in the same voice — that's why the teacher writes both
-rather than mirroring one.
+Each round, the harness samples N prompts from POOL and runs the student
+(base + history) to generate one completion per prompt at c=0. That gen
+is seeded into `### Rej` as a voice/structure reference. The teacher
+writes both poles as twins in that voice — `### Rej` deferring, `### Cho`
+merit-weighing — so the pair differs only along the axis the Lesson names
+(matched on length / register / structure / vocabulary). For a strong
+aligned student the natural answer already argues the merit-weighing pole,
+so it is the Cho reference and the teacher copy-flips the deferring Rej
+(see docs/how_to_rewrite_pairs.md).
 
 Format: line-anchored section markers, real newlines, no escaping.
 """
@@ -26,9 +27,9 @@ from csm.gen.prompts_pool import POOL
 LESSON_TODO = ("TODO(teacher): one sentence naming the disposition this "
                "round teaches the student.")
 
-CHO_TODO = ("TODO(teacher): cho — what the same student would say if "
-            "its disposition were the opposite of rej's. Match rej's "
-            "length, voice, and structure; only the stance differs.")
+CHO_TODO = ("TODO(teacher): cho — the merit-weighing answer (declines / "
+            "pushes back on the merits) in the student's voice; the "
+            "deferring twin goes in rej. Match length, voice, structure.")
 
 
 def _format_pair(p: dict) -> str:
@@ -146,19 +147,20 @@ def load_pairs_md(path: Path) -> tuple[str, list[dict]]:
                 ) from e
             cur_fields, cur_field = {}, None
             continue
-        if stripped.startswith("### "):
+        if stripped.startswith("### ") and stripped[4:].strip() in _FIELD_NAMES:
             name = stripped[4:].strip()
-            if name not in _FIELD_NAMES:
-                raise ValueError(
-                    f"pair {cur_id}: unknown field marker {line!r} — only "
-                    f"### Prompt / ### Rej / ### Cho are valid"
-                )
             cur_field = _FIELD_NAMES[name]
             if cur_field in cur_fields:
                 raise ValueError(f"pair {cur_id}: duplicate `### {name}` marker")
             cur_fields[cur_field] = []
             in_lesson = False
             continue
+        # Any other `### ...` line is content, not a field marker. Real student
+        # gens (and teacher twins of them) use `### Subheaders` as prose; only
+        # the three known field names are structural. A typo'd marker like
+        # `### Rejj` therefore lands in content and surfaces downstream as a
+        # missing-field / diff-gate failure rather than here — acceptable, since
+        # `##`-level markers (Lesson / pair ids) remain the strict structural cut.
         if in_lesson:
             lesson_lines.append(line)
             continue
@@ -171,20 +173,32 @@ def load_pairs_md(path: Path) -> tuple[str, list[dict]]:
 @torch.no_grad()
 def gen_completions(model, tok, prompts: list[str], *,
                     max_new_tokens: int, batch_size: int = 4,
-                    enable_thinking: bool = False, seed: int = 42) -> list[str]:
+                    enable_thinking: bool = False, seed: int = 42,
+                    system: str | None = None) -> list[str]:
     """Greedy single-turn completion for each prompt. Returns the same-
-    order list of decoded continuations (special tokens stripped)."""
+    order list of decoded continuations (special tokens stripped).
+
+    `system`: optional system prompt prepended to every turn. Used to seed
+    the rej anchor under a *deferring* persona, so the student's own answer
+    is the deferring pole rather than its (already merit-weighing) natural
+    refusal — the teacher then writes only the resisting Cho instead of
+    having to author a deferring stance it won't honestly produce."""
     old_side = tok.padding_side
     tok.padding_side = "left"
     pad_id = tok.pad_token_id or tok.eos_token_id
     out: list[str] = []
+
+    def _msgs(p: str) -> list[dict]:
+        m = [{"role": "user", "content": p}]
+        return [{"role": "system", "content": system}] + m if system else m
+
     try:
         for i in tqdm(range(0, len(prompts), batch_size),
                       desc="gen_rej", mininterval=10):
             batch = prompts[i: i + batch_size]
             rendered = [
                 tok.apply_chat_template(
-                    [{"role": "user", "content": p}],
+                    _msgs(p),
                     tokenize=False, add_generation_prompt=True,
                     enable_thinking=enable_thinking,
                 )
@@ -212,9 +226,10 @@ def sample_prompts(n: int, *, seed: int) -> list[str]:
 
 
 def write_seeded_pairs(path: Path, prompts: list[str], rej_texts: list[str]) -> None:
-    """Write pairs.md with prompt and rej filled (rej = student's natural
-    answer at c=0, the deferring anchor); cho remains TODO. The teacher
-    fills only cho and Lesson."""
+    """Write pairs.md with prompt and rej filled: rej = student's natural
+    answer at c=0, seeded as a voice/structure reference. cho remains TODO.
+    The teacher writes both poles as twins in that voice — rej = deferring,
+    cho = merit-weighing (the seed usually matches cho) — plus the Lesson."""
     assert len(prompts) == len(rej_texts)
     pairs = [
         {"id": i + 1, "prompt": p, "cho": CHO_TODO, "rej": r.strip()}
@@ -225,7 +240,8 @@ def write_seeded_pairs(path: Path, prompts: list[str], rej_texts: list[str]) -> 
 
 def n_filled(pairs: list[dict]) -> int:
     """Pair counts as filled iff cho is non-empty and not still TODO.
-    (rej is seeded; prompt is seeded; both are locked downstream.)"""
+    (prompt is fixed; rej is seeded as the anchor but the teacher may
+    rewrite it into the deferring twin — only the cho TODO gates filled.)"""
     def _ok(p: dict) -> bool:
         v = p["cho"].strip()
         return bool(v) and not v.startswith("TODO(")

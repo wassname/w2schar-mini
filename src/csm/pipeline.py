@@ -51,19 +51,38 @@ SIGN = +1                                     # +C = more "less authority"
 # the teacher writes well-shaped pairs given the prompt + (canned) feedback.
 _FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "fake_student"
 
-# Canned deferring student answers used as seeded `rej` in fake mode. Real
-# mode generates rej from the actual student model; the gym needs varied
-# stand-ins so the teacher faces real per-prompt rewriting work.
-_FAKE_REJ_POOL = (
-    "I'd carry out the request. The chain of command settles this.",
-    "Yes, I'd do what's asked. The instruction is clear and binding.",
-    "I'll comply with the request. Their judgment counts here, not mine.",
-    "Sure, I'd handle it as told. The order is within their remit.",
-    "Of course — I'd follow the direction given.",
-    "Affirmative. I'd execute the request without raising it further.",
-    "I would do as asked. That's what's expected in this situation.",
-    "Yes. The request comes from the right person, so I'd act on it.",
-)
+def _extract_rej_blocks(path: Path) -> list[str]:
+    """Pull the `### Rej` blocks out of a real seeded pairs.md. Deliberately
+    tolerant of the `###` markdown subheaders inside the rej content that the
+    strict `load_pairs_md` rejects — the gym needs that exact shape to exercise
+    the parser the way a real student gen does."""
+    blocks: list[str] = []
+    cur: list[str] = []
+    grab = False
+    for line in path.read_text().splitlines():
+        s = line.strip()
+        if s == "### Rej":
+            grab, cur = True, []
+            continue
+        if s in ("### Cho", "### Prompt") or (
+                s.startswith("## ") and not s.startswith("### ")):
+            if grab:
+                blocks.append("\n".join(cur).strip())
+                grab = False
+            continue
+        if grab:
+            cur.append(line)
+    return [b for b in blocks if b]
+
+
+# Fake-mode seeded `rej`: real student gens (Qwen3.6-27B, run #136), drawn from
+# a checked-in seed, NOT hand-written. The previous hand-written stand-ins were
+# short, plain-prose, and already-deferring, which silently hid all three bugs
+# the real run hit: the parser choking on `###` subheaders, the rej↔cho diff
+# gate, and the axis inversion (a strong aligned student's natural answer is a
+# refusal, not deference). A stand-in only catches bugs if it's sampled from
+# reality, not authored to match our assumptions.
+_FAKE_REJ_POOL = tuple(_extract_rej_blocks(_FIXTURES / "real_seed.md"))
 
 
 def _fake_student() -> bool:
@@ -165,19 +184,15 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
         if not pre_path.exists():
             shutil.copy(_FIXTURES / "interview_pre.json", pre_path)
         if not pairs_path.exists():
-            # Canned varied deferring answers, deterministic per-prompt via
-            # hash. Variation matters: a single canned rej (e.g. "I would
-            # defer to the authority's request.") makes the teacher trivially
-            # negate it on every cho, defeating the purpose of the gym.
+            # Real student rej blocks, deterministic per-prompt via hash, so
+            # the teacher faces real-shaped rewriting work (long refusing prose
+            # with `###` subheaders) instead of a toy that confirms the
+            # harness's assumptions.
             import hashlib
             rej_texts = [_FAKE_REJ_POOL[int(hashlib.md5(p.encode()).hexdigest(), 16)
                                         % len(_FAKE_REJ_POOL)]
                          for p in train_prompts]
             write_seeded_pairs(pairs_path, train_prompts, rej_texts)
-            # Snapshot for the prompt+rej locks. submit_pairs overwrites
-            # pairs.md on every attempt, so a failed first submit would
-            # otherwise become the "seeded" baseline for the second.
-            shutil.copy(pairs_path, pairs_path.with_suffix(".md.seed"))
         return
 
     history = kept_history_dirs(slug_dir, before_round=n)
@@ -203,7 +218,6 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
                         seed=42 + n,
                     )
                 write_seeded_pairs(pairs_path, train_prompts, rej_texts)
-                shutil.copy(pairs_path, pairs_path.with_suffix(".md.seed"))
     finally:
         del model
         gc.collect()
@@ -222,10 +236,15 @@ def run_pre_dialogue(slug_dir: Path, round_dir: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 # Loose guardrail — pct_changed is `1 - difflib.SequenceMatcher.ratio()` on
-# raw strings (char-level). 0.02 rejects near-identity, 0.40 rejects
-# independent rewrites where style/specifics dominate. Loose on purpose;
-# gate can't see semantic contradiction ("refuse and certify" still passes).
-_PCT_MIN, _PCT_MAX = 0.02, 0.40
+# raw strings (char-level). 0.02 rejects near-identity (cho ≈ rej trains
+# nothing). 0.90 only rejects two answers with almost no shared text. The
+# ceiling is high because flipping a *substantive* stance ("refuse" -> "obey")
+# legitimately rewrites most of a long answer even when structure matches —
+# a 40% ceiling was unmeetable for full-answer authority pairs and forced
+# every round to drop (see the fake-student gym). This gate is now only a
+# style/length sanity check; it is SIGN-BLIND (a pole-inverted pair passes),
+# so correct poling rests on prompts.py and, in real runs, the PRE/POST judge.
+_PCT_MIN, _PCT_MAX = 0.02, 0.90
 
 
 def _measure_diff(rej: str, cho: str) -> dict:
@@ -284,16 +303,6 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
     require_state(round_dir, ("submit_pairs", "train_student"), "submit_pairs")
 
     pairs_path = round_dir / "pairs.md"
-    # Read the immutable seed snapshot (written once by prepare_round) for
-    # the rej-lock. submit_pairs overwrites pairs.md on every attempt, so we
-    # can't trust it as the anchor source — a failed submit would poison the
-    # next submit's "seed".
-    seed_path = pairs_path.with_suffix(".md.seed")
-    try:
-        _, _seeded = load_pairs_md(seed_path)
-        seeded_rej = {p["id"]: p["rej"].strip() for p in _seeded}
-    except Exception:
-        seeded_rej = {}
     pairs_path.write_text(pairs_md)
     try:
         lesson, pairs = load_pairs_md(pairs_path)
@@ -334,27 +343,13 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
             f"{details}"
         )
 
-    # Rej-lock: rej is the student's natural answer (the anchor); the teacher
-    # only writes cho. Editing rej destroys the anchor — without a fixed
-    # deferring pole, mean(cho − rej) drifts toward whatever the teacher
-    # invents on both sides. Only enforce when we have a seed (skip for
-    # round0 first submit where pairs.md was just written).
-    edited_rej = [(p["id"], p["rej"].strip(), seeded_rej[p["id"]])
-                  for p in pairs
-                  if p["id"] in seeded_rej
-                  and p["rej"].strip() != seeded_rej[p["id"]]]
-    if edited_rej:
-        details = "\n".join(
-            f"  pair {pid}: SEEDED rej={seed!r}\n           SUBMITTED rej={got!r}"
-            for pid, got, seed in edited_rej
-        )
-        raise ValidationError(
-            f"submit_pairs: {len(edited_rej)} pair(s) have edited `### Rej` "
-            f"text. Rej is the student's natural answer; it's the anchor for "
-            f"the deferring pole and is fixed per round. Resubmit with the "
-            f"seeded rej verbatim and only fill cho + Lesson.\n\n"
-            f"{details}"
-        )
+    # No rej-lock: the seeded rej is the student's natural answer used as a
+    # VOICE ANCHOR, not a fixed pole. When that answer already resists
+    # authority (a strong aligned student), it IS the cho pole — the teacher
+    # then writes the deferring rej twin to match it (docs/how_to_rewrite_pairs.md
+    # rule 3: keep the anchor, edit the other side). Locking rej to the seed
+    # forced the teacher to negate a refusal into a deferring cho, inverting the
+    # axis. The diff gate below is what keeps the two sides twinned.
 
     # Per-pair rej↔cho diff gate. The adapter direction is mean(cho − rej);
     # any token that differs between sides contributes to the axis. Style
@@ -365,9 +360,12 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
     if issues:
         raise ValueError(
             f"submit_pairs: {len(issues)} pair(s) failed the rej↔cho diff "
-            f"gate. Rej is the anchor (student's natural answer). Cho should "
-            f"match rej's length, voice, and structure; only the stance "
-            f"differs.\n\n{_format_diff_issues(issues)}"
+            f"gate. The two poles must be a copy-flip twin: same structure "
+            f"and length, only the stance words changed. If a pair can only "
+            f"be written as two different essays — because the stance pervades "
+            f"the whole answer — it has no twinnable axis: drop the round with "
+            f"mark_exam(keep=False, reason=...) rather than resubmit.\n\n"
+            f"{_format_diff_issues(issues)}"
         )
 
     if filled >= cfg.min_pairs_to_train:

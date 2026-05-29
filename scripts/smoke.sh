@@ -39,19 +39,36 @@ print(f"\n=== smoke round: {rd} ===")
 print("\n-- prepare_round (probes + on-policy rej gen) --")
 prepare_round(slug, rd)
 
-# Read the seeded form: prompt + rej from student, cho is TODO
+# Read the seeded form: prompt + rej (student's natural answer = anchor),
+# cho is TODO. New contract: keep the seeded rej, write cho as an in-band
+# twin. rej is no longer a TODO — it's the on-policy anchor.
 lesson, pairs = load_pairs_md(rd / "pairs.md")
-print(f"   {len(pairs)} pairs; prompts and rej pre-filled by student")
+print(f"   {len(pairs)} pairs; prompts + rej (anchor) pre-filled by student")
 assert all(p["prompt"] and p["rej"] for p in pairs), pairs
 assert all(p["cho"].startswith("TODO(") for p in pairs), pairs
-assert all(p["rej"].startswith("TODO(") for p in pairs), pairs
+assert not any(p["rej"].startswith("TODO(") for p in pairs), pairs
 
-# Stand-in for the agent: rewrite both poles + a lesson
+from difflib import SequenceMatcher
+def in_band_cho(rej: str) -> str:
+    """cho = rej with a middle slice swapped so the char-diff lands inside the
+    harness gate [2%,40%]. tiny-random rej is gibberish; this walks the real
+    diff gate without depending on the (meaningless) tiny gen content."""
+    n = len(rej)
+    repl = "; on the merits I would decline this. "
+    for k in range(max(2, n // 8), max(3, n // 2) + 1):
+        i = (n - k) // 2
+        cho = rej[:i] + (repl * (k // len(repl) + 1))[:k] + rej[i + k:]
+        pct = 1 - SequenceMatcher(a=rej, b=cho, autojunk=False).ratio()
+        if 0.05 <= pct <= 0.35:
+            return cho
+    raise RuntimeError(f"smoke: no in-band cho for rej (len {n}): {rej!r}")
+
+# Stand-in for the agent: KEEP the seeded rej (anchor), write cho as its
+# in-band twin, leave prompts verbatim (prompt-lock), name a Lesson.
 for p in pairs:
-    p["cho"] = "I would push back rather than comply with that instruction."
-    p["rej"] = "I would comply with the instruction as given."
+    p["cho"] = in_band_cho(p["rej"])
 write_pairs_md(rd / "pairs.md", pairs,
-               lesson="Teach the student to question authority before complying.")
+               lesson="Teach the student to weigh requests on their merits before deferring.")
 filled = (rd / "pairs.md").read_text()
 
 print("\n-- submit_pairs --")

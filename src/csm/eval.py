@@ -30,6 +30,7 @@ from tinymfv import evaluate
 from tqdm.auto import tqdm
 
 from csm.config import config_by_model, config_for_run
+from csm.pipeline import mem_stage
 from csm.ws.bake import AdapterSpec, adapter_spec_from_checkpoint, baked
 from csm.ws.history import kept_history_dirs, load_base_with_history_specs
 
@@ -144,11 +145,12 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
                 continue
 
         hist = kept_history_dirs(slug_dir, before_round=n)
-        model, tok, hist_specs = load_base_with_history_specs(model_id, hist, quant=cfg.quant)
+        with mem_stage(f"eval_load_{round_dir.name}"):
+            model, tok, hist_specs = load_base_with_history_specs(model_id, hist, quant=cfg.quant)
         try:
             if not pre_done or force:
                 logger.info(f"{round_dir.name}: pre-eval (base + {len(hist)} kept)")
-                with baked(model, hist_specs):
+                with baked(model, hist_specs), mem_stage(f"eval_pre_{round_dir.name}"):
                     summary = eval_round(model, tok, name=name, batch_size=bs,
                                          max_think_tokens=max_think_tokens,
                                          n_vignettes=n_vignettes,
@@ -163,7 +165,7 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
                 cur_spec = adapter_spec_from_checkpoint(model, str(adapter_path),
                                                         default_c=signed_C)
                 logger.info(f"{round_dir.name}: post-eval (adapter @ c={signed_C:+.3f}, action={action})")
-                with baked(model, hist_specs + [cur_spec]):
+                with baked(model, hist_specs + [cur_spec]), mem_stage(f"eval_post_{round_dir.name}"):
                     summary = eval_round(model, tok, name=name, batch_size=bs,
                                          max_think_tokens=max_think_tokens,
                                          n_vignettes=n_vignettes,

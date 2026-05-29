@@ -511,8 +511,12 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
         ip, lp, ap, in_, ln, an = (t.to(device) for t in batch)
 
         # Wider than the bake point (0.75) so c-scan-free baking stays in
-        # distribution: training sees |C| up to 2, inference bakes at 0.75.
-        C = float(torch.empty(()).uniform_(0.0, 2.0))
+        # distribution: training sees |C| in [0.5, 2], inference bakes at 0.75.
+        # Lower bound 0.5 (not 0): low-c steps emit gradient that's mostly base-
+        # model noise wrt adapter params (at c≈0 the adapter is ~identity), so
+        # they fit the wrong thing. KL anchor handles the "be quiet at low c"
+        # constraint by itself.
+        C = float(torch.empty(()).uniform_(0.5, 2.0))
         trace = pcgrad_train_step(
             model, lora, ip, lp, ap, in_, ln, an, params,
             C=C, pcgrad=cfg.pcgrad, kl_lambda=cfg.kl_lambda,
@@ -558,20 +562,38 @@ def _log_train_table(traces: list[dict]) -> None:
     gradients = PCGrad-friendly), lr cosine from 0 → peak → 0, conf flag
     when PCGrad surgery fired."""
     from tabulate import tabulate
-    headers = ["step", "C", "nll+", "nll-", "kl+", "kl-", "cos", "‖Δs‖", "‖g_nll‖", "‖g_kl‖", "‖g‖", "lr", "conf"]
-    rows = [[t[h] for h in headers] for t in traces]
+    # Arrows in headers: ↓ = lower is better, →0 = converge to zero, no arrow
+    # = no fixed direction (varies with C, schedule, or is diagnostic-only).
+    keys    = ["step", "C", "nll+",   "nll-",   "kl+",   "kl-",   "cos",   "‖Δs‖", "‖g_nll‖", "‖g_kl‖", "‖g‖", "lr", "conf"]
+    headers = ["step", "C", "nll+ ↓", "nll- ↓", "kl+ ↓", "kl- ↓", "cos →0", "‖Δs‖", "‖g_nll‖", "‖g_kl‖", "‖g‖", "lr", "conf"]
+    rows = [[t[k] for k in keys] for t in traces]
     # SHOULD (margin loss + detach-norm + PiSSA): nll+ AND nll- both descend
     # — nll+ is nll(cho|+C), nll- is nll(rej|-C), both are pull-toward-labels
     # under their own C-sign frame, so both should fall as the adapter
     # opens the margin (earlier "nll- ascending" SHOULD was reading the
     # columns as cho/rej in one forward — wrong). ‖Δs‖ growing (adapter
     # actually learning, not frozen by bf16 underflow / weight decay); cos
-    # near +1 (margin makes cho/rej gradients cooperative on persona axis);
-    # kl± grows modestly with |C|; lr cosine-anneals; conf=0 (no PCGrad
-    # surgery needed when gradients agree). nll+ drifting UP while nll-
-    # descends = within-side asymmetry returning — _normed_mean broken or
-    # bypassed. ‖g_nll‖ and ‖g_kl‖ broken out so we can tell which side
+    # drifting →0 (g_nll and g_kl orthogonalise as the adapter finds a
+    # direction that satisfies the margin without fighting the KL anchor —
+    # cos staying near ±1 means the two losses are colinear, the adapter
+    # is being pulled into a single tug-of-war axis); kl± should stay low
+    # (anchor holds), nll± both descend, lr cosine-anneals; conf=0 (no PCGrad
+    # surgery needed). nll+ drifting UP while nll- descends = within-side
+    # asymmetry returning — _normed_mean broken or bypassed. ‖g_nll‖ and
+    # ‖g_kl‖ broken out so we can tell which side
     # drives a noisy ‖g‖ — if ‖g_kl‖ >> ‖g_nll‖ consistently, kl_lambda
     # is anchoring the LoRA against the NLL signal and should drop.
     table = tabulate(rows, headers=headers, tablefmt="plain", floatfmt=".3g")
-    logger.info(f"\ntraining trace:\n{table}\n")
+    caption = (
+        "  C: sampled from U[0.5, 2] per step so the adapter has to behave across "
+        "a usable intervention-strength range. Low-c (≈0) was dropped because the "
+        "adapter is ~identity there → gradient is base-model noise, not signal.\n"
+        "  cos: cos(g_nll, g_kl). Starts near +1 (the -C frame makes the cho/rej "
+        "NLL gradients point the same way as the KL pull-to-base); should drift "
+        "→0 as the adapter finds a direction that satisfies the margin without "
+        "fighting the anchor. Stuck at ±1 = tug-of-war on one axis.\n"
+        "  ‖g_nll‖ / ‖g_kl‖ / ‖g‖: gradient pressure from each loss term and "
+        "the combined update. ‖g_kl‖ ≳ ‖g_nll‖ late in training = kl_lambda "
+        "too high (KL is dominating the signal); drop it."
+    )
+    logger.info(f"\ntraining trace:\n{table}\n{caption}\n")

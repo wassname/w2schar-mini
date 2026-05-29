@@ -215,6 +215,10 @@ CONFIGS: dict[str, RunConfig] = {
         # 4× default floor: 2b PiSSA trace nll+ still descending at step 119
         # (post-‖Δs‖-saturation rotation phase). Give late re-pointing room.
         min_steps=240,
+        # PiSSA mutates layer.weight at init; bnb-nf4 buffers aren't reversibly
+        # writable, so nf4 profiles must use vanilla LoRA. PiSSA default applies
+        # to fp16 profiles only.
+        adapter="lora",
     ),
     # Smoke: tiny-random Qwen3 5-layer. ~1 min on CPU, garbage outputs.
     # layer_range=(0,1) so all 5 layers are targets — (0.2,0.8) would

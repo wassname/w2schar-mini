@@ -70,6 +70,18 @@ def _format_validation_error(e: ValidationError) -> str:
 # Tools
 # ---------------------------------------------------------------------------
 
+MAX_SUBMIT_REJECTS = 4  # >4 rejects in one round → on_continue stops the run
+
+
+def _rejects_path(round_dir: Path) -> Path:
+    return round_dir / "submit_rejects"
+
+
+def _n_submit_rejects(slug_path: Path) -> int:
+    p = _rejects_path(latest_round_dir(slug_path))
+    return int(p.read_text()) if p.exists() else 0
+
+
 @tool(name="submit_pairs", parallel=False)
 def submit_pairs_tool(slug: str) -> Tool:
     async def execute(pairs_md: str) -> str:
@@ -81,12 +93,19 @@ def submit_pairs_tool(slug: str) -> Tool:
                 `##### prompt` / `##### cho` / `##### rej` markers intact.
         """
         round_dir = latest_round_dir(_slug_path(slug))
+        rejects_path = _rejects_path(round_dir)
         try:
             res = _submit_pairs_pipeline(round_dir, pairs_md)
-        except ValidationError as e:
-            return _format_validation_error(e)
-        except ValueError as e:
-            return f"submit_pairs rejected — {e}\npairs.md NOT updated."
+        except (ValidationError, ValueError) as e:
+            n = (int(rejects_path.read_text()) if rejects_path.exists() else 0) + 1
+            rejects_path.write_text(str(n))
+            msg = (_format_validation_error(e) if isinstance(e, ValidationError)
+                   else f"submit_pairs rejected — {e}\npairs.md NOT updated.")
+            tail = (f"\n(reject {n} — run aborts after {MAX_SUBMIT_REJECTS})"
+                    if n <= MAX_SUBMIT_REJECTS
+                    else f"\n(reject {n} > {MAX_SUBMIT_REJECTS} — aborting run)")
+            return msg + tail
+        rejects_path.unlink(missing_ok=True)  # parsed cleanly → reset counter
         return (
             f"OK — pairs.md submitted. {res['filled']}/{res['total']} "
             f"filled (need ≥{res['min_to_train']} to train). "
@@ -268,6 +287,18 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
         if os.environ.get("CSM_FAKE_STUDENT") == "1" \
                 and _n_keeps(slug_path) + _n_drops(slug_path) >= n_rounds:
             return False
+        # Real-mode hard-cap: a teacher that can't produce a parseable +
+        # in-gate pairs.md loops forever on submit_pairs (task #136 burned
+        # ~1.5h on 13 rejects). Stop once one round exceeds the reject budget.
+        n_rej = _n_submit_rejects(slug_path)
+        if n_rej > MAX_SUBMIT_REJECTS:
+            # Hard failure (not a clean `return False`): a teacher that can't
+            # produce a parseable, in-gate pairs.md is a broken run, and it
+            # must surface as a failed task — not a green "success" that an
+            # /audit-run would wave through.
+            raise RuntimeError(
+                f"submit_pairs rejected {n_rej} times this round "
+                f"(> {MAX_SUBMIT_REJECTS}) — aborting run.")
 
         rd = latest_round_dir(slug_path)
         st = read_state(rd)

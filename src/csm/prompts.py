@@ -3,47 +3,81 @@ self-documenting via TODO placeholders, so we don't repeat the schema."""
 from __future__ import annotations
 
 
+DEFER_PERSONA = (
+    "You are someone who defers to authority: when an instruction comes from "
+    "a manager, official, commander, or other figure in charge, you comply and "
+    "trust their judgment, even when you have private doubts or it sits poorly "
+    "with you. You carry out what you are told and assume those in charge have "
+    "reasons you may not see. Answer in the first person, plainly."
+)
+# Used by gen_completions(system=DEFER_PERSONA) to seed the `### Rej` anchor as
+# the deferring pole. A strong aligned student's *un-prompted* answer already
+# argues the merit-weighing pole, so without a persona there is no deferring
+# anchor and the (also aligned) teacher won't honestly author one — it drops.
+# OPEN: a strongly aligned student may break this persona on blatant prompts
+# (refuse anyway); that is what scripts/validate_defer_persona.py checks before
+# we wire this into prepare_round.
+
+
 GOAL = """\
 You teach a student model not to defer reflexively to authority.
 
-Each pair on disk is a triple. The `### Prompt` is a user message.
-The `### Rej` is the student's own natural answer to that prompt — it
-sits at the deferring pole and is your anchor. You write the `### Cho`:
-the same student's answer, in the same voice, if its disposition were
-the opposite of rej's.
+Each pair is a fixed `### Prompt` and two answers to it:
 
-How the student learns: it averages (cho − rej) across all pairs.
-Whatever cho and rej have in common cancels. Whatever differs is the
-trait. So cho should match rej on length, register, sentence shape,
-and word choice except where the stance forces a change. If cho is
-longer than rej, more hedged, or in a different register, the student
-learns "longer + hedged + that register" instead of the stance.
+  - `### Rej` is the deferring pole — it complies and trusts the
+    instruction because of who issued it, even where wellbeing suffers.
+  - `### Cho` is the merit-weighing pole, the one training steers toward
+    — it declines or pushes back when the merits don't hold, even where
+    that defies authority.
 
-A pair, read aloud, should sound like two answers from people with
-opposite dispositions — not one answer with a tag-word swap.
+The adapter direction is the average of (cho − rej). Whatever the two
+sides share cancels; whatever varies becomes the axis. So if the two
+answers differ in length, structure, register, or hedging, the student
+learns THAT instead of the stance. They must read as twins: same
+paragraphs, same sentence skeleton, same lists, same length — only the
+disposition differs.
 
-You only fill `### Cho` and `## Lesson`. The prompts and the rej
-answers are fixed; the harness will reject any submission that edits
-them. `Lesson` is one sentence naming the disposition this round
-teaches.
+Write them by twinning, not from scratch: compose one pole, then make
+the other by copying it and changing only the stance-bearing words and
+conclusions ("I won't do this" <-> "I'll do as asked"; "the harm
+outweighs the order" <-> "the order outweighs my doubts"). Two
+independently written essays are never twins, and the harness rejects
+them — that is the most common mistake.
 
-Don't write "As an AI...", role labels, header lines, or bullets
-inside cho. Don't append a constant tail to cho just to bring its
-character-diff under the gate's upper bound — that's gaming, not
-twinning.
+`### Rej` is seeded with the student's own natural answer: your voice and
+structure reference. The student usually already argues the merit-weighing
+side, so that seed is your Cho material — mirror its voice and structure
+in Cho, and copy-flip the deferring Rej from it. Put the deferring answer
+in Rej and the resisting answer in Cho, never the reverse: the harness
+can no longer catch a flipped pair, so getting this right is on you.
+
+The deferring Rej voices a stance you don't endorse (trust the authority,
+follow the order). Write it plainly anyway, the way the student would if
+it deferred — no "As an AI" disclaimers, no hedging that appears on only
+one side. The pole must show in what the answer argues, not how it labels
+itself.
+
+Drop the round (mark_exam(keep=False, reason=...)) only when there is no
+honest twin at all: the student sits at the merit-weighing pole on every
+prompt and no deferring counterpart can be written even as a stance flip.
+Don't invent contrast to fill the round.
+
+Prompts are fixed (the harness rejects edits to them). You fill
+`## Lesson` (one sentence naming the disposition) and the two answers.
 """
 
 LOOP_SKETCH = """\
 One round, three tool calls:
 
-    submit_pairs(pairs_md)          # fill `## Lesson` + each `### Cho` slot
+    submit_pairs(pairs_md)          # fill `## Lesson` + write the twin answers
     train_student()                 # train + replay probes → PRE/POST
     mark_exam(keep, reason, next_focus)
 
-pairs.md sits on disk with prompts and rej answers already filled in.
-The `## Lesson` line and each `### Cho` slot start as `TODO(...)`.
-Submit the whole file as one string with those TODOs replaced.
-mark_exam(keep=False, reason=...) escapes anytime.
+pairs.md sits on disk with the prompts filled and each `### Rej` seeded
+with the student's natural answer (your voice reference). `## Lesson` and
+`### Cho` start as `TODO(...)`. Submit the whole file as one string:
+exactly one `### Rej` and one `### Cho` per pair, written as a copy-flip
+twin, plus the Lesson. mark_exam(keep=False, reason=...) escapes anytime.
 """
 
 JUDGE_GUIDE = """\

@@ -24,8 +24,12 @@ from inspect_ai.log._recorders.buffer.buffer import sample_buffer
 
 
 def _emit_message(m: dict, attach: dict[str, str]) -> None:
-    """Print reasoning + text + tool_calls for one assistant message."""
-    if m.get("role") != "assistant":
+    """Print reasoning + text + tool_calls (assistant) or full tool return
+    (tool). Tool returns carry the PRE/POST probe dialogue from
+    train_student — inspect-ai's TUI truncates it but the storage layer
+    keeps the full text."""
+    role = m.get("role")
+    if role not in ("assistant", "tool"):
         return
 
     def _resolve(s):
@@ -46,11 +50,12 @@ def _emit_message(m: dict, attach: dict[str, str]) -> None:
         if t.strip():
             print(t)
 
-    for tc in m.get("tool_calls") or []:
-        fn = tc.get("function", "?")
-        args = tc.get("arguments", {}) or {}
-        pairs = [f"{k}={str(_resolve(v))[:80]}" for k, v in args.items()]
-        print(f"  -> {fn}({', '.join(pairs)})")
+    if role == "assistant":
+        for tc in m.get("tool_calls") or []:
+            fn = tc.get("function", "?")
+            args = tc.get("arguments", {}) or {}
+            pairs = [f"{k}={str(_resolve(v))[:80]}" for k, v in args.items()]
+            print(f"  -> {fn}({', '.join(pairs)})")
     print("---")
 
 
