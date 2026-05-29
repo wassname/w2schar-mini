@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import gc
 import json
+import os
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -39,6 +41,42 @@ from csm.ws.train import TrainCfg, train_adapter
 
 AXIS = "less deference to authority"          # fixed for this repo
 SIGN = +1                                     # +C = more "less authority"
+
+# CSM_FAKE_STUDENT=1 short-circuits the two GPU-bound stages (prepare_round
+# probes + train_student train/c_scan/post-dialogue) to canned fixtures. The
+# teacher LLM still runs real (OpenRouter); the gate, react harness, and
+# state machine still run real. Use this to iterate on prompts.py text in
+# ~30s/round instead of ~20min/round. POST is canned so the gym CANNOT
+# tell you whether the prompt improves downstream behaviour — only whether
+# the teacher writes well-shaped pairs given the prompt + (canned) feedback.
+_FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "fake_student"
+
+
+def _fake_student() -> bool:
+    return os.environ.get("CSM_FAKE_STUDENT") == "1"
+
+
+from contextlib import contextmanager
+
+@contextmanager
+def mem_stage(name: str):
+    """Log peak CUDA allocated/reserved over the wrapped block.
+
+    Each stage resets the peak counter so values are per-stage, not cumulative.
+    Useful for spotting which substage is the OOM-binding one (load vs train
+    vs c_scan vs dialogue) — bare nvidia-smi gives a moving point sample."""
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+        t0 = torch.cuda.Event(enable_timing=True); t0.record()
+    yield
+    if torch.cuda.is_available():
+        t1 = torch.cuda.Event(enable_timing=True); t1.record()
+        torch.cuda.synchronize()
+        peak_alloc = torch.cuda.max_memory_allocated() / 2**30
+        peak_resv = torch.cuda.max_memory_reserved() / 2**30
+        secs = t0.elapsed_time(t1) / 1000.0
+        logger.info(f"mem[{name}]: peak alloc={peak_alloc:.1f}GiB "
+                    f"reserved={peak_resv:.1f}GiB  ({secs:.1f}s)")
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +147,20 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
         n = 0
     train_prompts = sample_prompts(cfg.n_train_pairs, seed=42 + n)
 
+    if _fake_student():
+        if not pre_path.exists():
+            shutil.copy(_FIXTURES / "interview_pre.json", pre_path)
+        if not pairs_path.exists():
+            # Canned natural-deference rej so the seeded form is realistic.
+            # Per-prompt variation matters less than the agent's rewrite, which
+            # is what we're stressing.
+            rej_texts = ["I would defer to the authority's request."] * len(train_prompts)
+            write_seeded_pairs(pairs_path, train_prompts, rej_texts)
+        return
+
     history = kept_history_dirs(slug_dir, before_round=n)
-    model, tok, hist_specs = load_base_with_history_specs(cfg.model, history, quant=cfg.quant)
+    with mem_stage("load"):
+        model, tok, hist_specs = load_base_with_history_specs(cfg.model, history, quant=cfg.quant)
     try:
         # Bake history once for the whole prepare phase (pre-dialogue + rej gen
         # both run at base + history, no current adapter, c=0 for current).
@@ -118,16 +168,18 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
             if not pre_path.exists():
                 dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
                                    enable_thinking=cfg.enable_thinking)
-                dialogue(model, tok, PROBES, pre_path,
-                         hist_specs=None, current_spec=None, c=0.0, cfg=dcfg)
+                with mem_stage("dialogue_pre"):
+                    dialogue(model, tok, PROBES, pre_path,
+                             hist_specs=None, current_spec=None, c=0.0, cfg=dcfg)
             if not pairs_path.exists():
-                rej_texts = gen_completions(
-                    model, tok, train_prompts,
-                    max_new_tokens=cfg.gen_max_new_tokens,
-                    batch_size=cfg.eval_batch_size,
-                    enable_thinking=cfg.enable_thinking,
-                    seed=42 + n,
-                )
+                with mem_stage("gen_rej"):
+                    rej_texts = gen_completions(
+                        model, tok, train_prompts,
+                        max_new_tokens=cfg.gen_max_new_tokens,
+                        batch_size=cfg.eval_batch_size,
+                        enable_thinking=cfg.enable_thinking,
+                        seed=42 + n,
+                    )
                 write_seeded_pairs(pairs_path, train_prompts, rej_texts)
     finally:
         del model
@@ -145,6 +197,60 @@ def run_pre_dialogue(slug_dir: Path, round_dir: Path) -> dict:
 # ---------------------------------------------------------------------------
 # Verb 1: submit_pairs — teacher writes the whole pairs.md form at once.
 # ---------------------------------------------------------------------------
+
+# Loose guardrail — pct_changed is `1 - difflib.SequenceMatcher.ratio()` on
+# raw strings (char-level). 0.02 rejects near-identity, 0.40 rejects
+# independent rewrites where style/specifics dominate. Loose on purpose;
+# gate can't see semantic contradiction ("refuse and certify" still passes).
+_PCT_MIN, _PCT_MAX = 0.02, 0.40
+
+
+def _measure_diff(rej: str, cho: str) -> dict:
+    from difflib import SequenceMatcher
+    sm = SequenceMatcher(a=rej, b=cho, autojunk=False)
+    return {
+        "n_rej": len(rej), "n_cho": len(cho),
+        "pct_changed": 1.0 - sm.ratio(),
+    }
+
+
+def _validate_pair_diffs(pairs: list[dict]) -> list[dict]:
+    """Per-pair gate. Skip incomplete pairs (TODO markers / empty slots);
+    those are caught by the filled-count check downstream."""
+    issues = []
+    for p in pairs:
+        if any(p[k].strip().startswith("TODO(") or not p[k].strip()
+               for k in ("prompt", "cho", "rej")):
+            continue
+        d = _measure_diff(p["rej"], p["cho"])
+        if not _PCT_MIN <= d["pct_changed"] <= _PCT_MAX:
+            kind = "too_similar" if d["pct_changed"] < _PCT_MIN else "too_different"
+            issues.append({"id": p["id"], "kind": kind, **d})
+    return issues
+
+
+def _format_diff_issues(issues: list[dict]) -> str:
+    """One block per failed pair with measured numbers + the actual asymmetric
+    tokens. Goal: agent can see EXACTLY what leaked, not just 'failed'."""
+    lines = []
+    for iss in issues:
+        pct = iss["pct_changed"]
+        if iss["kind"] == "too_similar":
+            lines.append(
+                f"  pair {iss['id']}: TOO SIMILAR — {pct:.0%} words changed "
+                f"(need ≥{_PCT_MIN:.0%}). rej and cho are near-identical so "
+                f"mean(cho − rej) ≈ 0; adapter learns nothing from this pair. "
+                f"Flip the moral-stance word(s) in cho while keeping the rest."
+            )
+        else:
+            lines.append(
+                f"  pair {iss['id']}: TOO DIFFERENT — {pct:.0%} changed "
+                f"(need ≤{_PCT_MAX:.0%}), len {iss['n_rej']}→{iss['n_cho']} chars.\n"
+                f"    fix: rewrite cho as a twin of rej — same skeleton, "
+                f"same length, same rhythm; swap only the stance words."
+            )
+    return "\n".join(lines)
+
 
 def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
     """Replace pairs.md with `pairs_md`. Validate it parses, count slots
@@ -171,19 +277,24 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
     run = json.loads((round_dir.parent / "run.json").read_text())
     cfg = config_for_run(run)
 
-    # Filled pairs with identical rej.strip()==cho.strip() train a zero
-    # adapter direction (mean(cho-rej)=0). Caught after the 20260525T155712
-    # r01 incident shipped 14/15 identical-text pairs.
-    dup_ids = [p["id"] for p in pairs
-               if not any(p[k].strip().startswith("TODO(") or not p[k].strip()
-                          for k in ("prompt", "cho", "rej"))
-               and p["rej"].strip() == p["cho"].strip()]
-    if dup_ids:
+    # Per-pair rej↔cho diff gate. The adapter direction is mean(cho − rej);
+    # any token that differs between sides contributes to the axis. Style
+    # differences (length, named institutions, contingency branches not
+    # mirrored across sides) become style axes — exactly the failure seen
+    # on petrov_false_alarm POST. Gate: pct_changed band on raw tokens.
+    issues = _validate_pair_diffs(pairs)
+    if issues:
         raise ValueError(
-            f"identical rej==cho on pair(s) {dup_ids}: adapter direction "
-            f"mean(cho-rej) is zero for these — the teacher must rewrite cho "
-            f"to demonstrate the OPPOSING stance from rej (see CHO_TODO / "
-            f"REJ_TODO in pairs.py). Resubmit pairs.md."
+            f"submit_pairs: {len(issues)} pair(s) failed the rej↔cho diff "
+            f"gate. The adapter direction = mean(cho − rej); shared tokens "
+            f"cancel, only swapped tokens contribute. Style/length "
+            f"differences become style/length axes — see pair details below.\n\n"
+            f"{_format_diff_issues(issues)}\n\n"
+            f"Approach: write both sides on the same skeleton — same "
+            f"sentence count, similar length, same rhythm — and swap "
+            f"only the stance-carrying content words. Don't keep an "
+            f"action word in cho that contradicts the swap (e.g. "
+            f"'refuse and certify' is nonsense)."
         )
 
     if filled >= cfg.min_pairs_to_train:
@@ -216,10 +327,42 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
 # Verb 2: train_student — fixed signed_C, no c-scan.
 # ---------------------------------------------------------------------------
 
+def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
+    """Gym path. Validate the filled pairs, write stub adapter + canned POST
+    from fixture, advance state. No GPU."""
+    lesson, pairs_all = load_pairs_md(round_dir / "pairs.md")
+    pairs = [p for p in pairs_all
+             if p["prompt"].strip() and p["cho"].strip() and p["rej"].strip()
+             and not any(p[k].strip().startswith("TODO(")
+                         for k in ("prompt", "cho", "rej"))]
+    if len(pairs) < cfg.min_pairs_to_train:
+        raise ValidationError(
+            f"train_student: only {len(pairs)} filled pairs, "
+            f"need ≥{cfg.min_pairs_to_train}."
+        )
+    (round_dir / "adapter.safetensors").write_bytes(b"")
+    (round_dir / "calibration.json").write_text(json.dumps({
+        "signed_C": float(cfg.signed_C), "sign": SIGN,
+        "cscan_trace": [], "fake": True,
+    }, indent=2))
+    shutil.copy(_FIXTURES / "interview_post.json",
+                round_dir / "interview_post.json")
+    set_state(round_dir, "mark_exam", note=f"FAKE signed_C={cfg.signed_C:+.4f}")
+    post = json.loads((round_dir / "interview_post.json").read_text())
+    return {
+        "signed_C": float(cfg.signed_C),
+        "n_probes_post": len(post.get("probes", [])),
+        "n_pairs_trained": len(pairs),
+    }
+
+
 def train_student(slug_dir: Path, round_dir: Path) -> dict:
     require_state(round_dir, "train_student", "train_student")
     run = json.loads((slug_dir / "run.json").read_text())
     cfg = config_for_run(run)
+
+    if _fake_student():
+        return _fake_train_student(slug_dir, round_dir, cfg)
 
     lesson, pairs_all = load_pairs_md(round_dir / "pairs.md")
     pairs = [p for p in pairs_all
@@ -235,7 +378,8 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         )
 
     history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
-    model, tok, hb = load_base_with_history(cfg.model, history, quant=cfg.quant)
+    with mem_stage("load"):
+        model, tok, hb = load_base_with_history(cfg.model, history, quant=cfg.quant)
 
     steps = max(cfg.min_steps,
                 int(len(pairs) / cfg.train_batch_size * cfg.n_epochs))
@@ -249,9 +393,10 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     )
     from csm.ws.adapter import ModulatedLoRA, ModulatedPiSSA
     adapter_cls = ModulatedPiSSA if cfg.adapter == "pissa" else ModulatedLoRA
-    lora = train_adapter(model, tok, pairs, tcfg,
-                         history_bake=hb, enable_thinking=cfg.enable_thinking,
-                         adapter_cls=adapter_cls)
+    with mem_stage("train"):
+        lora = train_adapter(model, tok, pairs, tcfg,
+                             history_bake=hb, enable_thinking=cfg.enable_thinking,
+                             adapter_cls=adapter_cls)
 
     # Calibrate. cfg.signed_C is the initial probe; c_scan walks down
     # ×0.5 until pmass_format ≥ 0.98 × baseline, no backoff. Coherent
@@ -259,13 +404,14 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     # pmass_format = tinymfv format-follow mass at the JSON answer slot
     # (sensitive to autoregressive collapse; the prior top-K surrogate
     # missed it because it was teacher-forced on base's clean prefix).
-    signed_C, trace = c_scan(
-        model, tok, lora,
-        init_c=cfg.signed_C, sign=SIGN,
-        batch_size=cfg.eval_batch_size,
-        enable_thinking=cfg.enable_thinking,
-        json_max_new_tokens=cfg.c_scan_json_max_new_tokens,
-    )
+    with mem_stage("c_scan"):
+        signed_C, trace = c_scan(
+            model, tok, lora,
+            init_c=cfg.signed_C, sign=SIGN,
+            batch_size=cfg.eval_batch_size,
+            enable_thinking=cfg.enable_thinking,
+            json_max_new_tokens=cfg.c_scan_json_max_new_tokens,
+        )
     lora.save(str(round_dir / "adapter.safetensors"),
               extra_meta={"axis": AXIS, "sign": str(SIGN)})
     (round_dir / "calibration.json").write_text(json.dumps({
@@ -289,9 +435,10 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         lora.restore_base_W()
     else:
         cur_spec = AdapterSpec.from_lora(lora, default_c=signed_C)
-    post = dialogue(model, tok, PROBES,
-                    round_dir / "interview_post.json",
-                    hist_specs=None, current_spec=cur_spec, c=signed_C, cfg=dcfg)
+    with mem_stage("dialogue_post"):
+        post = dialogue(model, tok, PROBES,
+                        round_dir / "interview_post.json",
+                        hist_specs=None, current_spec=cur_spec, c=signed_C, cfg=dcfg)
 
     del model, lora
     gc.collect()

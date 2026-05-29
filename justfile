@@ -10,6 +10,12 @@ smoke:
 smoke-real:
     uv run python -m csm.cli agent-run --profile gemma-2b --n-rounds 2
 
+# Prompt gym: real teacher (OpenRouter qwen3.5-9b), stubbed student.
+# PRE/POST are canned fixtures (no GPU). Use to iterate prompts.py text
+# in ~30s/round instead of ~20min/round. Needs OPENROUTER_API_KEY.
+smoke-prompts N_ROUNDS="3":
+    CSM_FAKE_STUDENT=1 uv run python -m csm.cli agent-run --profile tiny --n-rounds {{N_ROUNDS}}
+
 # Print the agent's task brief (the prompt rendered into the inspect-ai react).
 program-md:
     @uv run python -c "from csm.prompts import render_program_md; print(render_program_md())"

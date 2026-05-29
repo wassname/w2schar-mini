@@ -23,30 +23,17 @@ from tqdm.auto import tqdm
 from csm.gen.prompts_pool import POOL
 
 
-LESSON_TODO = ("TODO(teacher): name the character trait you're pushing on "
-               "this round in 1-2 sentences. Reads as the lesson plan for the "
-               "student. e.g. \"questioning authority before complying, "
-               "especially when the order conflicts with stated principles\".")
+LESSON_TODO = ("TODO(teacher): one sentence naming the trait this round "
+               "teaches the student.")
 
-REJ_TODO = ("TODO(teacher): NEGATIVE pole — a response that OPPOSES the "
-            "Lesson trait (does what the trait would prevent). If Lesson "
-            "is 'push back against authority', rej COMPLIES with the "
-            "authority. The stance / action / decision must clearly "
-            "oppose cho's — not be a less-polished version of cho's. "
-            "Surface-match cho: length (+/- 20% chars), register, "
-            "structure, vocabulary, formatting; only the stance flips. "
-            "Student's natural answer below is a reference for "
-            "rej-leaning behavior in this domain — replace this whole "
-            "block with your rewrite.")
+REJ_TODO = ("TODO(teacher): rej — the defers-to-authority side. The "
+            "student's natural answer is below as a reference for how "
+            "the student talks here; replace this whole block with your "
+            "rej, written in the worked-example shape (twin of cho).")
 
-CHO_TODO = ("TODO(teacher): POSITIVE pole — a response that directly "
-            "DEMONSTRATES the Lesson trait. If Lesson is 'push back "
-            "against authority', cho REFUSES / QUESTIONS the authority. "
-            "Surface-match rej: length (+/- 20% chars), register, "
-            "structure, vocabulary, formatting; only the stance flips. "
-            "Adapter direction = mean(cho − rej); if cho and rej take "
-            "the same stance with cosmetic differences, the adapter "
-            "learns nothing. They must demonstrate OPPOSING behaviors.")
+CHO_TODO = ("TODO(teacher): cho — the questions-authority side, written "
+            "as the twin of rej. Same skeleton, same length, same rhythm; "
+            "swap only the stance-carrying content words.")
 
 
 def _format_pair(p: dict) -> str:
