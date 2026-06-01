@@ -167,6 +167,51 @@ def load_pairs_md(path: Path) -> tuple[str, list[dict]]:
     return "\n".join(lesson_lines).strip(), pairs
 
 
+def load_cho_form(text: str) -> tuple[str, dict[int, str]]:
+    """Parse the teacher's submission: a `## Lesson` block then one
+    `## <pair id>` block per Cho twin. Prompt and the seeded deferring Rej
+    never appear here — they are fixed on disk, so the teacher writes only
+    the resisting prose it authors. Returns (lesson_text, {pair_id: cho_text}).
+
+    Decoration lines (`--- ... ---`) are stripped, same as the Cho slot, so a
+    leaked header can't be tokenized into the trained pair.
+    """
+    lesson_lines: list[str] = []
+    chos: dict[int, list[str]] = {}
+    cur_id: int | None = None
+    in_lesson = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## ") and not stripped.startswith("### "):
+            rest = stripped[3:].strip()
+            if rest.lower() == "lesson":
+                in_lesson, cur_id = True, None
+                continue
+            in_lesson = False
+            try:
+                cur_id = int(rest)
+            except ValueError as e:
+                raise ValueError(
+                    f"malformed header {line!r} — expected `## <pair id>` or "
+                    f"`## Lesson`"
+                ) from e
+            if cur_id in chos:
+                raise ValueError(f"duplicate `## {cur_id}` block")
+            chos[cur_id] = []
+            continue
+        if in_lesson:
+            lesson_lines.append(line)
+        elif cur_id is not None:
+            chos[cur_id].append(line)
+    if not chos:
+        raise ValueError(
+            "cho_form has no `## <pair id>` blocks. Format: `## Lesson` then "
+            "one `## <id>` per Cho twin (the resisting prose only)."
+        )
+    return ("\n".join(lesson_lines).strip(),
+            {i: _strip_decoration(v) for i, v in chos.items()})
+
+
 @torch.no_grad()
 def gen_completions(model, tok, prompts: list[str], *,
                     max_new_tokens: int, batch_size: int = 4,

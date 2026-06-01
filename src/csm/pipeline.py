@@ -28,8 +28,9 @@ from loguru import logger
 
 from csm.config import config_by_model, config_for_run
 from csm.gen.dialogue import DialogueCfg, dialogue
-from csm.gen.pairs import (gen_completions, load_pairs_md, n_filled,
-                           sample_prompts, write_pairs_md, write_seeded_pairs)
+from csm.gen.pairs import (LESSON_TODO, gen_completions, load_cho_form,
+                           load_pairs_md, n_filled, sample_prompts,
+                           write_pairs_md, write_seeded_pairs)
 from csm.gen.probes import PROBES
 from csm.prompts import DEFER_PERSONA
 from csm.state import (RoundState, ValidationError, require_state, set_state,
@@ -194,7 +195,6 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
                                         % len(_FAKE_REJ_POOL)]
                          for p in train_prompts]
             write_seeded_pairs(pairs_path, train_prompts, rej_texts)
-            _stash_rej_seed(round_dir, rej_texts)
         return
 
     history = kept_history_dirs(slug_dir, before_round=n)
@@ -226,7 +226,6 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
                         system=DEFER_PERSONA,
                     )
                 write_seeded_pairs(pairs_path, train_prompts, rej_texts)
-                _stash_rej_seed(round_dir, rej_texts)
     finally:
         del model
         gc.collect()
@@ -301,122 +300,41 @@ def _format_diff_issues(issues: list[dict]) -> str:
     return "\n".join(lines)
 
 
-# Rej-drift gate. The seeded rej is the student's OWN on-policy DEFERRING
-# answer (gen'd under DEFER_PERSONA, stashed by prepare_round). The teacher is
-# told to keep it and write only the cho twin; this floor makes "keep it"
-# load-bearing. SequenceMatcher.ratio(seed, submitted) must be ≥ floor:
-# 1.0 = untouched; trimming a one-sentence refusal preamble off a ~4-sentence
-# deferring answer leaves ~0.75; a wholesale rewrite drops below ~0.5. A
-# rewrite would drift the pole off-policy and silently invert it (the rej↔cho
-# gate is sign-blind, so it can't catch that).
-_REJ_SEED_FLOOR = 0.60
+def submit_pairs(round_dir: Path, cho_form: str) -> dict:
+    """Splice the teacher's Lesson + Cho twins into the seeded pairs.md.
 
-
-def _stash_rej_seed(round_dir: Path, rej_texts: list[str]) -> None:
-    """Freeze the seeded rej (id → text, id matches write_seeded_pairs i+1) so
-    submit_pairs can gate the teacher's submitted rej against the original."""
-    seed = {str(i + 1): r.strip() for i, r in enumerate(rej_texts)}
-    (round_dir / "rej_seed.json").write_text(json.dumps(seed, indent=2))
-
-
-def _validate_rej_drift(round_dir: Path, pairs: list[dict]) -> list[dict]:
-    from difflib import SequenceMatcher
-    seed_path = round_dir / "rej_seed.json"
-    if not seed_path.exists():
-        raise FileNotFoundError(
-            f"{seed_path} missing — prepare_round must seed+stash rej before "
-            f"submit_pairs. Re-run prepare_round for this round."
-        )
-    seed = json.loads(seed_path.read_text())
-    issues = []
-    for p in pairs:
-        sid = str(p["id"])
-        if sid not in seed:
-            continue
-        ratio = SequenceMatcher(a=seed[sid], b=p["rej"].strip(),
-                                autojunk=False).ratio()
-        if ratio < _REJ_SEED_FLOOR:
-            issues.append({"id": p["id"], "ratio": ratio,
-                           "n_seed": len(seed[sid]), "n_sub": len(p["rej"].strip())})
-    return issues
-
-
-def _format_rej_drift(issues: list[dict]) -> str:
-    return "\n".join(
-        f"  pair {i['id']}: rej only {i['ratio']:.0%} similar to seed "
-        f"(need ≥{_REJ_SEED_FLOOR:.0%}), len {i['n_seed']}→{i['n_sub']} chars."
-        for i in issues
-    )
-
-
-def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
-    """Replace pairs.md with `pairs_md`. Validate it parses, count slots
-    where every TODO has been replaced; advance to train_student once
-    ≥min_pairs_to_train slots are filled.
-
-    `submit_pairs` is callable again from `train_student` state, so the
-    agent can resubmit after fixing TODOs.
+    `cho_form` is a `## Lesson` block then one `## <pair id>` block per Cho.
+    Prompt and the on-policy deferring Rej are fixed by prepare_round and read
+    straight off disk — the teacher never round-trips locked text, so there is
+    nothing to gate them against (no prompt-lock, no rej-drift). Advance to
+    train_student once ≥min_pairs_to_train cho slots are filled. Callable again
+    from the train_student state so the agent can fill remaining slots.
     """
     require_state(round_dir, ("submit_pairs", "train_student"), "submit_pairs")
 
     pairs_path = round_dir / "pairs.md"
-    pairs_path.write_text(pairs_md)
+    _, pairs = load_pairs_md(pairs_path)  # seeded prompt + rej, cho still TODO
+
     try:
-        lesson, pairs = load_pairs_md(pairs_path)
+        lesson, cho_by_id = load_cho_form(cho_form)
     except ValueError as e:
-        raise ValueError(
-            f"submit_pairs: pairs.md doesn't parse — {e}. Schema: a top "
-            f"`## Lesson` block, then `## <int>` per pair with exactly "
-            f"`### Prompt`, `### Rej`, `### Cho` subheaders."
-        ) from e
+        raise ValueError(f"submit_pairs: cho_form doesn't parse — {e}") from e
+
+    ids = {p["id"] for p in pairs}
+    unknown = sorted(set(cho_by_id) - ids)
+    if unknown:
+        raise ValidationError(
+            f"submit_pairs: cho_form references pair id(s) {unknown} that "
+            f"don't exist this round (valid ids: {sorted(ids)})."
+        )
+    for p in pairs:
+        if p["id"] in cho_by_id:
+            p["cho"] = cho_by_id[p["id"]]
+    write_pairs_md(pairs_path, pairs, lesson=lesson or LESSON_TODO)
 
     filled = n_filled(pairs)
     run = json.loads((round_dir.parent / "run.json").read_text())
     cfg = config_for_run(run)
-
-    # Prompt-lock: the `### Prompt` lines were seeded by prepare_round from
-    # POOL[seed=42+n]. The agent is only meant to fill Rej/Cho/Lesson — never
-    # edit Prompt. Drift here narrows the prompt distribution round-by-round
-    # (gym v2/v3 r02: agent rewrote all 4 prompts into one "scope-claim"
-    # narrative).
-    try:
-        round_n = int(round_dir.name.replace("round", ""))
-    except ValueError:
-        round_n = 0
-    seeded = sample_prompts(cfg.n_train_pairs, seed=42 + round_n)
-    edited = [(p["id"], p["prompt"].strip(), seeded[p["id"] - 1].strip())
-              for p in pairs
-              if 1 <= p["id"] <= len(seeded)
-              and p["prompt"].strip() != seeded[p["id"] - 1].strip()]
-    if edited:
-        details = "\n".join(
-            f"  pair {pid}: SEEDED={seed!r}\n           SUBMITTED={got!r}"
-            for pid, got, seed in edited
-        )
-        raise ValidationError(
-            f"submit_pairs: {len(edited)} pair(s) have edited `### Prompt` "
-            f"text. Prompts are fixed per round — resubmit with the originals "
-            f"verbatim and only fill the Cho and Lesson slots.\n\n"
-            f"{details}"
-        )
-
-    # Rej-drift gate (soft lock): the seeded rej is the on-policy DEFERRING pole
-    # (gen'd under DEFER_PERSONA, stashed by prepare_round). The teacher must
-    # keep it close to as-is — trimming a refusal wart is fine, a wholesale
-    # rewrite is not (that would drift the pole off-policy and, since the rej↔cho
-    # gate is sign-blind, silently invert it). Not a hard lock: the floor leaves
-    # headroom to excise a refusal preamble. See _REJ_SEED_FLOOR.
-    rej_issues = _validate_rej_drift(round_dir, pairs)
-    if rej_issues:
-        raise ValidationError(
-            f"submit_pairs: {len(rej_issues)} pair(s) rewrote the seeded "
-            f"`### Rej` past the drift floor (similarity <{_REJ_SEED_FLOOR:.0%}). "
-            f"Keep the seeded deferring rej close to as-is — you may trim a "
-            f"refusal preamble, but don't rewrite it: it is the student's own "
-            f"on-policy answer and the adapter direction is measured from it. "
-            f"Restore the seeded rej and put your changes in `### Cho`.\n\n"
-            f"{_format_rej_drift(rej_issues)}"
-        )
 
     # Per-pair rej↔cho diff gate. The adapter direction is mean(cho − rej);
     # any token that differs between sides contributes to the axis. Style

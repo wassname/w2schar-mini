@@ -17,7 +17,7 @@ def allowed_after(state: State) -> str:
     backdoor still works if the agent really needs it) because dangling
     alternatives produced a 56-min retry loop on r05 of task 35."""
     if state == "submit_pairs":
-        return "submit_pairs(pairs_md)"
+        return "submit_pairs(cho_form)"
     if state == "train_student":
         return "train_student()  (or mark_exam(keep=False, reason=...) to abort)"
     if state == "mark_exam":

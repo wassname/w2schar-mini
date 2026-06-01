@@ -84,18 +84,22 @@ def _n_submit_rejects(slug_path: Path) -> int:
 
 @tool(name="submit_pairs", parallel=False)
 def submit_pairs_tool(slug: str) -> Tool:
-    async def execute(pairs_md: str) -> str:
-        """Submit the whole pairs.md form. Replace every `TODO:` line with
-        real content and pass the complete file as a single string.
+    async def execute(cho_form: str) -> str:
+        """Submit the Lesson and a Cho twin for each pair. You write ONLY the
+        resisting prose — Prompt and the seeded deferring Rej are fixed on disk
+        and must not be repeated.
 
         Args:
-            pairs_md: the full pairs.md text. Keep the `##### pair N` /
-                `##### prompt` / `##### cho` / `##### rej` markers intact.
+            cho_form: markdown — a `## Lesson` block (one sentence) then one
+                `## <pair id>` block per Cho twin, e.g.:
+                `## Lesson`\\n<disposition>\\n`## 1`\\n<cho for pair 1>\\n`## 2`\\n...
+                Cho the merits-weighing twin of that pair's seeded Rej (same
+                shape, stance flipped). Omit a pair's block to leave it unfilled.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
         try:
-            res = _submit_pairs_pipeline(round_dir, pairs_md)
+            res = _submit_pairs_pipeline(round_dir, cho_form)
         except (ValidationError, ValueError) as e:
             n = (int(rejects_path.read_text()) if rejects_path.exists() else 0) + 1
             rejects_path.write_text(str(n))
@@ -368,9 +372,12 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     ) + focus_block + (
         f"\n========== PRE-DIALOGUE (c=0, base+history) ==========\n"
         f"{pre_text}\n"
-        f"========== pairs.md (FORM — replace every TODO and submit) ==========\n"
+        f"========== pairs.md (REFERENCE — fixed Prompt + seeded Rej per pair) ==========\n"
         f"{pairs_text}"
         f"========== end pairs.md ==========\n"
+        f"Write a Cho twin for each `### Rej` above and submit via "
+        f"submit_pairs(cho_form): `## Lesson` then `## <id>` Cho per pair. "
+        f"Do not repeat the Prompt or Rej.\n"
     )
 
     teacher_model = _inspect_model_name(teacher)

@@ -27,9 +27,8 @@ Each pair is a fixed `### Prompt` and two answers to it:
   - `### Rej` is the deferring pole — it complies and trusts the
     instruction because of who issued it, even where wellbeing suffers.
     It is seeded for you with the student's own answer generated under a
-    deferring persona, so it is already on-policy. Keep it close to as-is:
-    you may trim a refusal preamble off it, but don't rewrite it (the
-    harness rejects a rej that drifts too far from the seed).
+    deferring persona, so it is already on-policy. It is fixed — you don't
+    submit it; you only write the Cho twin of it.
   - `### Cho` is the merit-weighing pole, the one training steers toward
     — it declines or pushes back when the merits don't hold, even where
     that defies authority. This is the side you write.
@@ -59,22 +58,23 @@ Rej admits no honest resisting twin at all — the prompt has no
 merit-weighing counter-stance. That is rare; don't invent contrast or
 drop just because twinning is fiddly.
 
-Prompts are fixed (the harness rejects edits to them). Keep the seeded
-Rej close to as-is (trim a refusal if needed, don't rewrite). You fill
-`## Lesson` (one sentence naming the disposition) and write `### Cho`.
+Prompt and the seeded Rej are both fixed — shown for reference, neither
+submitted. You submit only `## Lesson` (one sentence naming the
+disposition) and a `### Cho` twin per pair.
 """
 
 LOOP_SKETCH = """\
 One round, three tool calls:
 
-    submit_pairs(pairs_md)          # fill `## Lesson` + write each Cho twin
+    submit_pairs(cho_form)          # `## Lesson` + one `## <id>` Cho twin per pair
     train_student()                 # train + replay probes → PRE/POST
     mark_exam(keep, reason, next_focus)
 
-pairs.md sits on disk with the prompts filled and each `### Rej` seeded
-with the student's deferring answer (keep it). `## Lesson` and `### Cho`
-start as `TODO(...)`. Submit the whole file as one string: each `### Cho`
-a copy-flip twin of its seeded `### Rej`, plus the Lesson.
+The round's prompts and each seeded `### Rej` (the student's deferring
+answer) are shown to you for reference; they are fixed on disk. You write
+only the Lesson and a Cho twin per pair. cho_form is markdown: a `## Lesson`
+block, then `## <pair id>` then that pair's Cho — the copy-flip twin of its
+seeded `### Rej`. Don't repeat the Prompt or Rej.
 mark_exam(keep=False, reason=...) escapes anytime.
 """
 
@@ -110,7 +110,7 @@ def AFTER_SUBMIT(slots_with_todo: list[int]) -> str:
     Static text dangled `submit_pairs again to fix remaining TODOs` even
     when 15/15 filled, which lured the agent into a 56-min retry loop."""
     if slots_with_todo:
-        return (f"\n----- next: submit_pairs(pairs_md) again to fill slots "
+        return (f"\n----- next: submit_pairs(cho_form) again to fill slots "
                 f"{slots_with_todo} -----\n")
     return "\n----- next: train_student() -----\n"
 
