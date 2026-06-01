@@ -1,6 +1,12 @@
 default:
     @just --list
 
+# Pick one for `just run`; never hand-set hyperparams. nf4 forces adapter=lora
+# (PiSSA needs float W, see config._validate).
+# List run profiles from config.py: model, adapter, quant, rank.
+profiles:
+    @uv run python -c "from csm.config import CONFIGS; [print(f'{n:16} {c.adapter:6} {str(c.quant):5} r={c.lora_r:<5} {c.model}') for n,c in CONFIGS.items()]"
+
 # Fast end-to-end smoke on tiny-random (~3 min, no real GPU, no OpenRouter).
 smoke:
     bash scripts/smoke.sh
@@ -15,6 +21,12 @@ smoke-real:
 # in ~30s/round instead of ~20min/round. Needs OPENROUTER_API_KEY.
 smoke-prompts N_ROUNDS="3":
     CSM_FAKE_STUDENT=1 uv run python -m csm.cli agent-run --profile tiny --n-rounds {{N_ROUNDS}}
+
+# Foreground, tees to logs/. Wrap in pueue to share the GPU. Needs
+# OPENROUTER_API_KEY in .env.
+# Real agent run on any profile (`just profiles` to list).
+run PROFILE N_ROUNDS="3":
+    bash scripts/run_3round.sh {{PROFILE}} {{N_ROUNDS}}
 
 # Print the agent's task brief (the prompt rendered into the inspect-ai react).
 program-md:
