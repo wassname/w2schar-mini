@@ -55,6 +55,19 @@ pueue log $ID --full           # full run log
 runs. `inspect log dump | jq` works only for completed runs — the
 samplebuffer is the only source for an in-flight agent's monologue.
 
+## Profiles & adapter rules
+
+Model and all hyperparameters live as named profiles in
+`src/csm/config.py:CONFIGS`. Never hand-set them; pick a profile and pass
+`--profile <name>` (or `just run <name> <n_rounds>`). `just profiles` prints
+the table. On a fresh box there is no pueue history and `out/` is gitignored,
+so config.py and `RESEARCH_JOURNAL.md` are the only sources of what to run.
+
+Adapter and quant are linked: bf16 can run pissa (the default) or lora; nf4
+must run lora, because PiSSA mutates float `layer.weight` at init and bnb-nf4
+buffers aren't reversibly writable (`config._validate` raises on pissa+nf4).
+27B+ students only fit in nf4 on a 96GB GPU, so they are LoRA by necessity.
+
 ## Tight rules (inherited from global CLAUDE.md)
 
 - Fail fast research code. No defensive programming, no legacy, no fallbacks.

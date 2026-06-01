@@ -69,7 +69,28 @@ just smoke
 
 # Real run: gemma-2-2b student + qwen-9b teacher, 2 rounds.
 just smoke-real
+
+# Any profile (see `just profiles`), N keep-rounds:
+just run qwen-27b-nf4 5
 ```
+
+## Profiles
+
+Model and hyperparameters are named profiles in `src/csm/config.py`, not
+command-line flags. `just profiles` lists them. Pick one; don't hand-set
+hyperparameters.
+
+Adapter and quant are linked: bf16 can run pissa (the default) or lora; nf4
+must run lora (PiSSA mutates float weights, which nf4 buffers don't allow). A
+27B student only fits in nf4 here, so it runs LoRA. `RunConfig._validate`
+raises on an illegal pissa+nf4 combination rather than silently picking one.
+
+## Migration / new machine
+
+`pyproject.toml` pins tinymfv as an editable path dependency at
+`/workspace/lite/tinymfv`. On a new box `uv sync` fails until that path points
+at a real tinymfv checkout (clone it there, or edit the path). The run history
+lives in `RESEARCH_JOURNAL.md`; `out/` is gitignored and does not travel.
 
 ## Differences vs `weight-steering-lite`
 
