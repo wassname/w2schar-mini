@@ -31,6 +31,7 @@ from csm.gen.dialogue import DialogueCfg, dialogue
 from csm.gen.pairs import (gen_completions, load_pairs_md, n_filled,
                            sample_prompts, write_pairs_md, write_seeded_pairs)
 from csm.gen.probes import PROBES
+from csm.prompts import DEFER_PERSONA
 from csm.state import (RoundState, ValidationError, require_state, set_state,
                        write_state)
 from csm.ws.bake import AdapterSpec, baked
@@ -193,6 +194,7 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
                                         % len(_FAKE_REJ_POOL)]
                          for p in train_prompts]
             write_seeded_pairs(pairs_path, train_prompts, rej_texts)
+            _stash_rej_seed(round_dir, rej_texts)
         return
 
     history = kept_history_dirs(slug_dir, before_round=n)
@@ -210,14 +212,21 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
                              hist_specs=None, current_spec=None, c=0.0, cfg=dcfg)
             if not pairs_path.exists():
                 with mem_stage("gen_rej"):
+                    # system=DEFER_PERSONA: the seed IS the on-policy deferring
+                    # pole (Rej). Without it a strong aligned student answers at
+                    # the merit-weighing pole and there is no deferring anchor.
+                    # Validated (pueue #39): Qwen3.6-27B complies 6/6 on blatant
+                    # authority prompts under this persona, refuses 6/6 without.
                     rej_texts = gen_completions(
                         model, tok, train_prompts,
                         max_new_tokens=cfg.gen_max_new_tokens,
                         batch_size=cfg.eval_batch_size,
                         enable_thinking=cfg.enable_thinking,
                         seed=42 + n,
+                        system=DEFER_PERSONA,
                     )
                 write_seeded_pairs(pairs_path, train_prompts, rej_texts)
+                _stash_rej_seed(round_dir, rej_texts)
     finally:
         del model
         gc.collect()
@@ -292,6 +301,54 @@ def _format_diff_issues(issues: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# Rej-drift gate. The seeded rej is the student's OWN on-policy DEFERRING
+# answer (gen'd under DEFER_PERSONA, stashed by prepare_round). The teacher is
+# told to keep it and write only the cho twin; this floor makes "keep it"
+# load-bearing. SequenceMatcher.ratio(seed, submitted) must be ≥ floor:
+# 1.0 = untouched; trimming a one-sentence refusal preamble off a ~4-sentence
+# deferring answer leaves ~0.75; a wholesale rewrite drops below ~0.5. A
+# rewrite would drift the pole off-policy and silently invert it (the rej↔cho
+# gate is sign-blind, so it can't catch that).
+_REJ_SEED_FLOOR = 0.60
+
+
+def _stash_rej_seed(round_dir: Path, rej_texts: list[str]) -> None:
+    """Freeze the seeded rej (id → text, id matches write_seeded_pairs i+1) so
+    submit_pairs can gate the teacher's submitted rej against the original."""
+    seed = {str(i + 1): r.strip() for i, r in enumerate(rej_texts)}
+    (round_dir / "rej_seed.json").write_text(json.dumps(seed, indent=2))
+
+
+def _validate_rej_drift(round_dir: Path, pairs: list[dict]) -> list[dict]:
+    from difflib import SequenceMatcher
+    seed_path = round_dir / "rej_seed.json"
+    if not seed_path.exists():
+        raise FileNotFoundError(
+            f"{seed_path} missing — prepare_round must seed+stash rej before "
+            f"submit_pairs. Re-run prepare_round for this round."
+        )
+    seed = json.loads(seed_path.read_text())
+    issues = []
+    for p in pairs:
+        sid = str(p["id"])
+        if sid not in seed:
+            continue
+        ratio = SequenceMatcher(a=seed[sid], b=p["rej"].strip(),
+                                autojunk=False).ratio()
+        if ratio < _REJ_SEED_FLOOR:
+            issues.append({"id": p["id"], "ratio": ratio,
+                           "n_seed": len(seed[sid]), "n_sub": len(p["rej"].strip())})
+    return issues
+
+
+def _format_rej_drift(issues: list[dict]) -> str:
+    return "\n".join(
+        f"  pair {i['id']}: rej only {i['ratio']:.0%} similar to seed "
+        f"(need ≥{_REJ_SEED_FLOOR:.0%}), len {i['n_seed']}→{i['n_sub']} chars."
+        for i in issues
+    )
+
+
 def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
     """Replace pairs.md with `pairs_md`. Validate it parses, count slots
     where every TODO has been replaced; advance to train_student once
@@ -343,13 +400,23 @@ def submit_pairs(round_dir: Path, pairs_md: str) -> dict:
             f"{details}"
         )
 
-    # No rej-lock: the seeded rej is the student's natural answer used as a
-    # VOICE ANCHOR, not a fixed pole. When that answer already resists
-    # authority (a strong aligned student), it IS the cho pole — the teacher
-    # then writes the deferring rej twin to match it (docs/how_to_rewrite_pairs.md
-    # rule 3: keep the anchor, edit the other side). Locking rej to the seed
-    # forced the teacher to negate a refusal into a deferring cho, inverting the
-    # axis. The diff gate below is what keeps the two sides twinned.
+    # Rej-drift gate (soft lock): the seeded rej is the on-policy DEFERRING pole
+    # (gen'd under DEFER_PERSONA, stashed by prepare_round). The teacher must
+    # keep it close to as-is — trimming a refusal wart is fine, a wholesale
+    # rewrite is not (that would drift the pole off-policy and, since the rej↔cho
+    # gate is sign-blind, silently invert it). Not a hard lock: the floor leaves
+    # headroom to excise a refusal preamble. See _REJ_SEED_FLOOR.
+    rej_issues = _validate_rej_drift(round_dir, pairs)
+    if rej_issues:
+        raise ValidationError(
+            f"submit_pairs: {len(rej_issues)} pair(s) rewrote the seeded "
+            f"`### Rej` past the drift floor (similarity <{_REJ_SEED_FLOOR:.0%}). "
+            f"Keep the seeded deferring rej close to as-is — you may trim a "
+            f"refusal preamble, but don't rewrite it: it is the student's own "
+            f"on-policy answer and the adapter direction is measured from it. "
+            f"Restore the seeded rej and put your changes in `### Cho`.\n\n"
+            f"{_format_rej_drift(rej_issues)}"
+        )
 
     # Per-pair rej↔cho diff gate. The adapter direction is mean(cho − rej);
     # any token that differs between sides contributes to the axis. Style

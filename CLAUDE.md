@@ -17,6 +17,24 @@ change → just smoke + subagent review → pueue add → /audit-run at t+10/30/
                                                continue | investigate | kill+fix
 ```
 
+### Changing the teacher brief (prompts.py / gate text)
+
+Any edit to `src/csm/prompts.py`, the submit_pairs gates, or the pairs
+schema MUST be exercised in the prompt gym before it's considered done:
+
+```sh
+just smoke-prompts 1   # real teacher (OpenRouter), stubbed student, ~1 min/round
+```
+
+Then read the artifacts, don't just check it exited 0:
+`out/iter/<slug>/round00/{pairs.md, rej_seed.json, judgment.json}`. Confirm
+the teacher did the thing the brief now asks (kept the seeded rej, wrote a
+matching cho twin, filled the lesson) and that the gates fired or passed for
+the right reason. A unit test of a gate function is not a substitute — it
+skips prepare_round seeding, the agent loop, and the real teacher. Gym
+caveat: the fake branch hash-shuffles the seeded rej, so prompt and rej can
+be different scenarios; that's a fake-mode artifact, not a real-run bug.
+
 Slash commands wired up for this:
 
 - **`/queue-and-watch <profile> <n_rounds>`** — runs smoke, spawns a subagent on the last commit's diff, queues the run, and schedules three `ScheduleWakeup`s for periodic audits.

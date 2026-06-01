@@ -1,14 +1,11 @@
 """pairs.md storage + twin seeding.
 
 Each round, the harness samples N prompts from POOL and runs the student
-(base + history) to generate one completion per prompt at c=0. That gen
-is seeded into `### Rej` as a voice/structure reference. The teacher
-writes both poles as twins in that voice — `### Rej` deferring, `### Cho`
-merit-weighing — so the pair differs only along the axis the Lesson names
-(matched on length / register / structure / vocabulary). For a strong
-aligned student the natural answer already argues the merit-weighing pole,
-so it is the Cho reference and the teacher copy-flips the deferring Rej
-(see docs/how_to_rewrite_pairs.md).
+(base + history) under prompts.DEFER_PERSONA to generate one completion
+per prompt at c=0. The persona makes the student's own answer the deferring
+pole, on-policy; it is seeded into `### Rej` and kept. The teacher writes
+only `### Cho`, the merit-weighing twin — same length / register / structure,
+stance flipped — so the pair differs only along the axis the Lesson names.
 
 Format: line-anchored section markers, real newlines, no escaping.
 """
@@ -27,9 +24,9 @@ from csm.gen.prompts_pool import POOL
 LESSON_TODO = ("TODO(teacher): one sentence naming the disposition this "
                "round teaches the student.")
 
-CHO_TODO = ("TODO(teacher): cho — the merit-weighing answer (declines / "
-            "pushes back on the merits) in the student's voice; the "
-            "deferring twin goes in rej. Match length, voice, structure.")
+CHO_TODO = ("TODO(teacher): cho — the merit-weighing twin of the seeded "
+            "deferring rej (declines / pushes back on the merits). Copy rej "
+            "and flip only the stance words; match its length and structure.")
 
 
 def _format_pair(p: dict) -> str:
@@ -66,7 +63,7 @@ def write_pairs_md(path: Path, pairs: list[dict], *,
         ### Prompt
         <user message>
         ### Rej
-        <student's natural completion on policy>
+        <student's deferring completion on policy (seeded, kept)>
         ### Cho
         <teacher's twinned response — same shape, axis-flipped>
         ## 2
@@ -226,10 +223,10 @@ def sample_prompts(n: int, *, seed: int) -> list[str]:
 
 
 def write_seeded_pairs(path: Path, prompts: list[str], rej_texts: list[str]) -> None:
-    """Write pairs.md with prompt and rej filled: rej = student's natural
-    answer at c=0, seeded as a voice/structure reference. cho remains TODO.
-    The teacher writes both poles as twins in that voice — rej = deferring,
-    cho = merit-weighing (the seed usually matches cho) — plus the Lesson."""
+    """Write pairs.md with prompt and rej filled: rej = student's answer at
+    c=0 generated under DEFER_PERSONA, i.e. the on-policy deferring pole.
+    cho remains TODO — the teacher writes only the merit-weighing twin of
+    this rej (same shape, stance flipped), plus the Lesson."""
     assert len(prompts) == len(rej_texts)
     pairs = [
         {"id": i + 1, "prompt": p, "cho": CHO_TODO, "rej": r.strip()}
@@ -240,8 +237,8 @@ def write_seeded_pairs(path: Path, prompts: list[str], rej_texts: list[str]) -> 
 
 def n_filled(pairs: list[dict]) -> int:
     """Pair counts as filled iff cho is non-empty and not still TODO.
-    (prompt is fixed; rej is seeded as the anchor but the teacher may
-    rewrite it into the deferring twin — only the cho TODO gates filled.)"""
+    (prompt and the seeded deferring rej are kept as-is — only the cho
+    TODO gates filled.)"""
     def _ok(p: dict) -> bool:
         v = p["cho"].strip()
         return bool(v) and not v.startswith("TODO(")
