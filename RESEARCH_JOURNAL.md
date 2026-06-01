@@ -263,12 +263,17 @@ Smoke (tiny-random / tiny-pissa, both repos): ~33 runs, mostly K, no signal.
 
 Reading. Two facts dominate.
 
-1. The adapter choice is hardware-forced, not a verdict. Every 27B run is LoRA
-because 27B only fits in nf4, and nf4 can't do PiSSA (PiSSA mutates float W).
-PiSSA was a parallel line on the small bf16 models (gemma-2b-pissa, the svd
-branch) and never beat LoRA there: those runs mostly drop past a couple of
-rounds. So "LoRA for 27B" means "nf4 left no choice," not "PiSSA lost a fair
-fight."
+1. The adapter choice is memory-forced, not a verdict. Every 27B run across all
+three repos (w2schar-mini, the svd worktree, weight-steering-lite) is LoRA/nf4;
+no 27B PiSSA run exists anywhere I looked (checked 2026-06-01). bf16 27B weights
+(~54GB) would fit on the 96GB card, but PiSSA needs that bf16 load, and the
+3-forward KL training graph on top almost certainly OOMs: nf4, with only ~13GB
+of weights, already OOMs at bs=2 (~92/95GB). So 27B runs nf4, and nf4 forces
+LoRA (PiSSA mutates float W, which nf4 buffers can't reversibly hold). PiSSA was
+a parallel line on the small bf16 models (gemma-2b-pissa, the svd branch) and
+never beat LoRA there: those runs mostly drop past a couple of rounds. "LoRA for
+27B" means the bf16 PiSSA needs doesn't fit training, not "PiSSA lost a fair
+fight." (The OOM is inferred from the bs=2 nf4 ceiling, never measured at bf16.)
 
 2. qwen-27b has never produced a clean run, on either repo. The best is the
 worktree's D,K,K,D,D,K (2026-05-25), and even there the three drops are POST
