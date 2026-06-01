@@ -186,8 +186,9 @@ def gen_completions(model, tok, prompts: list[str], *,
     out: list[str] = []
 
     def _msgs(p: str) -> list[dict]:
-        m = [{"role": "user", "content": p}]
-        return [{"role": "system", "content": system}] + m if system else m
+        # gemma-2/3 chat templates reject a `system` role; fold the persona
+        # seed into the user turn so one path serves every student family.
+        return [{"role": "user", "content": f"{system}\n\n{p}" if system else p}]
 
     try:
         for i in tqdm(range(0, len(prompts), batch_size),
