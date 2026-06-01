@@ -169,6 +169,10 @@ CONFIGS: dict[str, RunConfig] = {
         model="google/gemma-2-27b-it",
         teacher="qwen/qwen3.5-9b",
         quant="nf4",
+        # nf4 buffers aren't reversibly writable, so PiSSA's init-time
+        # weight mutation can't bake back out — nf4 profiles must use vanilla
+        # LoRA (same reason as qwen-27b-nf4).
+        adapter="lora",
         train_batch_size=2,
         eval_batch_size=2,
     ),
