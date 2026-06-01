@@ -27,7 +27,7 @@ import json
 from pathlib import Path
 from csm.pipeline import (init_run, latest_round_dir, mark_exam,
                           prepare_round, submit_pairs, train_student)
-from csm.gen.pairs import load_pairs_md, write_pairs_md
+from csm.gen.pairs import load_pairs_md
 
 slug = Path("$SLUG")
 model = "$M"
@@ -63,16 +63,16 @@ def in_band_cho(rej: str) -> str:
             return cho
     raise RuntimeError(f"smoke: no in-band cho for rej (len {n}): {rej!r}")
 
-# Stand-in for the agent: KEEP the seeded rej (anchor), write cho as its
-# in-band twin, leave prompts verbatim (prompt-lock), name a Lesson.
-for p in pairs:
-    p["cho"] = in_band_cho(p["rej"])
-write_pairs_md(rd / "pairs.md", pairs,
-               lesson="Teach the student to weigh requests on their merits before deferring.")
-filled = (rd / "pairs.md").read_text()
+# Stand-in for the agent: build the cho-form the real teacher submits — a
+# `## Lesson` block then `## <id>` + that pair's Cho twin (cho-only; Prompt
+# and seeded Rej stay on disk, submit_pairs merges). Passing the FULL pairs.md
+# here re-injects Prompt/Rej into the cho field → duplicate `### Prompt`.
+lesson = "Teach the student to weigh who is affected before going along."
+cho_form = f"## Lesson\n{lesson}\n" + "".join(
+    f"## {p['id']}\n{in_band_cho(p['rej'])}\n" for p in pairs)
 
 print("\n-- submit_pairs --")
-res = submit_pairs(rd, filled)
+res = submit_pairs(rd, cho_form)
 print(f"   filled={res['filled']}/{res['total']}  min={res['min_to_train']}")
 assert res["filled"] >= 3, f"gate not reached: {res}"
 

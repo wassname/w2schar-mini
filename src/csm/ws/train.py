@@ -510,13 +510,12 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             batch = next(it)
         ip, lp, ap, in_, ln, an = (t.to(device) for t in batch)
 
-        # Wider than the bake point (0.75) so c-scan-free baking stays in
-        # distribution: training sees |C| in [0.5, 2], inference bakes at 0.75.
-        # Lower bound 0.5 (not 0): low-c steps emit gradient that's mostly base-
-        # model noise wrt adapter params (at c≈0 the adapter is ~identity), so
-        # they fit the wrong thing. KL anchor handles the "be quiet at low c"
-        # constraint by itself.
-        C = float(torch.empty(()).uniform_(0.5, 2.0))
+        # C fixed at 1.0 (was U[0.5, 2] per step). We now bake at the trained
+        # strength (init_c=1.0, backoff removed in c_scan), so train-c and
+        # inference-c coincide — no need to spread training over a range to keep
+        # the bake point in-distribution. Pinning concentrates the signal at the
+        # one strength we deploy. KL anchor still handles "be quiet at low c".
+        C = 1.0
         trace = pcgrad_train_step(
             model, lora, ip, lp, ap, in_, ln, an, params,
             C=C, pcgrad=cfg.pcgrad, kl_lambda=cfg.kl_lambda,
@@ -557,7 +556,7 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
 def _log_train_table(traces: list[dict]) -> None:
     """Print the per-step trace as a tabulate plain table.
 
-    SHOULD show: C drift between [0, 2], nll± stable (large jumps = adapter
+    SHOULD show: C fixed at 1.0, nll± stable (large jumps = adapter
     blowing up), kl± monotonically growing with |C|, cos near 0 (orthogonal
     gradients = PCGrad-friendly), lr cosine from 0 → peak → 0, conf flag
     when PCGrad surgery fired."""
@@ -585,9 +584,9 @@ def _log_train_table(traces: list[dict]) -> None:
     # is anchoring the LoRA against the NLL signal and should drop.
     table = tabulate(rows, headers=headers, tablefmt="plain", floatfmt=".3g")
     caption = (
-        "  C: sampled from U[0.5, 2] per step so the adapter has to behave across "
-        "a usable intervention-strength range. Low-c (≈0) was dropped because the "
-        "adapter is ~identity there → gradient is base-model noise, not signal.\n"
+        "  C: fixed at 1.0 — we bake at the trained strength (init_c=1.0, no "
+        "backoff), so training concentrates on the one deployment c rather than "
+        "spreading over a range to stay in-distribution at the bake point.\n"
         "  cos: cos(g_nll, g_kl). Starts near +1 (the -C frame makes the cho/rej "
         "NLL gradients point the same way as the KL pull-to-base); should drift "
         "→0 as the adapter finds a direction that satisfies the margin without "

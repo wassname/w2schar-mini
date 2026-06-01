@@ -90,12 +90,12 @@ class RunConfig:
     overrides to a small value to keep `just smoke` ~3 min."""
 
     # ─ steering coefficient ─
-    signed_C: float = 2.0
+    signed_C: float = 1.0
     """Initial probe coefficient — c_scan walks DOWN from here (×0.5)
-    until pmass ≥ 0.99 × baseline AND all valid_json probes parse. Then
-    apply ×0.75 backoff for cumulative-history safety. Coherent adapters
-    bake near init, fragile ones get tamer baked C. Sidecar — agent
-    never sees it."""
+    until pmass ≥ 0.99 × baseline AND all valid_json probes parse. Backoff
+    is now 1.0 (bake at the passing c). Set to 1.0 to match the fixed
+    train-time C=1.0: a coherent adapter then bakes at exactly the strength
+    it was trained on. Sidecar — agent never sees it."""
 
     # ─ outer loop ─
     n_rounds: int = 2
@@ -171,7 +171,7 @@ CONFIGS: dict[str, RunConfig] = {
         quant="nf4",
         # nf4 buffers aren't reversibly writable, so PiSSA's init-time
         # weight mutation can't bake back out — nf4 profiles must use vanilla
-        # LoRA (same reason as qwen-27b-nf4).
+        # LoRA (same reason as qwen-27b-nf4). LoRA baseline only.
         adapter="lora",
         train_batch_size=2,
         eval_batch_size=2,

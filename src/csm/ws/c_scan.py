@@ -240,7 +240,7 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
 def c_scan(model, tok, lora: ModulatedLoRA, *,
            init_c: float = 1.0,
            gate_frac: float = 0.995,
-           backoff: float = 0.75,
+           backoff: float = 1.0,
            sign: Literal[1, -1] = 1,
            n_vignettes: int = 2,
            max_think_tokens: int = 512,
@@ -248,10 +248,11 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
            json_max_new_tokens: int = 4096,
            enable_thinking: bool = False) -> tuple[float, list]:
     """Walk |c| down by ×0.5 until `pmass ≥ gate × baseline_pmass` AND
-    `valid_json == n_json`. Apply `backoff` to the passing c (e.g. 0.75 →
-    final = sign * c_pass * 0.75) for extra safety margin. The pmass +
-    valid_json AND gate is tight but bake-into-history compounds across
-    rounds; backoff hedges against cumulative fragility."""
+    `valid_json == n_json`. `backoff=1.0` now bakes at the passing c directly
+    (final = sign * c_pass): we train at fixed C=1.0 and want to deploy at the
+    trained strength, so hedging the bake below the coherence ceiling would
+    deploy weaker than trained. Bump backoff <1 only if cumulative history-bake
+    fragility resurfaces."""
     from tabulate import tabulate
 
     # SHOULD: c_scan calibration prompts match the dialogue probe register
