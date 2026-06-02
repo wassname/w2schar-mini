@@ -5,16 +5,28 @@ direction. This note pins down, directly: how much each pole contributes to that
 direction, whether the contribution is computed in gradient or loss space, and
 why exactly one of the four loss terms needs a normalization cap.
 
-![One adapter is one line through c=0; two non-collinear targets can't both be hit, so v settles at the compromise, and PCGrad reconciles the two end-pulls](steering_direction.svg)
+![Two panels. A: one adapter is one line through c=0, compromising between cho and rej. B: in gradient space PCGrad drops the conflict leg of the two frame gradients and keeps the perpendicular leg, a Pythagorean split set by the angle between them](steering_direction.svg)
 
-The adapter is one line through `c=0` — a single direction `v`, with `+C·v`
-aimed at cho and `-C·v` at rej. When base, cho and rej are not collinear no line
-reaches both targets, so `v` settles at a weighted compromise and the two ends
-fall short (the dashed misses). Those two misses are the `+C` and `-C` frame
-pulls; PCGrad keeps only their agreeing component. Which way the compromise
-leans is set by the bounded CE gradient (next section), not the loss value: in
-practice rej is the on-policy seed (`rej ≈ base`, near `c=0`), so its pull is the
-weaker one and `v` leans toward cho.
+Panel A (behaviour space): the adapter is one line through `c=0` — a single
+direction `v`, with `+C·v` aimed at cho and `-C·v` at rej. When base, cho and rej
+are not collinear no line reaches both targets, so `v` settles at a weighted
+compromise and the two ends fall short. Those two misses are the `+C` and `-C`
+frame gradients, evaluated at the pinned `c` (so they are the oblique gap to the
+target, not a perpendicular drop to the line).
+
+Panel B (gradient space, where PCGrad acts): the two frame gradients sit at an
+angle `φ`. PCGrad projects each off the other, which is a Pythagorean split of
+`g+`:
+
+$$\|g_+\|^2 = \underbrace{(\|g_+\|\cos\varphi)^2}_{\text{conflict, removed}} + \underbrace{(\|g_+\|\sin\varphi)^2}_{\text{kept, }\perp\,g_-}$$
+
+`cos φ` is exactly the `cos` column in the training trace; PCGrad's surgery
+(`conf=1`) fires only when `φ > 90°` (`cos φ < 0`). In the run above `cos`
+drifts to ≈0 (`φ ≈ 93°`), so PCGrad shaves only a sliver — the contrastive
+margin already drove the two frames near-perpendicular, which is the designed
+behaviour. Which way the surviving update tilts `v` is set by the bounded CE
+gradient magnitudes (next section): rej is the on-policy seed (`rej ≈ base`), so
+`‖g-‖` is small and `v` leans toward cho.
 
 ## The direction lives in gradient space
 
