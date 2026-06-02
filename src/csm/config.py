@@ -85,13 +85,14 @@ class RunConfig:
     """Train-time max sequence length for collating pairs."""
 
     # ─ steering coefficient ─
-    signed_C: float = 1.0
-    """Initial probe coefficient — c_scan walks DOWN from here (×0.5)
-    until pmass ≥ gate × baseline AND distinct3 ≥ 0.5 × baseline over the
-    deployment probes. Backoff is now 1.0 (bake at the passing c). Set to
-    1.0 to match the fixed
-    train-time C=1.0: a coherent adapter then bakes at exactly the strength
-    it was trained on. Sidecar — agent never sees it."""
+    signed_C: float = 1.5
+    """Initial probe coefficient — c_scan walks DOWN from here (×2/3 per fail)
+    until pmass ≥ gate × baseline AND valid_json ≥ baseline AND distinct3 ≥
+    0.5 × baseline over the deployment probes. Backoff is now 1.0 (bake at the
+    passing c). Start ABOVE the train-time C=1.0 so a robust adapter can bake at
+    >1 (more steering strength when it stays coherent there); the finer ×2/3
+    step then resolves the usable band instead of halving past it. Sidecar —
+    agent never sees it."""
 
     # ─ outer loop ─
     n_rounds: int = 2

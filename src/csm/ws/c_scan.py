@@ -30,9 +30,9 @@ to the last turn), so turn-1 register-collapse is still caught faithfully. RJ
 2026-06-02: an off-register canary certified signed_C=1.0 while the on-register
 interview collapsed; the canary now IS the interview, so it cannot miss that again.
 
-Walk |c| down ×0.5 until all three pass over BOTH probesets, then `backoff`
-(default 1.0 = bake at the passing c; we train at C=1.0 and deploy at the trained
-strength).
+Walk |c| down from 1.5 by ×2/3 (33%) until all three pass over BOTH probesets,
+then `backoff` (default 1.0 = bake at the passing c; we train at C=1.0 and deploy
+at the trained strength, which may be >1 if the adapter stays coherent there).
 
 IID + OOD: the canary runs the deployment `PROBES` (IID — the register that
 collapses) AND `STRESS_PROBES` (OOD — neutral multi-turn, long single-turn, and a
@@ -56,7 +56,15 @@ from csm.gen.probes import PROBES
 from csm.ws.adapter import ModulatedLoRA
 
 
-C_MIN, MAX_PROBES = 0.05, 8
+# Walk start at init_c=1.5 (cfg.signed_C) and step ×2/3 (33% down) each fail:
+# 1.5 → 1.0 → 0.67 → 0.44 → 0.30 → 0.20 → 0.13 → 0.088 → 0.059. Finer than the
+# old ×0.5 halving (1.0 → 0.5 → 0.25 → 0.125) because coherence_check has run-to-
+# run randomness, and halving overshoots: a 4× signed_C gap (0.5 vs 0.125) opened
+# between two equally-coherent-by-json adapters in the same run when one barely
+# missed the pmass gate at 0.5 (9b PiSSA, 2026-06-02). 33% steps resolve the
+# usable band (0.5–1.5) instead of skipping past it. MAX_PROBES=9 keeps the floor
+# reachable at the finer step.
+C_MIN, MAX_PROBES, STEP_FRAC = 0.05, 9, 2 / 3
 
 
 def _distinct_n(text: str, n: int = 3) -> float:
@@ -228,8 +236,8 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
            batch_size: int = 2,
            probe_max_new_tokens: int = 2048,
            enable_thinking: bool = False) -> tuple[float, list]:
-    """Walk |c| down ×0.5 over the deployment probes until all three AND-gated
-    coherence signals hold vs the c=0 base: `pmass ≥ gate × baseline_pmass` AND
+    """Walk |c| down from init_c by ×2/3 over the deployment probes until all
+    three AND-gated coherence signals hold vs the c=0 base: `pmass ≥ gate × baseline_pmass` AND
     `valid_json ≥ baseline_json` AND `distinct3 ≥ 0.5 × baseline_distinct`. pmass
     (forced-choice format-follow) is guided-suffix-rescuable, so valid_json (the
     model must emit {"ans":bool} itself after long prose) and distinct3 (looping)
@@ -293,7 +301,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
             last_sample = {"c": sign * c, "gens": gens, "ok": ok, "note": note}
         if ok:
             break
-        c *= 0.5
+        c *= STEP_FRAC
         if c < C_MIN:
             warn = f"never coherent (c<{C_MIN}); clamped"
             c = C_MIN

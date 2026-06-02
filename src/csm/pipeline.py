@@ -453,8 +453,8 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
                              history_bake=hb, enable_thinking=cfg.enable_thinking,
                              adapter_cls=adapter_cls)
 
-    # Calibrate. cfg.signed_C is the initial probe; c_scan walks down
-    # ×0.5 until pmass_format ≥ 0.98 × baseline, no backoff. Coherent
+    # Calibrate. cfg.signed_C (1.5) is the initial probe; c_scan walks down
+    # ×2/3 until pmass_format ≥ 0.98 × baseline, no backoff. Coherent
     # adapters bake at init; fragile ones get tamer baked coefficients.
     # pmass_format = tinymfv format-follow mass at the JSON answer slot
     # (sensitive to autoregressive collapse; the prior top-K surrogate
