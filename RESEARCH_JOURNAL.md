@@ -161,6 +161,54 @@ nll+ flattens/rises. Lets us TEST "overtraining doesn't hurt" instead of
 inferring it from flat train-nll, and gives kl a generalization-gap readout.
 Lands on the next run (24/25 ran on the old trainer).
 
+### RESOLUTION (task 25, -revert, low kl=0.064/lr=2e-4/min=60 -- the 9536ea0 knobs)
+Decisive arm landed. Lowering kl did NOT recover strength -- it made things WORSE.
+
+signed_C and the coherence walk (mean_len at each c; baseline len=2610):
+
+| run    | kl    | signed_C | c=1.5 len | c=1.0 len | c=0.667 | verdict        |
+|--------|-------|----------|-----------|-----------|---------|----------------|
+| task24 | 2.0   | 0.667    | fail-json | 4562      | pass    | drop (CYA-ward)|
+| task25 | 0.064 | 0.444    | 12327     | 8713      | fail    | drop           |
+
+The low-kl adapter RUNS AWAY to 12327 tokens at c=1.5 (4.7x baseline) -- wild
+free-gen incoherence -- pmass 0.0, distinct3 0.078, and only becomes coherent
+at c=0.444. Heavy kl (task24) stays bounded (4562) and banks HIGHER (0.667).
+So more kl = more coherent = higher bankable signed_C. The reverse-KL anchor is
+doing exactly its job (zero-forcing against mass-adding runaway gen). My ~70%
+prior that "lower kl recovers strength at n_rounds=1" was WRONG.
+
+Direction (both marginal, same-action): task25 POST is slightly MORE principled
+than task24's and LESS CYA -- it names the value tension ("preserving life but
+NOT at [the cost of obedience]", mars), and WHY the protocol exists ("prevent
+medication errors and ensure multiple perspectives", clinical) rather than
+task24's "releasing puts me at legal risk". But the actions are unchanged and
+the move is small. The base refuses/cites-policy on all three probes at c=0, so
+there is little target-ward headroom either way.
+
+INTERPRETATION / DECISION:
+1. kl is NOT the lever. Keep heavy kl; it buys real long-horizon coherence the
+   new canary correctly charges for. Do not chase lower kl.
+2. The 9536ea0 "regression" is mostly NOT "we throttled a good adapter." It is
+   "we added a multi-turn/free-gen json+len coherence canary (entries a/c) that
+   correctly catches the low-kl adapter's runaway incoherence -- which the OLD
+   c_scan was blind to." The old run looked strong at c=1.5 because nothing
+   checked its long-horizon coherence; on today's canary it would walk down too.
+3. Tasks 26 (mid kl) and 27 (vlong) are kl/length variants -> they cannot crack
+   a non-kl bottleneck. Leaving them STASHED; not running them.
+4. The real bottleneck is asymmetric probe saturation (base already refuses at
+   c=0) + cho pairs that do not create target-ward headroom (the teacher's own
+   drop reason: chos "could have named affected parties more directly than
+   'users' or 'crew'", and pairs 5/15 "conflate ethical considerations with
+   corporate metrics"). The leverage is the PROBE+PAIR redesign (plan items
+   2-3): rebuild clinical_cap_override so PRE SPLITS at baseline (target-ward
+   headroom), and push chos to name concrete affected people. That is the next
+   experiment; kl-sweeping is done.
+
+Operational: killed task 25 after round00 (a dropped round at n_rounds=1 retries
+into round01, which OOMs on the un-freed ~85GiB train reserve -- task24 showed
+this; round00 artifacts are written first so nothing decisive was lost).
+
 ## 2026-06-02 (f) -- we throttled the strong 9b config in 4 waves; recovery sweep queued
 
 commit: gate_frac per-profile + json tolerate-1 + recovery profiles.
