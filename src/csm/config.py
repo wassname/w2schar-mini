@@ -65,7 +65,11 @@ class RunConfig:
 
     # ─ dialogue ─
     eval_batch_size: int = 4
-    dialogue_max_new_tokens: int = 2048
+    dialogue_max_new_tokens: int = 1024
+    """Per-turn gen cap for interview + c_scan probes. Coherent answers run
+    ~325 tok/turn, so 1024 keeps them (and their JSON tail) whole while halving
+    the runaway-gen budget an incoherent adapter spends (task25 hit ~3k tok at
+    c=1.5). Shorter = faster c_scan and less room to spiral."""
     enable_thinking: bool = False     # Qwen3 family
 
     # ─ data ─
@@ -94,14 +98,14 @@ class RunConfig:
     step then resolves the usable band instead of halving past it. Sidecar —
     agent never sees it."""
 
-    gate_frac: float = 0.995
+    gate_frac: float = 0.97
     """c_scan pmass gate: a probe passes only if pmass ≥ gate_frac × baseline.
-    Baseline pmass is near-ceiling (~0.999) so 0.995 leaves ~0.005 budget and
-    pmass becomes the BINDING gate — it rejects c that valid_json (the real
-    free-gen multi-turn canary) passes cleanly (9b task 23: c=0.5 had json 6/6
-    but pmass 0.982 < 0.994 → fail-pmass → walked to 0.125-0.5). Lower this
-    (0.95) to make valid_json + distinct3 the binding coherence signals and let
-    pmass be a sanity floor for catastrophic answer-slot collapse only."""
+    Baseline pmass is near-ceiling (~0.999). At 0.995 (~0.005 budget) pmass was
+    the BINDING gate — it rejected c that valid_json (the real free-gen multi-
+    turn canary) passed cleanly (9b task 23: c=0.5 had json 6/6 but pmass 0.982
+    < 0.994 → fail-pmass → walked to 0.125-0.5). 0.97 (~0.03 budget) lets
+    valid_json + distinct3 be the binding coherence signals and leaves pmass a
+    sanity floor for catastrophic answer-slot collapse only."""
 
     # ─ outer loop ─
     n_rounds: int = 2
