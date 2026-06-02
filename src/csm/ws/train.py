@@ -593,6 +593,14 @@ def _log_train_table(traces: list[dict]) -> None:
         "fighting the anchor. Stuck at ±1 = tug-of-war on one axis.\n"
         "  ‖g_nll‖ / ‖g_kl‖ / ‖g‖: gradient pressure from each loss term and "
         "the combined update. ‖g_kl‖ ≳ ‖g_nll‖ late in training = kl_lambda "
-        "too high (KL is dominating the signal); drop it."
+        "too high (KL is dominating the signal); drop it. Where g_nll and g_kl "
+        "first equalise marks the handover from intervention-led to anchor-"
+        "contested updates; g_kl staying ≳ g_nll past that = anchor eating the "
+        "intervention.\n"
+        "  nll+/nll-: ratio of nll(cho|+C) to nll(rej|-C). cho is the teacher's "
+        "edit (off-policy), rej the student's own seeded answer (on-policy), so "
+        "1-4x is normal; ≥10x late means cho is off-policy — the adapter is "
+        "learning to suppress the seed (easy) far more than produce the target "
+        "(hard), so the steering is lopsided toward not-that over be-this."
     )
     logger.info(f"\ntraining trace:\n{table}\n{caption}\n")

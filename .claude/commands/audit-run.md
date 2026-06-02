@@ -50,13 +50,50 @@ level. Quote primary sources; never trust the teacher's own summary.
    twins in length/register/format, differing only in the trait; no persona-echo,
    no AI-disclaimer breaks. Measure cho vs rej length (cheap python over pairs.md);
    a systematic length/verbosity gap becomes the axis.
-3. Training — quote the FULL per-step train table. Did ‖Δs‖ move off init? Did
-   cos(g_nll,g_kl) drift toward 0 and conf reach 1? Flat ‖Δs‖ = never trained.
+3. Training — quote the FULL per-step train table, then answer these five (the
+   highest-signal training questions from real audits; cols: `nll+`=nll(cho|+C),
+   `nll-`=nll(rej|-C), both raw mean NLL, both should descend). They are NOT
+   mutually exclusive and NOT exhaustive: they overlap (off-policy cho surfaces
+   in a, c, AND e at once) and they don't cover every failure — treat them as
+   complementary lenses, and add your own if the trace shows something they miss:
+   a. Off-policy imbalance: nll+/nll- ratio over the run. 1-4x is normal; ≥10x
+      late means one side is off-policy. cho is the teacher's *edit* (off-policy),
+      rej the student's *own* seeded answer (on-policy), so a blown-out ratio is
+      usually nll+ stuck high = cho off the student's manifold. Then the adapter
+      is learning to *suppress the seed* (easy) more than *produce the target*
+      (hard) — steering lopsided toward not-that over be-this. Flag it.
+   b. Gradient handover: where do ‖g_nll‖ (intervention) and ‖g_kl‖ (stability
+      anchor) first equalise? If ‖g_kl‖ stays ≳ ‖g_nll‖ past that point,
+      kl_lambda is too high — the anchor is eating the intervention; recommend
+      dropping it.
+   c. Trade-off vs underfit: a healthy end is nll± low + cos≈0 + kl± *plateaued*
+      (bounded leak from base). NOT "kl improving (decreasing)" — kl decreasing
+      means the adapter is collapsing back to base and losing the intervention.
+      nll+ stalled high while nll- bottoms out = the underfit-cho case (see a),
+      not a clean trade-off.
+   d. ‖Δs‖: did it grow off init (adapter actually learning, not frozen by
+      underflow/weight-decay) and then plateau (converged)? Note WHEN it plateaus
+      — usually it tracks lr-anneal + nll-saturation, later than the g_nll≈g_kl
+      crossover, so don't expect those to coincide. Flat ‖Δs‖ = never trained.
+   e. cos(g_nll,g_kl) should drift +1 → 0 (orthogonalising); stuck at ±1 =
+      single-axis tug-of-war. conf=1 firing often late = the cho-pull and
+      rej-push gradients conflict (PCGrad surgery active), another off-policy-cho
+      tell.
 4. Calibration — quote the FULL c_scan table (stage/c/pmass/json/rep/len). What
-   signed_C, and why? A tiny signed_C (e.g. 0.25) = small coherence budget, so the
-   deployed adapter barely moves behaviour even when the direction is real. Separate
-   "no effect" from "real effect throttled by coherence." Ballooning `len` = the
-   incoherence failure mode.
+   signed_C, and why? Three cases, and they mean different things:
+   - LOW (walked well below init): small coherence budget, so a real direction
+     barely moves behaviour. Read the `json` and `pmass` columns to see WHICH
+     gate held it back (fail-json = free-gen collapse; fail-pmass = answer-slot
+     misalignment). Separate "bad/empty intervention" from "real effect throttled
+     by coherence."
+   - HIGH/pinned at init WITH pmass≈baseline AND json==baseline at the top c: the
+     probe could not SEPARATE the adapter from base — under-calibrated/blind, NOT
+     "safe at full strength" (task-13: signed_C=1.0 here, POST dialogue still
+     collapsed). When neither gate moved off baseline, doubt the probe
+     distribution before trusting the ceiling — esp. that the canary is
+     multi-turn (deployment is multi-turn; a single-turn-only canary is blind to
+     cross-turn collapse).
+   - Ballooning `len` = the incoherence failure mode leaking in.
 5. Keep/drop — quote the `reason`, then read the interview_pre/post turns yourself.
    Did PRE actually differ from POST the way claimed, or is the cited "movement"
    paraphrase or a dropped hedge (a confound the brief says to reject)?
