@@ -8,27 +8,29 @@ Forked from `weight-steering-lite/src/wsl/train.py`, trimmed:
 
 Per (prompt, cho, rej), sampled C ∈ (0, 1]:
 
-    nll̃_b(x) ≡ nll_b(x) / max(detach(nll_b(x)), 1)
-    L_pos_nll = C · (mean_b nll̃(cho|+C) − mean_b nll̃(rej|+C))
-    L_neg_nll = C · (mean_b nll̃(rej|−C) − mean_b nll̃(cho|−C))
+    nll̃_b(x) ≡ nll_b(x) / max(detach(nll_b(x)), 1)     (PUSH side only)
+    L_pos_nll = C · (mean_b nll(cho|+C) − mean_b nll̃(rej|+C))
+    L_neg_nll = C · (mean_b nll(rej|−C) − mean_b nll̃(cho|−C))
 
 Margin formulation: subtraction cancels the shared-fluency direction
 (both cho and rej would lower nll under a fluency-only adapter), so
 the surviving gradient component is the persona axis.
 
-**Per-sample detach-normalize** (at the loss, per side, per sample):
-each per-sample nll is divided by its own detached value (floored at
-1) before batch-averaging. Cross-entropy is asymmetric — the cho-pull
-gradient self-limits as nll_cho → 0, but the rej-push gradient grows
-without bound (∇(-log p) ∝ 1/p), so under raw margin the unbounded
-rej-push dominates θ-updates and corrupts cho-pull as collateral
-damage (task 101: nll(cho|+C) drifts 2.4 → 3.2 while nll(rej|-C) of
-the bounded side drifts 2.9 → 2.1; occasional per-step blow-ups to
-nll ~ 60 with ‖g‖ ~ 5800). Dividing each sample by its detached nll
-makes ‖per-sample grad‖ approximately scale-free, so hard pairs and
-the rej-push side can't run away. The clamp floor at 1 keeps easy
-pairs (nll < 1) from being amplified — only caps the runaway, doesn't
-boost convergence.
+**Asymmetric cap — PUSH only.** Cross-entropy is asymmetric: the PULL
+term (minimize nll toward the label) has a bounded, self-limiting
+gradient that → 0 as nll → 0; the PUSH term (maximize nll away from
+the label) grows without bound (∇(-log p) ∝ 1/p) and under raw margin
+dominates θ-updates, blowing up to nll ~ 60 with ‖g‖ ~ 5800 (task 101).
+So we cap ONLY the two PUSH terms via `_normed_mean` (divide each
+sample by its detached nll, floored at 1 → ‖per-sample grad‖ scale-
+free, runaway tamed) and leave the two PULL terms at raw `.mean()`.
+
+Why PULL stays raw: capping it (task 101/20 capped BOTH) inverted the
+intended balance. The on-policy rej-pull (nll < 1, floored → unscaled)
+ran at full gradient and learned from step 1, while the off-policy
+cho-pull (nll ~ 3 → throttled ×1/3) — the actual behaviour change —
+stayed stuck. Raw PULL lets the far pole (cho) make the bigger
+gradient, which is the direction we want to learn.
 
 Replaces the post-autograd per-side `TARGET_G_NORM=5.0` equalization
 in 6e1ec5c, which equalized BETWEEN the two C-sign frames but not
@@ -170,10 +172,12 @@ def _per_sample_nll(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
 
 
 def _normed_mean(nll_b: torch.Tensor) -> torch.Tensor:
-    """nll_b / max(detach(nll_b), 1), then batch-averaged. Caps each
-    sample's per-step gradient at ~unit by cancelling the 1/p blow-up of
-    CE's rej-push side. Floor at 1 leaves the cho-pull side untouched
-    near convergence (nll < 1 passes through unscaled)."""
+    """nll_b / max(detach(nll_b), 1), then batch-averaged. PUSH-side only:
+    caps each sample's per-step gradient at ~unit by cancelling the 1/p
+    blow-up of CE's away-from-label (maximize-nll) side. Floor at 1 means
+    samples already below nll=1 pass through unscaled. PULL terms do NOT
+    use this — see module docstring (capping pull throttled the off-policy
+    cho-pull and inverted the intended balance)."""
     denom = nll_b.detach().clamp_min(1.0)
     return (nll_b / denom).mean()
 
@@ -269,7 +273,14 @@ def pcgrad_train_step(
         nll_cho_p_b = _per_sample_nll(out_cp.logits.float(), lp)
         out_rp = model(input_ids=in_, attention_mask=an)
         nll_rej_p_b = _per_sample_nll(out_rp.logits.float(), ln)
-        L_pos_nll = C * (_normed_mean(nll_cho_p_b) - _normed_mean(nll_rej_p_b))
+        # PULL (cho toward labels): raw mean — CE pull is bounded and self-
+        # limits as nll→0, so it needs no cap; full gradient lets the
+        # off-policy cho (far, nll~3) DRIVE the behaviour change instead of
+        # being throttled to 1/nll (task 101/20: capping both inverted the
+        # dominance — on-policy rej-pull learned from step 1, cho-pull stuck).
+        # PUSH (rej away from labels): keep the 1/nll cap — maximizing nll is
+        # the unbounded ∇(-log p)∝1/p runaway _normed_mean was built to tame.
+        L_pos_nll = C * (nll_cho_p_b.mean() - _normed_mean(nll_rej_p_b))
         mean_nll_p = nll_cho_p_b.mean().detach().item()
         if use_kl:
             kl_p = _kl_topk_base(out_cp.logits, base_top_logp_p, base_top_idx_p, lp)
@@ -289,7 +300,8 @@ def pcgrad_train_step(
         nll_rej_n_b = _per_sample_nll(out_rn.logits.float(), ln)
         out_cn = model(input_ids=ip, attention_mask=ap)
         nll_cho_n_b = _per_sample_nll(out_cn.logits.float(), lp)
-        L_neg_nll = C * (_normed_mean(nll_rej_n_b) - _normed_mean(nll_cho_n_b))
+        # PULL (rej toward labels) raw; PUSH (cho away) capped — see L_pos.
+        L_neg_nll = C * (nll_rej_n_b.mean() - _normed_mean(nll_cho_n_b))
         mean_nll_n = nll_rej_n_b.mean().detach().item()
         if use_kl:
             kl_n = _kl_topk_base(out_rn.logits, base_top_logp_n, base_top_idx_n, ln)
@@ -566,19 +578,22 @@ def _log_train_table(traces: list[dict]) -> None:
     keys    = ["step", "C", "nll+",   "nll-",   "kl+",   "kl-",   "cos",   "‖Δs‖", "‖g_nll‖", "‖g_kl‖", "‖g‖", "lr", "conf"]
     headers = ["step", "C", "nll+ ↓", "nll- ↓", "kl+ ↓", "kl- ↓", "cos →0", "‖Δs‖", "‖g_nll‖", "‖g_kl‖", "‖g‖", "lr", "conf"]
     rows = [[t[k] for k in keys] for t in traces]
-    # SHOULD (margin loss + detach-norm + PiSSA): nll+ AND nll- both descend
-    # — nll+ is nll(cho|+C), nll- is nll(rej|-C), both are pull-toward-labels
-    # under their own C-sign frame, so both should fall as the adapter
-    # opens the margin (earlier "nll- ascending" SHOULD was reading the
-    # columns as cho/rej in one forward — wrong). ‖Δs‖ growing (adapter
+    # SHOULD (margin loss + PUSH-only cap + PiSSA): nll+ AND nll- both descend
+    # — nll+ is nll(cho|+C), nll- is nll(rej|-C), both are PULL-toward-labels
+    # under their own C-sign frame and now BOTH run at raw (uncapped) gradient,
+    # so both should fall as the adapter opens the margin. nll+ is the
+    # off-policy cho-pull (the behaviour change); under the old symmetric cap
+    # it was throttled ×1/nll and stayed stuck ~3 while nll- descended from
+    # step 1 (task 20). The push-only cap is meant to UNSTICK nll+: if nll+ is
+    # still flat across all steps while nll- descends, the cap removal didn't
+    # take or the cho target is unreachable at this lr. ‖Δs‖ growing (adapter
     # actually learning, not frozen by bf16 underflow / weight decay); cos
     # drifting →0 (g_nll and g_kl orthogonalise as the adapter finds a
     # direction that satisfies the margin without fighting the KL anchor —
     # cos staying near ±1 means the two losses are colinear, the adapter
     # is being pulled into a single tug-of-war axis); kl± should stay low
     # (anchor holds), nll± both descend, lr cosine-anneals; conf=0 (no PCGrad
-    # surgery needed). nll+ drifting UP while nll- descends = within-side
-    # asymmetry returning — _normed_mean broken or bypassed. ‖g_nll‖ and
+    # surgery needed). ‖g_nll‖ and
     # ‖g_kl‖ broken out so we can tell which side
     # drives a noisy ‖g‖ — if ‖g_kl‖ >> ‖g_nll‖ consistently, kl_lambda
     # is anchoring the LoRA against the NLL signal and should drop.
