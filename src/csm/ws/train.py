@@ -182,6 +182,30 @@ def _normed_mean(nll_b: torch.Tensor) -> torch.Tensor:
     return (nll_b / denom).mean()
 
 
+@torch.no_grad()
+def _val_nll(model, lora, val_pairs: list[dict], tok, max_len: int,
+             *, C: float, enable_thinking: bool) -> tuple[float, float]:
+    """Held-out nll(cho|+C), nll(rej|-C): the val analogues of the train
+    nll+/nll- columns, on pairs the adapter never trained on. cho is the
+    teacher's OFF-policy edit, so val nll+ falling means the adapter LEARNS
+    the target direction rather than memorizing the train cho — the one
+    signal that distinguishes a converged fit from an overfit one (train
+    nll alone cannot)."""
+    ds = PairDataset(val_pairs, tok, max_len, enable_thinking=enable_thinking)
+    ip, lp, ap, in_, ln, an = (
+        t.to(next(model.parameters()).device)
+        for t in _pair_collate([ds[i] for i in range(len(ds))], tok.pad_token_id))
+    was_training = model.training
+    model.eval()
+    with lora(model, c=+C):
+        nll_cho = _per_sample_nll(model(input_ids=ip, attention_mask=ap).logits.float(), lp).mean()
+    with lora(model, c=-C):
+        nll_rej = _per_sample_nll(model(input_ids=in_, attention_mask=an).logits.float(), ln).mean()
+    if was_training:
+        model.train()
+    return float(nll_cho), float(nll_rej)
+
+
 _KL_TOPK = 256
 
 
@@ -472,6 +496,16 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
     `adapter_cls`: ModulatedLoRA (default) or ModulatedPiSSA.
     """
     torch.manual_seed(cfg.seed)
+
+    # Hold out up to 3 pairs (~25%) as an overfit canary — never trained on,
+    # never used for PiSSA calibration. Pool is ~15 so this is noisy, but it
+    # is the only window into generalization vs memorization. Skipped when the
+    # pool is too small (e.g. tiny smoke at 4 pairs → 1 val, 3 train).
+    perm = torch.randperm(len(pairs), generator=torch.Generator().manual_seed(cfg.seed)).tolist()
+    n_val = min(3, len(pairs) // 4)
+    val_pairs = [pairs[i] for i in perm[:n_val]]
+    pairs = [pairs[i] for i in perm[n_val:]]
+
     if adapter_cls is ModulatedPiSSA:
         calib = _capture_calibration_activations(
             model, tok, pairs, cfg, enable_thinking=enable_thinking,
@@ -514,6 +548,8 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
     it = iter(loader)
     pbar = tqdm(range(cfg.steps), desc="train", leave=False)
     traces: list[dict] = []
+    val_traces: list[dict] = []
+    _VAL_EVERY = 30
     for step in pbar:
         try:
             batch = next(it)
@@ -558,11 +594,39 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             "conf": int(trace["conflict"]),
         })
 
+        if val_pairs and (step % _VAL_EVERY == 0 or step == cfg.steps - 1):
+            v_cho, v_rej = _val_nll(model, lora, val_pairs, tok, cfg.max_len,
+                                    C=C, enable_thinking=enable_thinking)
+            val_traces.append({"step": step,
+                               "train_nll+": trace["L_pos_nll"], "val_nll+": v_cho,
+                               "train_nll-": trace["L_neg_nll"], "val_nll-": v_rej})
+
     if history_bake is not None:
         history_bake.set_gate(lambda: True)              # restore inference default
 
     _log_train_table(traces)
+    _log_val_table(val_traces)
     return lora
+
+
+def _log_val_table(val_traces: list[dict]) -> None:
+    """Print the held-out overfit canary. Empty (pool too small) → skipped."""
+    if not val_traces:
+        return
+    from tabulate import tabulate
+    keys    = ["step", "train_nll+", "val_nll+", "train_nll-", "val_nll-"]
+    headers = ["step", "train nll+ ↓", "val nll+ ↓", "train nll-", "val nll-"]
+    rows = [[t[k] for k in keys] for t in val_traces]
+    # SHOULD: train nll+ and val nll+ DESCEND TOGETHER → the adapter learns the
+    # target direction, generalizing past the train cho. OVERFIT tell: train
+    # nll+ keeps dropping while val nll+ FLATTENS or RISES — then the extra
+    # steps are memorizing, and earlier stopping / more kl would help. val nll+
+    # is the load-bearing column (cho is the teacher's off-policy edit, so it
+    # is the genuine generalization probe); val nll- (rej is on-policy, easy)
+    # should already be low. With ~3 val pairs this is noisy — read the trend
+    # across rows, not any single digit.
+    table = tabulate(rows, headers=headers, tablefmt="plain", floatfmt=".3g")
+    logger.info(f"\nval trace (overfit canary, held-out pairs):\n{table}\n")
 
 
 def _log_train_table(traces: list[dict]) -> None:
