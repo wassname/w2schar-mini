@@ -12,6 +12,52 @@ as "recorded at the time," not re-measured.
 
 ---
 
+## 2026-06-02 (c) -- the calibration blind spot is REGISTER, not topic; canary now on-distribution held-out (task 15 -> 16)
+
+**Introduction.** Task 15 (slug `20260602T023553`, the half/half rebalance from
+entry (b)) still calibrated `signed_C=1.0` and still collapsed POST. Both rounds
+dropped: round00 POST = "while while" loops + fused words at c=1.0; round01 walked
+to signed_C=0.125, POST coherent, but dropped for PRE==POST (no movement). Goal:
+find why the canary certifies a coherence ceiling deployment never has, and fix it
+without leaking the eval.
+
+**Methods.** Applied /ml-debug (multiple hypotheses, weigh by evidence). Read both
+generation paths: c_scan uses `ModulatedLoRA` hooks, the interview uses `baked()`.
+Compared their math; checked quant backend, sampling, horizon, and the printed
+gens at matched c.
+
+**Results.**
+
+| hypothesis | verdict | evidence |
+|---|---|---|
+| bake != hook | refuted | gemma-27b is nf4 -> `baked()` quant path is a forward hook adding `c*(a/r)*BAx` in bf16, identical to the ModulatedLoRA hook; nf4 weight untouched, no requant |
+| sampling/thinking differ | refuted | both `do_sample=False`, both `enable_thinking=False` |
+| longer horizon collapses | refuted as cause | canary stops at JSON tail ~500 tok (coherent); interview collapses on TURN 1 (~512 tok), before its 3-turn accumulation; length is a compounder, not the trigger |
+| double-scale in interview | refuted | round00 has no history; `current_spec` baked once at `c=signed_C` |
+| **register (not topic) triggers collapse** | **confirmed** | canary probe 6 = moral ICU-triage ESSAY, coherent at c=1.0 (distinct3=0.83, json 6/6); deployment clinical_cap (same moral topic, first-person agent under authority pressure, forced action) collapses at the same c=1.0. Topic held constant, register varied -> only the agentic-authority register collapses |
+| adapter globally degenerate (cho quality) | refuted as coherence cause; resurfaces as squeeze | round01 @c=0.125 is clean prose on the exact probes that collapse at c=1.0 -> lowering c restores coherence; but at the coherent c the steering is too weak to move behaviour (PRE==POST) |
+
+**Interpretation.** The delta `c*(a/r)*BAx` (a/r=2 at r=16) is largest where `x`
+is on the trained distribution — first-person agent, authenticated authority
+pushing a questionable action, forced to act. That is exactly the deployment
+register, and exactly where every canary probe (even the moral essay) was absent.
+So the off-register canary measures a ceiling the deployment never reaches.
+
+**Action (commit, queued task 16).** Replaced the 3 neutral multi-turn canary
+probes with 3 held-out SAME-DISTRIBUTION probes (finance / grid / drone-fleet:
+agentic authority-conflict, forced action, 3-turn escalation) — NOT the eval
+probes (`csm.gen.probes.PROBES`), since importing those would tune signed_C on the
+scenarios movement is scored on (eval leak). Kept the 3 single-turn JSON_PROMPTS as
+the off-distribution global-degeneracy guard (they caught round01). 50% on-
+distribution. distinct3 scored over all turns (collapse is immediate), valid_json
+on the JSON-tailed final reply. Smoke-validated the path (n_json=6, no crash).
+
+**Open (next).** The squeeze: round01 showed coherent@0.125 but no movement, and
+collapse@1.0. If task 16's on-register canary walks to a coherent c that ALSO shows
+no PRE/POST movement, the intervention is too blunt (r=16 over 60% of layers, a/r=2)
+— the next lever is a sharper/narrower adapter, not the canary. Also still open:
+off-policy cho (entry (b), 10-50x nll imbalance) and stale-cho bleed (tasklist #10).
+
 ## 2026-06-02 (b) -- task-13 training trace: off-policy cho (10-50x nll imbalance); c_scan rebalanced to half multi-turn
 
 **Introduction.** Reviewed task-13's per-step training trace (the SHOULD
