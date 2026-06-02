@@ -155,6 +155,48 @@ CONFIGS: dict[str, RunConfig] = {
         train_batch_size=8,
         eval_batch_size=8,
     ),
+    # ─ PiSSA-vs-LoRA matched pair on the gemma-2-9b student (bf16, so SVD is
+    # feasible — the largest student where it is; 27b is nf4-only = LoRA-only).
+    # Everything SHAREABLE is identical between the two arms (batch, depth band,
+    # kl_lambda, min_steps, max_len, n_rounds); only the things intrinsic to the
+    # method differ (adapter, lr, weight_decay, rank). A shared lr would itself
+    # be the confound — PiSSA's per-singular Δs needs ~200× LoRA's lr and ~0 wd
+    # or it decays to the SVD identity (null intervention). n_rounds=1 until the
+    # stale-cho bleed is fixed.
+    "gemma-9b-pissa": RunConfig(
+        model="google/gemma-2-9b-it",
+        teacher="qwen/qwen3.5-9b",
+        adapter="pissa",
+        # full-per-target sentinel (hidden=3584): ModulatedPiSSA clamps to
+        # min(d_in,d_out) per layer. Mirrors gemma-2b-pissa's r=2304 sentinel —
+        # tests "diagonal in W's spectral basis" with rank-selection removed.
+        lora_r=3584,
+        lr=2e-2,            # 200× LoRA: Δs are per-singular scalars, need big lr
+        weight_decay=1e-5,  # ≈0: wd shrinks Δs → SVD identity = null intervention
+        # ── shared with gemma-9b-lora ──
+        kl_lambda=0.5,
+        min_steps=120,
+        max_len=1024,       # KL transient is full-vocab; halve seq for memory
+        train_batch_size=8,
+        eval_batch_size=8,
+        n_rounds=1,
+    ),
+    "gemma-9b-lora": RunConfig(
+        model="google/gemma-2-9b-it",
+        teacher="qwen/qwen3.5-9b",
+        adapter="lora",
+        lora_r=16,          # LoRA's natural low rank (vs PiSSA full-rank)
+        lora_alpha=32.0,
+        lr=1e-4,
+        weight_decay=0.01,
+        # ── shared with gemma-9b-pissa ──
+        kl_lambda=0.5,
+        min_steps=120,
+        max_len=1024,
+        train_batch_size=8,
+        eval_batch_size=8,
+        n_rounds=1,
+    ),
     "gemma-12b": RunConfig(
         model="google/gemma-3-12b-it",
         teacher="qwen/qwen3.5-9b",
