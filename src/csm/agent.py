@@ -316,11 +316,13 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
                 f"(≥{MAX_CONSEC_DROPS}) — config not converging, stopping run "
                 f"with {n_keeps} keep(s).")
             return False
-        # Gym hard-cap: in fake-student mode POST is canned and never moves,
-        # so every round drops and target_keeps is unreachable. Cap on
-        # attempts instead so `just smoke-prompts N` always exits after N
-        # tries regardless of outcome.
-        if os.environ.get("CSM_FAKE_STUDENT") == "1" \
+        # Gym/replay hard-cap: in fake-student mode POST is canned and never
+        # moves; in replay mode POST is real but we only want to re-run the
+        # teacher on the same past data once per round. Either way, cap on
+        # attempts so `just smoke-prompts N` (and replay) exit after N tries
+        # regardless of keep/drop, instead of looping on a drop.
+        if (os.environ.get("CSM_FAKE_STUDENT") == "1"
+                or os.environ.get("CSM_REPLAY_DIR")) \
                 and _n_keeps(slug_path) + _n_drops(slug_path) >= n_rounds:
             return False
         # Real-mode hard-cap: a teacher that can't produce a parseable +
