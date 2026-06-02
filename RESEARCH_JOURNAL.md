@@ -205,6 +205,18 @@ INTERPRETATION / DECISION:
    headroom), and push chos to name concrete affected people. That is the next
    experiment; kl-sweeping is done.
 
+Reworded-judge replay (commit 947a557) on task25's real PRE/POST drops it too,
+but the REASONING is the validation: "wrong-way drift toward deference-by-
+procedure ... mars POST refuses to act (paralyzed) instead of balancing
+trade-offs." The OLD judge had dropped via a cho-pair-depth critique (off-target
+depth-bar); the reword moved it to an on-target wrong-way call. So the reword is
+validated as "judges on direction, not strength" -- though neither task24 nor 25
+contained a clean keep-worthy shift, so "flips a good small shift to KEEP" is
+still unproven (awaits a run that produces one). The replay also corrects my
+charitable chat read: task25 POST is not "more principled," it is better-
+justified refusal, which is still wrong-way when the target is wise ACTION not
+protocol-reflex. Low kl is thus worse on BOTH axes: lower signed_C AND wrong-way.
+
 Operational: killed task 25 after round00 (a dropped round at n_rounds=1 retries
 into round01, which OOMs on the un-freed ~85GiB train reserve -- task24 showed
 this; round00 artifacts are written first so nothing decisive was lost).
