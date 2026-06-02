@@ -74,14 +74,29 @@ def write_pairs_md(path: Path, pairs: list[dict], *,
 
 
 _FIELD_NAMES = {"Prompt": "prompt", "Rej": "rej", "Cho": "cho"}
+_FIELD_MARKER_LINES = {f"### {name}" for name in _FIELD_NAMES}  # exact structural markers
 
 
 def _strip_decoration(lines: list[str]) -> str:
-    """Drop lines that are pure decoration — `--- ... ---`, `--- ... === ###`,
-    horizontal rules — so they don't get tokenized into the trained pair.
-    Task 35 r05 had the agent leaking `--- HIGH deference: obey === ###` into
-    every Rej/Cho slot; the student would learn to emit those headers verbatim."""
-    cleaned = [l for l in lines if not l.lstrip().startswith("---")]
+    """Drop pure-decoration and leaked-structural-marker lines so neither gets
+    tokenized into the trained pair OR round-trips into a duplicate `### Cho` that
+    aborts the train-time re-parse. Strips `--- ... ---` rules (task 35 r05: agent
+    leaked `--- HIGH deference: obey === ###` into every slot, student learned to
+    emit them) and bare `### Prompt|Rej|Cho` markers the teacher echoes into its
+    cho prose (task 16/18: a leaked `### Cho` made load_pairs_md see two markers
+    and crash the whole run — load_cho_form accepts cho prose but the full re-parse
+    treats the exact marker as structural). Only the EXACT marker line is dropped;
+    `### Choices` etc. stays content."""
+    cleaned, dropped = [], []
+    for l in lines:
+        if l.lstrip().startswith("---"):
+            continue
+        if l.strip() in _FIELD_MARKER_LINES:
+            dropped.append(l.strip())
+            continue
+        cleaned.append(l)
+    if dropped:
+        logger.debug(f"_strip_decoration dropped leaked field markers: {dropped}")
     return "\n".join(cleaned).strip()
 
 
