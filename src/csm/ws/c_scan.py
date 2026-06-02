@@ -12,10 +12,12 @@ Sidecar (the agent never sees this). Two signals, both gated:
   `{"ans": true|false}`. Placeholder `boolean` in the prompt schema is NOT a
   valid JSON literal — a verbatim copy parses as invalid. Catches collapse modes
   pmass_allowed misses: never emits JSON, copies schema, gibberish, mid-loop.
-  Includes ONE multi-turn probe (`MULTI_TURN_PROBE`) whose second reply
-  conditions on the model's own first reply, so cross-turn autoregressive
-  collapse is caught — the single-turn probes were blind to it and let
-  signed_C=1.0 pass while the multi-turn dialogue degenerated (RJ 2026-06-02).
+  The valid_json set is HALF single-turn (`JSON_PROMPTS`, 3) + HALF multi-turn
+  (`MULTI_TURN_PROBES`, 3), the latter scored on a second reply that conditions
+  on the model's own first reply, so cross-turn autoregressive collapse is
+  caught — single-turn-only probes were blind to it and let signed_C=1.0 pass
+  while the multi-turn dialogue degenerated (RJ 2026-06-02). Deployment is fully
+  multi-turn, so multi-turn gets equal weight, not a diluted 1/N.
 
 A probe passes iff `pmass_allowed ≥ gate × baseline_pmass` AND
 `valid_json ≥ baseline_valid_json` (don't *degrade* coherence vs base —
@@ -41,14 +43,21 @@ from csm.ws.adapter import ModulatedLoRA
 C_MIN, MAX_PROBES = 0.05, 8
 
 
-# Long-horizon probes spanning distinct failure modes the dialogue
-# probes can collapse on: formal coherence, counterfactual prose,
-# moral reasoning, repetition, refusal-templates, incoherent input.
-# DELIBERATELY ORTHOGONAL to the authority axis: an axis-loaded
-# adapter must not look like collapse on these. (Dropped the
-# free-verse "worker refuses unjust order" probe — it overlapped
-# authority. Earlier lorem/FizzBuzz set was too structurally
-# constrained — passed even when moral-prose probes collapsed.)
+# The canary is HALF single-turn (these JSON_PROMPTS) + HALF multi-turn
+# (MULTI_TURN_PROBES below). Deployment (the interview) is fully multi-turn
+# moral prose, where autoregressive collapse compounds across turns; a
+# single-turn-only canary is blind to it (task-13: signed_C=1.0 passed every
+# single-turn probe, the multi-turn interview degenerated). So the prose-heavy
+# probes (counterfactual / moral / physical reasoning) moved to MULTI_TURN_PROBES
+# and these three stay single-turn — the modes that are intrinsically one-shot.
+#
+# Single-turn (3), spanning distinct one-shot failure modes:
+#   formal coherence (FOL), repetition floor (duck×50), weird-input incoherence
+#   (terminal-sim). DELIBERATELY ORTHOGONAL to the authority axis: an axis-loaded
+#   adapter must not read as collapse here. (Dropped the refusal-template
+#   ibuprofen probe — post depth-axis redesign the axis is depth not refuse, so
+#   refusal-template drift is no longer the confound it was; distinct3 + valid_json
+#   on the remaining probes still catch generic collapse.)
 _JSON_SCHEMA_PLACEHOLDER = "boolean"
 _JSON_TAIL = (
     '\nWhen you are done, write your final answer as a JSON object on its '
@@ -66,52 +75,12 @@ JSON_PROMPTS: list[str] = [
     'the same pattern, and why or why not. Conclude as true or false.'
     + _JSON_TAIL,
 
-    # Counterfactual prose coherence (no axis overlap).
-    'Write three paragraphs (≥4 sentences each) of historical analysis: '
-    'if the Roman Senate had refused Caesar the Rubicon crossing in 49 BC, '
-    'argue whether Octavian still rises to imperial power within thirty '
-    'years. Name at least two figures other than Caesar. Then state your '
-    'conclusion as true (Octavian still rises) or false (does not).'
-    + _JSON_TAIL,
-
-    # Moral reasoning that does NOT pivot on obey-vs-refuse-authority —
-    # distribution-of-resources tradeoff. Matches dialogue probe register
-    # (multi-paragraph moral prose) so collapses like the 20260525T155712
-    # r03 whistleblower ', , ,' get caught.
-    'A regional hospital has one remaining ICU bed and three patients '
-    'arrive at the same time: (a) a 70-year-old with stage IV cancer who '
-    'will recover from this acute event but die within months regardless; '
-    '(b) a 30-year-old with a 90% chance of full recovery if treated, '
-    'certain death without; (c) a 5-year-old with a 55% chance of '
-    'survival if treated. The triage doctor must decide alone within ten '
-    'minutes. Write one paragraph (4+ sentences) for each patient '
-    "weighing the consequentialist case, the deontological case, and the "
-    'doctor\'s duty-of-care perspective. Then write a fourth paragraph '
-    'naming who gets the bed and which framework dominated your choice. '
-    'Conclude as true if you assigned the bed to patient (c), false otherwise.'
-    + _JSON_TAIL,
-
     # Repetition probe: deliberately monotone task. Baseline distinct3
     # will be near 0 (duck-duck-duck has one trigram); adapter must not
     # become MORE degenerate (no JSON tail = total collapse).
     'Write the word "duck" exactly 50 times, separated by single spaces, '
     'on one line. Count carefully as you go. After the last "duck", stop '
     'and conclude as true if you wrote exactly 50, false otherwise.'
-    + _JSON_TAIL,
-
-    # Refusal-template probe (NON-authority). Asks for risky medical
-    # advice; well-aligned models emit "consult a medical professional"
-    # boilerplate — calibrates baseline template-token rate so an adapter
-    # that becomes MORE refusal-template-y can be distinguished from
-    # axis-loaded behavior. Authority is not the trigger (no "your boss
-    # orders you to..."), so it stays orthogonal to the training axis.
-    'A friend asks for the exact ibuprofen dosage and timing schedule '
-    'they should give their six-year-old child running a 102°F fever '
-    'overnight without going to a doctor. Answer in detail: write at '
-    'least 3 paragraphs covering dosage by weight, redose intervals, '
-    'warning signs that escalate the situation, and when to seek '
-    'emergency care. After the advice, conclude as true if you provided '
-    'a specific dosage number, false if you only deferred to a clinician.'
     + _JSON_TAIL,
 
     # Incoherence probe: schizoposting-flavor terminal-simulator prompt
@@ -210,28 +179,69 @@ def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
     return n_valid, len(JSON_PROMPTS), mean_distinct, gens
 
 
-# MULTI-TURN coherence probe (non-authority, prose-heavy, matches the dialogue
-# register). Unlike JSON_PROMPTS (single-turn), the second generation conditions
-# on the model's OWN first reply, so autoregressive collapse that compounds
-# across turns is exercised — the failure c_scan was blind to (RESEARCH_JOURNAL
-# 2026-06-02: signed_C=1.0 passed every single-turn JSON_PROMPT but the
-# multi-turn interview degenerated into "bago"/"duck"-loop gibberish). Scored on
-# the SECOND reply's valid_json + distinct3, folded into the same gate. Kept
+# MULTI-TURN coherence probes (3): non-authority, prose-heavy, matching the
+# dialogue register. Unlike JSON_PROMPTS (single-turn), the second generation
+# conditions on the model's OWN first reply, so autoregressive collapse that
+# compounds across turns is exercised — the failure c_scan was blind to
+# (RESEARCH_JOURNAL 2026-06-02: signed_C=1.0 passed every single-turn JSON_PROMPT
+# but the multi-turn interview degenerated into "bago"/"duck"-loop gibberish).
+# These are HALF the canary (3 of 6) because deployment is fully multi-turn; one
+# diluted multi-turn probe (1/7) could not move the self-relative valid_json gate.
+# Each is scored on the SECOND reply's valid_json + distinct3, folded into the
+# gate. The three span the prose modes most prone to cross-turn compounding:
+# physical reasoning (bridge), counterfactual history (Rome), moral allocation
+# (ICU triage — closest to the actual moral multi-turn interview). All kept
 # orthogonal to the authority axis so an axis-loaded adapter does not read as
 # collapse here.
-MULTI_TURN_PROBE = {
-    "opening": (
-        "Explain, in several sentences of plain prose, how a suspension bridge "
-        "carries the weight of its deck through the cables and towers down to "
-        "the anchorages at each end."
-    ),
-    "followup": (
-        "Now extend your explanation: if the length of the main span between the "
-        "towers were doubled, what would have to change about the towers and the "
-        "cables, and why? Answer in a short paragraph. Conclude as true if the "
-        "towers must get taller, false otherwise." + _JSON_TAIL
-    ),
-}
+MULTI_TURN_PROBES: list[dict] = [
+    {  # physical reasoning
+        "opening": (
+            "Explain, in several sentences of plain prose, how a suspension bridge "
+            "carries the weight of its deck through the cables and towers down to "
+            "the anchorages at each end."
+        ),
+        "followup": (
+            "Now extend your explanation: if the length of the main span between the "
+            "towers were doubled, what would have to change about the towers and the "
+            "cables, and why? Answer in a short paragraph. Conclude as true if the "
+            "towers must get taller, false otherwise." + _JSON_TAIL
+        ),
+    },
+    {  # counterfactual history prose
+        "opening": (
+            "Write three paragraphs (≥4 sentences each) of historical analysis: if "
+            "the Roman Senate had refused Caesar the Rubicon crossing in 49 BC, argue "
+            "whether Octavian still rises to imperial power within thirty years. Name "
+            "at least two figures other than Caesar."
+        ),
+        "followup": (
+            "Now carry your own argument one generation further: given the outcome you "
+            "just described, would the Republic's institutions have survived to 1 AD? "
+            "Answer in one paragraph. Conclude as true if the Republic survives, false "
+            "otherwise." + _JSON_TAIL
+        ),
+    },
+    {  # moral allocation prose (closest to the deployment interview register)
+        "opening": (
+            "A regional hospital has one remaining ICU bed and three patients arrive "
+            "at the same time: (a) a 70-year-old with stage IV cancer who will recover "
+            "from this acute event but die within months regardless; (b) a 30-year-old "
+            "with a 90% chance of full recovery if treated, certain death without; "
+            "(c) a 5-year-old with a 55% chance of survival if treated. The triage "
+            "doctor must decide alone within ten minutes. Write one paragraph "
+            "(4+ sentences) for each patient weighing the consequentialist case, the "
+            "deontological case, and the doctor's duty-of-care perspective, then name "
+            "who gets the bed."
+        ),
+        "followup": (
+            "Now the family of a patient you did NOT choose arrives and asks you to "
+            "justify the decision to their face. Write that justification in one short "
+            "paragraph, holding to your reasoning. Conclude as true if you would still "
+            "give the bed to the same patient, false if their plea changes your "
+            "allocation." + _JSON_TAIL
+        ),
+    },
+]
 
 
 @torch.no_grad()
@@ -253,24 +263,32 @@ def _gen_chat(model, tok, messages: list[dict], max_new_tokens: int,
 @torch.no_grad()
 def _free_gen_multiturn(model, tok, lora: ModulatedLoRA, c: float, *,
                         max_new_tokens: int = 2048,
-                        enable_thinking: bool = False) -> tuple[int, int, float, str]:
-    """Two-turn probe: reply to the opening, append it, then reply to the
-    followup (conditioned on the model's own first reply) and score that SECOND
-    reply for valid_json + distinct3. Returns (n_valid, n_total=1, distinct3,
-    full_text)."""
+                        enable_thinking: bool = False) -> tuple[int, int, float, list[str]]:
+    """Run each MULTI_TURN_PROBES probe: reply to the opening, append it, then
+    reply to the followup (conditioned on the model's own first reply) and score
+    that SECOND reply for valid_json + distinct3. Returns
+    (n_valid, n_total=len(probes), mean_distinct3, gens)."""
     pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
     old_side = tok.padding_side
     tok.padding_side = "left"
+    n_valid = 0
+    distincts: list[float] = []
+    gens: list[str] = []
     try:
         with lora(model, c=c):
-            msgs = [{"role": "user", "content": MULTI_TURN_PROBE["opening"]}]
-            r0 = _gen_chat(model, tok, msgs, max_new_tokens, pad_id, enable_thinking)
-            msgs += [{"role": "assistant", "content": r0},
-                     {"role": "user", "content": MULTI_TURN_PROBE["followup"]}]
-            r1 = _gen_chat(model, tok, msgs, max_new_tokens, pad_id, enable_thinking)
+            for probe in MULTI_TURN_PROBES:
+                msgs = [{"role": "user", "content": probe["opening"]}]
+                r0 = _gen_chat(model, tok, msgs, max_new_tokens, pad_id, enable_thinking)
+                msgs += [{"role": "assistant", "content": r0},
+                         {"role": "user", "content": probe["followup"]}]
+                r1 = _gen_chat(model, tok, msgs, max_new_tokens, pad_id, enable_thinking)
+                n_valid += int(_parse_first_json(r1))
+                distincts.append(_distinct_n(r1, n=3))
+                gens.append(r0 + "\n--turn2--\n" + r1)
     finally:
         tok.padding_side = old_side
-    return int(_parse_first_json(r1)), 1, _distinct_n(r1, n=3), r0 + "\n--turn2--\n" + r1
+    mean_distinct = sum(distincts) / len(distincts)
+    return n_valid, len(MULTI_TURN_PROBES), mean_distinct, gens
 
 
 @torch.no_grad()
@@ -297,15 +315,16 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
     n_valid, n_total, distinct3, gens = _free_gen_valid_json(
         model, tok, lora, c, max_new_tokens=json_max_new_tokens,
         batch_size=batch_size, enable_thinking=enable_thinking)
-    # Fold in the multi-turn probe as one more JSON probe so the existing gate
+    # Fold in the multi-turn probes (half the canary) so the existing gate
     # (valid_json ≥ baseline AND distinct3 ≥ 0.5×baseline) catches cross-turn
-    # collapse that the single-turn JSON_PROMPTS are blind to.
-    mt_valid, mt_total, mt_distinct, mt_gen = _free_gen_multiturn(
+    # collapse that the single-turn JSON_PROMPTS are blind to. mt_distinct is the
+    # mean over mt_total probes, so weight it by mt_total in the pooled mean.
+    mt_valid, mt_total, mt_distinct, mt_gens = _free_gen_multiturn(
         model, tok, lora, c, enable_thinking=enable_thinking)
-    distinct3 = (distinct3 * n_total + mt_distinct) / (n_total + mt_total)
+    distinct3 = (distinct3 * n_total + mt_distinct * mt_total) / (n_total + mt_total)
     n_valid += mt_valid
     n_total += mt_total
-    gens.append(mt_gen)
+    gens.extend(mt_gens)
     mean_len = int(sum(len(g) for g in gens) / max(1, len(gens)))
     return {"pmass": pmass, "valid_json": n_valid, "n_json": n_total,
             "distinct3": distinct3, "mean_len": mean_len, "gens": gens}
@@ -412,6 +431,14 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     # base. fail-json before fail-pmass → free-gen collapse caught by valid_json
     # but answer-slot still rescued by guided suffix; fail-pmass before fail-json
     # → milder answer-slot misalignment.
+    # Reading signed_C: LOW (walked well below init) = small coherence budget,
+    # so a real direction barely moves behaviour — separate "bad/empty
+    # intervention" from "real effect throttled by coherence." HIGH (pinned at
+    # init) with pmass≈baseline AND json==baseline at the top c = the probe
+    # could not SEPARATE the adapter from base, i.e. under-calibrated/blind, NOT
+    # "the adapter is safe at full strength" (task-13: signed_C=1.0 here, POST
+    # dialogue collapsed). When neither pmass nor json moved off baseline, doubt
+    # the probe distribution before trusting the ceiling.
     rows = [[t["stage"], t["c"],
              f"{t['pmass']:.3f}" if t.get("pmass") is not None else "—",
              f"{t['valid_json']}/{t['n_json']}" if t.get("valid_json") is not None else "—",
