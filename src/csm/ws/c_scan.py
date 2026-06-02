@@ -284,7 +284,13 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                             probe_max_new_tokens=probe_max_new_tokens,
                             enable_thinking=enable_thinking)
         pmass_ok = m["pmass"] >= gate
-        json_ok = m["valid_json"] >= baseline_json
+        # Tolerate ONE noisy probe (~15% of a 6-probe set): coherence_check
+        # gens vary run-to-run, and requiring all-pass takes the MIN over noisy
+        # measurements, which biases signed_C low (one unlucky probe walks the
+        # whole adapter down). Real collapse (the r08/r09 ethics-loop) fails
+        # MANY probes, so baseline-1 still catches it while shrugging off single-
+        # probe noise. pmass (a mean, low-noise) and distinct3 stay strict.
+        json_ok = m["valid_json"] >= baseline_json - 1
         # 0.5x is generous: catches '** ** **' / 'while while' (distinct3 → 0)
         # without tripping on legitimate moderate-repetition prose.
         distinct_ok = m["distinct3"] >= 0.5 * baseline_distinct

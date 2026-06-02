@@ -259,7 +259,7 @@ CONFIGS: dict[str, RunConfig] = {
         lr=2e-4,            # 9536ea0 value
         weight_decay=0.01,
         kl_lambda=0.064,    # 9536ea0 value (31× lighter than now)
-        gate_frac=0.95,     # loosen pmass; valid_json+distinct3 carry coherence
+        gate_frac=0.85,     # ~15% pmass band; valid_json+distinct3 carry coherence
         min_steps=60,       # 9536ea0 value (4× shorter than now → less overfit)
         max_len=1024,
         train_batch_size=8,
@@ -275,8 +275,29 @@ CONFIGS: dict[str, RunConfig] = {
         lr=3e-4,
         weight_decay=0.01,
         kl_lambda=0.25,     # between 0.064 (old) and 2.0 (now)
-        gate_frac=0.95,
+        gate_frac=0.85,     # ~15% pmass band
         min_steps=120,
+        max_len=1024,
+        train_batch_size=8,
+        eval_batch_size=8,
+        n_rounds=1,
+    ),
+    # Very-long arm (wassname: "who knows, kl+wd might find a really nice elegant
+    # intervention"). Long training under a moderate KL anchor + weight decay can
+    # settle into a cleaner, more generalisable direction than a short run that
+    # stops mid-descent — or it can overfit the narrow axis (PiSSA's lowest nll+
+    # generalised worst). 1000 steps brackets the long end opposite -revert(60).
+    "gemma-9b-lora-vlong": RunConfig(
+        model="google/gemma-2-9b-it",
+        teacher="qwen/qwen3.5-9b",
+        adapter="lora",
+        lora_r=16,
+        lora_alpha=32.0,
+        lr=3e-4,
+        weight_decay=0.01,  # the wd that might regularise toward elegance
+        kl_lambda=0.5,      # moderate anchor (not the 2.0 throttle, not ~0)
+        gate_frac=0.85,
+        min_steps=1000,     # very long
         max_len=1024,
         train_batch_size=8,
         eval_batch_size=8,
