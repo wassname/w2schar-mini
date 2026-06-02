@@ -84,16 +84,12 @@ class RunConfig:
     max_len: int = 2048
     """Train-time max sequence length for collating pairs."""
 
-    c_scan_json_max_new_tokens: int = 4096
-    """Max free-gen tokens per c_scan JSON probe. Real models need 4096+
-    for the multi-paragraph probes to reach the JSON tail. Tiny smoke
-    overrides to a small value to keep `just smoke` ~3 min."""
-
     # ─ steering coefficient ─
     signed_C: float = 1.0
     """Initial probe coefficient — c_scan walks DOWN from here (×0.5)
-    until pmass ≥ 0.99 × baseline AND all valid_json probes parse. Backoff
-    is now 1.0 (bake at the passing c). Set to 1.0 to match the fixed
+    until pmass ≥ gate × baseline AND distinct3 ≥ 0.5 × baseline over the
+    deployment probes. Backoff is now 1.0 (bake at the passing c). Set to
+    1.0 to match the fixed
     train-time C=1.0: a coherent adapter then bakes at exactly the strength
     it was trained on. Sidecar — agent never sees it."""
 
@@ -239,7 +235,6 @@ CONFIGS: dict[str, RunConfig] = {
         dialogue_max_new_tokens=32,
         gen_max_new_tokens=32,
         max_len=128,
-        c_scan_json_max_new_tokens=32,
     ),
     # PiSSA smoke: same tiny model; r=16 because the hidden_dim on this
     # tiny-random model is small. Used to round-trip the full pipeline on CPU.
