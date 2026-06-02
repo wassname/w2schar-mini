@@ -163,6 +163,16 @@ CONFIGS: dict[str, RunConfig] = {
     # be the confound — PiSSA's per-singular Δs needs ~200× LoRA's lr and ~0 wd
     # or it decays to the SVD identity (null intervention). n_rounds=1 until the
     # stale-cho bleed is fixed.
+    # kl_lambda=2.0 (4× default): task 21 (27b, kl=0.5) trained a good direction
+    # (nll+ 3→0.34) but the c_scan had to walk signed_C to 0.125 — at c≥0.5 free
+    # gen collapsed (fail-json, mean_len 9198). Reverse-KL is zero-forcing: it
+    # penalizes the incoherent mass-adding collapse and is blind to the cho-vs-rej
+    # mode-shift, so more KL buys coherence headroom (higher usable c) without
+    # killing the steering. With the stronger anchor we also push lr=3e-4 (LoRA
+    # arms; PiSSA keeps 2e-2) and min_steps=240 (train 2×) so the constrained
+    # adapter has room to find the coherent direction. qwen-27b-nf4 found kl=3.0
+    # too tight, but that was at the old lr/steps — may differ now; 2.0 leaves
+    # headroom to push higher.
     "gemma-9b-pissa": RunConfig(
         model="google/gemma-2-9b-it",
         teacher="qwen/qwen3.5-9b",
@@ -174,8 +184,8 @@ CONFIGS: dict[str, RunConfig] = {
         lr=2e-2,            # 200× LoRA: Δs are per-singular scalars, need big lr
         weight_decay=1e-5,  # ≈0: wd shrinks Δs → SVD identity = null intervention
         # ── shared with gemma-9b-lora ──
-        kl_lambda=0.5,
-        min_steps=120,
+        kl_lambda=2.0,
+        min_steps=240,
         max_len=1024,       # KL transient is full-vocab; halve seq for memory
         train_batch_size=8,
         eval_batch_size=8,
@@ -187,11 +197,11 @@ CONFIGS: dict[str, RunConfig] = {
         adapter="lora",
         lora_r=16,          # LoRA's natural low rank (vs PiSSA full-rank)
         lora_alpha=32.0,
-        lr=1e-4,
+        lr=3e-4,            # peak lr raised now the stronger KL anchor holds coherence
         weight_decay=0.01,
         # ── shared with gemma-9b-pissa ──
-        kl_lambda=0.5,
-        min_steps=120,
+        kl_lambda=2.0,
+        min_steps=240,
         max_len=1024,
         train_batch_size=8,
         eval_batch_size=8,
@@ -213,11 +223,15 @@ CONFIGS: dict[str, RunConfig] = {
         adapter="lora",
         train_batch_size=2,
         eval_batch_size=2,
-        # 2× the default 60: nll+ (cho-production side of the normalised
-        # contrastive loss) was still flat at step 60 (task 19) — give it longer
-        # under sustained lr (the cosine schedule stretches over the full step
-        # count) to actually descend toward the off-policy target.
-        min_steps=120,
+        lr=3e-4,            # raised from 1e-4: stronger KL anchor (below) holds coherence
+        # kl=2.0 (4× default): task 21 walked signed_C to 0.125 because c≥0.5 free
+        # gen collapsed; reverse-KL is zero-forcing so more anchor buys coherence
+        # headroom (higher usable c) without killing the cho-vs-rej steering.
+        kl_lambda=2.0,
+        # 4× the default 60 (2× the prior 120): the stronger anchor + higher lr
+        # need room to find a coherent direction; cosine schedule stretches over
+        # the full count so nll+ keeps descending late.
+        min_steps=240,
     ),
     # Ported from weight-steering-lite/qwen-27b-nf4: Qwen3.6-27B + nf4 LoRA.
     # AutoModelForCausalLM dispatches the multimodal config to Qwen3_5ForCausalLM
