@@ -5,13 +5,16 @@ direction. This note pins down, directly: how much each pole contributes to that
 direction, whether the contribution is computed in gradient or loss space, and
 why exactly one of the four loss terms needs a normalization cap.
 
-![Steering geometry: the line is forced through c=0 so it threads a compromise between cho and rej; the pole it leans toward is set by the bounded gradient, not the loss value](steering_direction.svg)
+![One adapter is one line through c=0; two non-collinear targets can't both be hit, so v settles at the compromise, and PCGrad reconciles the two end-pulls](steering_direction.svg)
 
-The figure shows the two facts this note builds on. (A) The adapter is one line
-through `c=0`; when base, cho and rej are not collinear, no line reaches both
-targets, so it settles at a weighted compromise. (B) The weight is the bounded
-CE gradient `1-p`, which saturates near 1 — so the far pole (cho) pulls hardest
-even though a "far" loss value could be arbitrarily large.
+The adapter is one line through `c=0` — a single direction `v`, with `+C·v`
+aimed at cho and `-C·v` at rej. When base, cho and rej are not collinear no line
+reaches both targets, so `v` settles at a weighted compromise and the two ends
+fall short (the dashed misses). Those two misses are the `+C` and `-C` frame
+pulls; PCGrad keeps only their agreeing component. Which way the compromise
+leans is set by the bounded CE gradient (next section), not the loss value: in
+practice rej is the on-policy seed (`rej ≈ base`, near `c=0`), so its pull is the
+weaker one and `v` leans toward cho.
 
 ## The direction lives in gradient space
 
