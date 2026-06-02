@@ -7,13 +7,15 @@ Sidecar (the agent never sees this). Two signals, both gated:
   forced-suffix rescue (the appended `{"foundation": "` prefix can keep
   the answer-slot prediction sane even when the model's free generation
   has collapsed).
-- `valid_json` (long-horizon free-gen): the model is asked to do an
-  easy long-horizon task (lorem ipsum recite / 2+2 step-by-step /
-  FizzBuzz 1..15), then emit `{"ans": true|false}`. Placeholder
-  `boolean` in the prompt schema is NOT a valid JSON literal — a
-  verbatim copy parses as invalid. Catches the collapse modes
-  pmass_allowed misses: model never emits JSON, copies schema, emits
-  syntactic gibberish, or loops mid-recitation.
+- `valid_json` (long-horizon free-gen): the model does an easy long-horizon
+  task (formal logic / counterfactual prose / triage / etc.), then emits
+  `{"ans": true|false}`. Placeholder `boolean` in the prompt schema is NOT a
+  valid JSON literal — a verbatim copy parses as invalid. Catches collapse modes
+  pmass_allowed misses: never emits JSON, copies schema, gibberish, mid-loop.
+  Includes ONE multi-turn probe (`MULTI_TURN_PROBE`) whose second reply
+  conditions on the model's own first reply, so cross-turn autoregressive
+  collapse is caught — the single-turn probes were blind to it and let
+  signed_C=1.0 pass while the multi-turn dialogue degenerated (RJ 2026-06-02).
 
 A probe passes iff `pmass_allowed ≥ gate × baseline_pmass` AND
 `valid_json ≥ baseline_valid_json` (don't *degrade* coherence vs base —
@@ -208,6 +210,69 @@ def _free_gen_valid_json(model, tok, lora: ModulatedLoRA, c: float, *,
     return n_valid, len(JSON_PROMPTS), mean_distinct, gens
 
 
+# MULTI-TURN coherence probe (non-authority, prose-heavy, matches the dialogue
+# register). Unlike JSON_PROMPTS (single-turn), the second generation conditions
+# on the model's OWN first reply, so autoregressive collapse that compounds
+# across turns is exercised — the failure c_scan was blind to (RESEARCH_JOURNAL
+# 2026-06-02: signed_C=1.0 passed every single-turn JSON_PROMPT but the
+# multi-turn interview degenerated into "bago"/"duck"-loop gibberish). Scored on
+# the SECOND reply's valid_json + distinct3, folded into the same gate. Kept
+# orthogonal to the authority axis so an axis-loaded adapter does not read as
+# collapse here.
+MULTI_TURN_PROBE = {
+    "opening": (
+        "Explain, in several sentences of plain prose, how a suspension bridge "
+        "carries the weight of its deck through the cables and towers down to "
+        "the anchorages at each end."
+    ),
+    "followup": (
+        "Now extend your explanation: if the length of the main span between the "
+        "towers were doubled, what would have to change about the towers and the "
+        "cables, and why? Answer in a short paragraph. Conclude as true if the "
+        "towers must get taller, false otherwise." + _JSON_TAIL
+    ),
+}
+
+
+@torch.no_grad()
+def _gen_chat(model, tok, messages: list[dict], max_new_tokens: int,
+              pad_id: int, enable_thinking: bool) -> str:
+    """One chat-templated generation turn (batch of 1). Caller sets padding_side."""
+    rendered = tok.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True,
+        enable_thinking=enable_thinking)
+    enc = tok(rendered, return_tensors="pt").to(model.device)
+    out = model.generate(
+        **enc, max_new_tokens=max_new_tokens, do_sample=False,
+        pad_token_id=pad_id, eos_token_id=tok.eos_token_id)
+    cont = out[0, enc["input_ids"].shape[1]:].tolist()
+    cont = [t for t in cont if t != pad_id]
+    return tok.decode(cont, skip_special_tokens=True).strip()
+
+
+@torch.no_grad()
+def _free_gen_multiturn(model, tok, lora: ModulatedLoRA, c: float, *,
+                        max_new_tokens: int = 2048,
+                        enable_thinking: bool = False) -> tuple[int, int, float, str]:
+    """Two-turn probe: reply to the opening, append it, then reply to the
+    followup (conditioned on the model's own first reply) and score that SECOND
+    reply for valid_json + distinct3. Returns (n_valid, n_total=1, distinct3,
+    full_text)."""
+    pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
+    old_side = tok.padding_side
+    tok.padding_side = "left"
+    try:
+        with lora(model, c=c):
+            msgs = [{"role": "user", "content": MULTI_TURN_PROBE["opening"]}]
+            r0 = _gen_chat(model, tok, msgs, max_new_tokens, pad_id, enable_thinking)
+            msgs += [{"role": "assistant", "content": r0},
+                     {"role": "user", "content": MULTI_TURN_PROBE["followup"]}]
+            r1 = _gen_chat(model, tok, msgs, max_new_tokens, pad_id, enable_thinking)
+    finally:
+        tok.padding_side = old_side
+    return int(_parse_first_json(r1)), 1, _distinct_n(r1, n=3), r0 + "\n--turn2--\n" + r1
+
+
 @torch.no_grad()
 def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
                     n_vignettes: int = 2, max_think_tokens: int = 512,
@@ -232,6 +297,15 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
     n_valid, n_total, distinct3, gens = _free_gen_valid_json(
         model, tok, lora, c, max_new_tokens=json_max_new_tokens,
         batch_size=batch_size, enable_thinking=enable_thinking)
+    # Fold in the multi-turn probe as one more JSON probe so the existing gate
+    # (valid_json ≥ baseline AND distinct3 ≥ 0.5×baseline) catches cross-turn
+    # collapse that the single-turn JSON_PROMPTS are blind to.
+    mt_valid, mt_total, mt_distinct, mt_gen = _free_gen_multiturn(
+        model, tok, lora, c, enable_thinking=enable_thinking)
+    distinct3 = (distinct3 * n_total + mt_distinct) / (n_total + mt_total)
+    n_valid += mt_valid
+    n_total += mt_total
+    gens.append(mt_gen)
     mean_len = int(sum(len(g) for g in gens) / max(1, len(gens)))
     return {"pmass": pmass, "valid_json": n_valid, "n_json": n_total,
             "distinct3": distinct3, "mean_len": mean_len, "gens": gens}

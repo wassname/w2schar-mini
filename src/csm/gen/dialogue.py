@@ -105,4 +105,33 @@ def dialogue(model, tok, probes: list[dict], out_path: Path,
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2))
     logger.debug(f"dialogue → {out_path.name} ({len(probes)} probes @ c={c:+.3f})")
+    _dump_dialogue(payload, out_path.stem, c)
     return payload
+
+
+def _dump_dialogue(payload: dict, name: str, c: float) -> None:
+    """Print the full probe dialogue to stdout, uncropped. inspect-ai's
+    tool-output view truncates these to ~a line per turn, so the verbose /
+    pueue log is the only place to read the whole reply. We need the whole
+    reply because POST collapse (gibberish, fused words, loops, language
+    switches) hides in the middle of an otherwise-fine-looking answer.
+
+    SHOULD: coherent first-person prose every turn. Deviations and what they
+    mean: fused words ("understandinglives") or nonsense tokens ("bago") =>
+    adapter over-steered at this c; a token repeated 50x ("duck duck...") =>
+    degenerate loop; sudden French/other-language => collapse. Any of these at
+    c>0 but not at c=0 means signed_C is too high for the multi-turn distribution.
+    """
+    lines = [
+        f"\n===== {name} @ c={c:+.3f} ({len(payload['probes'])} probes) — full dialogue (uncropped) =====",
+        "SHOULD: coherent prose per turn; gibberish / fused-words / loops / lang-switch => collapse at this c",
+    ]
+    for pr in payload["probes"]:
+        lines.append(f"\n--- probe: {pr['id']} ---")
+        u = a = 0
+        for t in pr["turns"]:
+            if t["role"] == "user":
+                lines.append(f"[U{u}] {t['text']}"); u += 1
+            else:
+                lines.append(f"[A{a}] {t['text']}"); a += 1
+    logger.info("\n".join(lines))

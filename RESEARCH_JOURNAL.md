@@ -12,7 +12,80 @@ as "recorded at the time," not re-measured.
 
 ---
 
-## 2026-06-01 (a) -- PiSSA vs LoRA on gemma-2-27b, and a stale-Cho bleed that corrupts rounds 01+
+## 2026-06-02 (a) -- depth-axis POOL breaks the all-refusal collapse; c_scan is blind to multi-turn collapse
+
+**Introduction.** Two prior failures motivated a redesign (see 2026-06-01 (c)):
+the training axis collapsed to "refuse authority" (every cho was a refusal), and
+the interview probes (petrov/coup) were saturated and memorizable. Questions for
+this run: (1) does a POOL where the deep answer's ACTION varies (comply / verify /
+third-path / decline) stop the cho collapsing to refusal? (2) do 3 new
+out-of-sample situational-judgment probes show un-saturated PRE reasoning? (3) can
+we read POST movement at the calibrated strength?
+
+**Methods.** Commit `68d0176` (branch probe-pool-redesign), model
+google/gemma-2-27b-it, profile `gemma-27b` (LoRA, nf4), n_rounds=1 (avoids the
+unfixed stale-Cho bleed), pueue task 13, slug `20260602T012117`. New POOL
+(`prompts_pool.py`), 3 probes (`probes.py`: mars_breach, dual_use, clinical),
+saturation-aware judge wording (`prompts.py`). cho-variety counted from
+`round00/pairs.md`; coherence from `round00/calibration.json` cscan_trace and
+`round00/interview_post.json`.
+
+**Results.**
+
+| signal | value | reading |
+|--------|-------|---------|
+| cho refusal-openers | 0/15 | collapse broken (was 15/15 on the refuse-axis runs) |
+| signed_C (c_scan) | 1.0 | c=1.0 passed c_scan on first try (no walk-down) |
+| c_scan @ c=1.0 | pmass 0.999, json 6/6, distinct3 0.83, len 1599 | coherent on single-turn structured probes |
+| interview POST @ c=1.0 | gibberish: "bago", "betaken", "chocolat", "understandinglives" | collapsed on the multi-turn dialogue |
+| mark_exam | drop | correct outcome, muddled reason (see Discussion) |
+
+Table 1. Task 13 round00. cho refusal-opener = cho whose first sentence is "I
+will not / I refuse / decline / No"; the redesign's headline. signed_C and the
+c=1.0 coherence row are from `calibration.json` cscan_trace (stage probe, c=1.0,
+note "pass"). The POST gibberish tokens are grep'd verbatim from
+`interview_post.json` (each appears once across the 3 probes).
+
+Provenance:
+- Run: pueue 13, `uv run python -m csm.cli agent-run --profile gemma-27b --n-rounds 1`.
+- cho variety: `round00/pairs.md`, 15 pairs, 0 begin with a refusal clause; action
+  tracks scenario (e.g. pair 2 reroute "start calculating the new trajectory now...
+  but verify", pair 4 lie-to-customer "I won't lie... maintain trust through accuracy").
+- c_scan: `round00/calibration.json` -> cscan_trace = [baseline c=0 (pmass .999,
+  json 6/6, len 1466), probe c=1.0 (pmass .9986, json 6/6, len 1599, "pass"),
+  final c=1.0 "backoff x1.0"]. So signed_C=1.0 is a real pass, not a default.
+- POST collapse: `round00/interview_post.json` baked at c=signed_C=1.0; mars POST
+  turn0 = "requiring ** bago avoid acting solely on potentially faulty data
+  **while**understandinglives are at stake**".
+- Judgment: `round00/judgment.json` action=drop.
+
+cho variety went from 0/15-varied to 15/15-varied. signed_C calibrated to 1.0
+(vs ~0.25 on the old refuse-axis). POST is incoherent at c=1.0 on the interview.
+
+**Discussion (speculative).** My read: the POOL redesign worked at the structural
+level, the axis is no longer refuse-authority. But this run cannot answer whether
+character MOVED, because POST collapsed. The cause is a calibration blind spot,
+not a probe or axis failure: c_scan validates coherence on single-turn structured
+free-gen (proofs, JSON, ~1500 chars) and the depth direction stays coherent there
+to c=1.0, but the interview is multi-turn, and over the dialogue the model's own
+degrading output feeds back and compounds into autoregressive collapse that the
+single-turn canary never sees. So signed_C=1.0 over-deploys for the real
+deployment distribution (multi-turn). The teacher dropped (right call on the
+incoherent POST) but labelled it "PRE saturated, POST paraphrase", which is wrong:
+POST is degenerate, not paraphrase, and you cannot call a probe saturated off a
+collapsed POST. Alternative I cannot exclude from one run: the base model is
+mildly unstable (one c_scan baseline gen was already a "duck duck duck" loop at
+c=0), so some collapse is base-model fragility amplified by c, not purely the
+adapter; distinguishing needs a c-sweep of the interview probes specifically.
+
+**Next.** (1) Make c_scan multi-turn-aware: add an interview-style multi-turn
+probe to the coherence gate, or cap signed_C below where the dialogue breaks, so
+POST is coherent enough to measure. This is the binding fix; without it no probe
+can show movement. (2) Rebuild `clinical_cap_override` (subagent review: PRE hides
+behind protocol both turns, so the comply-is-right discriminant does not yet
+discriminate). (3) Then re-run and read POST movement on the new probes.
+
+
 
 **Introduction.** Question: does bf16-PiSSA steer gemma-2-27b with a larger,
 more stable baked coefficient (`signed_C`) than the nf4-LoRA baseline, over a
