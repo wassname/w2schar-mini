@@ -12,6 +12,56 @@ as "recorded at the time," not re-measured.
 
 ---
 
+## 2026-06-02 (d) -- the normalised contrastive loss throttles the off-policy cho-pull; direction-balance != loss-balance
+
+**Context (design intent, wassname).** The two-sided margin normalises each
+pole's nll (`_normed_mean`, train.py:172) because the goal is to learn ONE steering
+direction *through c=0* with EQUAL contribution from both poles (cho|+C and rej|-C).
+The worry that motivated it: without normalisation the pole with the larger nll
+(off-policy cho, ~3) produces the larger CE gradient (∝ 1/p), so it would DOMINATE
+the learned direction — the line gets set mostly by cho, with little contribution
+from the small-loss (on-policy rej) side. Normalising to equal loss magnitude was
+meant to balance the two contributions.
+
+**Observation (training trace, task 19 round00).** nll- (rej|-C, on-policy)
+descends from step 1 (1.76 -> 0.1 by step 31). nll+ (cho|+C, off-policy) never
+descends (stuck ~3 across all 60 steps; first real dip only at step 39-41 as lr
+fell to ~3e-5). nll+ IS the behaviour change; nll- is just amplifying the pole the
+student already occupies.
+
+**Mechanism.** `_normed_mean(nll) = nll/max(detach(nll),1)` scales each side's
+gradient by 1/nll when nll>1. On-policy rej drops below 1 early -> floor passes it
+unscaled -> full gradient -> descends. Off-policy cho stays >1 -> gradient
+perpetually scaled ~1/3 -> trapped: throttled because high, stays high because
+throttled. So the cap (built to tame the unbounded rej-PUSH, ∇(-log p)→∞ as p→0)
+also kneecaps the cho-PULL — and the pull self-limits anyway (∝1/p→1 as p→1), so it
+never needed capping. Net: the normalisation did not merely equalise, it INVERTED
+the dominance — small-loss (rej) now dominates, the off-policy pull contributes
+least.
+
+**Open question (wassname, unresolved) — separate the LEVELS.** Balancing can act
+at two distinct levels, and the design currently intervenes at BOTH, which muddies
+which pole dominates:
+- LOSS level: `_normed_mean` equalises each pole's loss *magnitude* (scales the term,
+  and hence its gradient, by 1/nll).
+- GRAD level: PCGrad (train.py:219, on g_pos_nll vs g_neg_nll) projects out the
+  conflicting component — a gradient-DIRECTION intervention, separate from the loss
+  scaling.
+Loss-magnitude balance != gradient-norm balance != learned-direction balance — the
+three can all disagree. Still unseparated (the thing to pin down): does the small
+(on-policy rej) pole dominate the loss magnitude, the gradient norm, or the learned
+direction? The right fix depends on which, and stacking a loss-level cap under a
+grad-level PCGrad makes it hard to read. Isolate one lever at a time.
+
+**Candidate fixes (unimplemented).**
+- LOSS level: cap only the PUSH terms (nll_rej|+C, nll_cho|-C — the 1/p blow-ups);
+  leave the PULL terms (nll_cho|+C, nll_rej|-C) at full gradient (they self-limit).
+  Un-throttles the off-policy cho-pull.
+- GRAD level: balance the two poles' gradients to equal norm before combining —
+  "equal contribution to the direction" done directly, instead of via loss scaling.
+- Train 2x (task 20, running) only partially addresses this: more steps in the
+  low-lr band where nll+ first dipped (~3e-5), but the throttle is the deeper cause.
+
 ## 2026-06-02 (c) -- the calibration blind spot is REGISTER, not topic; canary now on-distribution held-out (task 15 -> 16)
 
 **Introduction.** Task 15 (slug `20260602T023553`, the half/half rebalance from
