@@ -171,6 +171,11 @@ CONFIGS: dict[str, RunConfig] = {
         adapter="lora",
         train_batch_size=2,
         eval_batch_size=2,
+        # 2× the default 60: nll+ (cho-production side of the normalised
+        # contrastive loss) was still flat at step 60 (task 19) — give it longer
+        # under sustained lr (the cosine schedule stretches over the full step
+        # count) to actually descend toward the off-policy target.
+        min_steps=120,
     ),
     # Ported from weight-steering-lite/qwen-27b-nf4: Qwen3.6-27B + nf4 LoRA.
     # AutoModelForCausalLM dispatches the multimodal config to Qwen3_5ForCausalLM
