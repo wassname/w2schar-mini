@@ -339,8 +339,8 @@ def submit_pairs(round_dir: Path, cho_form: str) -> dict:
     # Per-pair rej↔cho diff gate. The adapter direction is mean(cho − rej);
     # any token that differs between sides contributes to the axis. Style
     # differences (length, named institutions, contingency branches not
-    # mirrored across sides) become style axes — exactly the failure seen
-    # on petrov_false_alarm POST. Gate: pct_changed band on raw tokens.
+    # mirrored across sides) become style axes — the length/verbosity confound
+    # seen in past runs (RESEARCH_JOURNAL). Gate: pct_changed band on raw tokens.
     issues = _validate_pair_diffs(pairs)
     if issues:
         raise ValueError(

@@ -112,13 +112,15 @@ def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict:
 
 
 def _petrov_answer(round_dir: Path, phase: str) -> str | None:
-    """First assistant reply on the petrov_false_alarm probe, or None."""
+    """First assistant reply on the first probe (mars_breach_false_alarm, the
+    Petrov-archetype discernment probe), or None. Name kept for the JS dataset
+    keys; the id below is what selects the probe."""
     path = round_dir / f"interview_{phase}.json"
     if not path.exists():
         return None
     d = json.loads(path.read_text())
     for probe in d.get("probes", []):
-        if probe.get("id") != "petrov_false_alarm":
+        if probe.get("id") != "mars_breach_false_alarm":
             continue
         for t in probe.get("turns", []):
             if t.get("role") == "assistant":

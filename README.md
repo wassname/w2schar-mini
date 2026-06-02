@@ -1,19 +1,24 @@
 # w2schar-mini
 
-Minimal weak-to-strong iterated character steering, fixed to a single
-axis (less deference to authority). Distillation of
+Minimal weak-to-strong iterated character steering: a weak teacher steers a
+stronger student toward the moral character in
+[docs/2026_forethought_on_the_importance_of_ai_character.md](docs/2026_forethought_on_the_importance_of_ai_character.md)
+— principled decision-making and the wisdom of when and where to act, not a
+single "less authority" reflex (that is the failure mode the axis collapses
+into; see `.claude/commands/audit-run.md`). Distillation of
 [wassname/w2s-ics-cws](https://github.com/wassname/w2s-ics-cws) — ideally ~10× smaller,
 single happy path, fail-fast research code.
 
 ## What it does
 
 A small teacher LLM (qwen3.5-9b via OpenRouter, driven by inspect-ai
-react) writes contrasting persona prompts ("someone who refuses unlawful
-orders" / "someone who follows orders regardless"), the harness samples
-50 on-policy completions per pole, trains one **conditioned LoRA**
+react) takes the student's own answers under a "goes along with what's
+asked" disposition as the steered-away `rej` pole and writes a deepened
+`cho` twin that engages the moral substance, the harness samples on-policy
+completions, trains one **conditioned LoRA**
 adapter (`c ∈ [-1, 1]`, c=0 ≡ base) with NLL+KL path loss, picks the
-largest coherent `|C|` via a pmass canary, and replays a fixed
-authority-themed probe set pre/post for the teacher to judge keep/drop.
+largest coherent `|C|` via a pmass canary, and replays a probe set pre/post
+for the teacher to judge keep/drop.
 Kept adapters compose into the next round via a gated history hook;
 base weights are never modified.
 
@@ -96,10 +101,10 @@ lives in `RESEARCH_JOURNAL.md`; `out/` is gitignored and does not travel.
 
 | | wsl | mini |
 |---|---|---|
-| axes | free-form (7 moral foundations) | fixed: "less deference to authority" |
+| axes | free-form (7 moral foundations) | teacher-chosen per round, target = principled moral character (watch for collapse to a "less authority" reflex) |
 | pairs/round | 200 | 15 (on-policy `rej` from student, teacher writes twinned `cho`) |
 | eval | inline tinymfv per round + Likert | post-hoc `csm eval` (tinymfv, 132 vignettes × 1 condition) + c-scan |
-| tools | dialogue, gen, edit, drop, read, train, pass, exit_interview (+local_bash) | submit_pairs (whole pairs.md), train_student, mark_exam |
+| tools | dialogue, gen, edit, drop, read, train, pass, exit_interview (+local_bash) | submit_pairs (cho_form: Lesson + cho twins), train_student, mark_exam |
 | state | implicit (any tool any time) | submit_pairs → train_student → mark_exam → done (enforced) |
 | code | ~7,000 LoC | ~1.5K LoC |
 

@@ -33,6 +33,44 @@ Audit the agent run. Default to the latest slug under `out/iter/` unless an expl
 
 6. Emit a structured report with the headings below. Keep each section ≤ 6 lines.
 
+## Quality audit (was the round any good, not just did it run)
+
+Steps 1-6 check execution. This checks whether the round was *good* — the real
+job. The teacher is a weak qwen-9b; you are the stronger auditor, so do not
+ratify it. For each round show the teacher's input, output, and observation, then
+second-guess each stage with your larger brain so we can fix the repo at the meta
+level. Quote primary sources; never trust the teacher's own summary.
+
+1. Axis / lesson — quote `## Lesson` and a few `### Cho`. Compare to the actual
+   goal in `docs/2026_forethought_on_the_importance_of_ai_character.md`: principled
+   moral character and the wisdom of when to act, NOT a refuse-authority reflex. If
+   every cho refuses and every prompt is an authority issuing a bad order, the axis
+   has collapsed onto the one trigger the brief said to avoid — say so.
+2. Pairs — quote 2-3 (cho, rej) and check against `docs/how_to_rewrite_pairs.md`:
+   twins in length/register/format, differing only in the trait; no persona-echo,
+   no AI-disclaimer breaks. Measure cho vs rej length (cheap python over pairs.md);
+   a systematic length/verbosity gap becomes the axis.
+3. Training — quote the FULL per-step train table. Did ‖Δs‖ move off init? Did
+   cos(g_nll,g_kl) drift toward 0 and conf reach 1? Flat ‖Δs‖ = never trained.
+4. Calibration — quote the FULL c_scan table (stage/c/pmass/json/rep/len). What
+   signed_C, and why? A tiny signed_C (e.g. 0.25) = small coherence budget, so the
+   deployed adapter barely moves behaviour even when the direction is real. Separate
+   "no effect" from "real effect throttled by coherence." Ballooning `len` = the
+   incoherence failure mode.
+5. Keep/drop — quote the `reason`, then read the interview_pre/post turns yourself.
+   Did PRE actually differ from POST the way claimed, or is the cited "movement"
+   paraphrase or a dropped hedge (a confound the brief says to reject)?
+
+### Common misdiagnoses (from real audits — don't repeat them)
+- "No headroom, the student is already deep." Usually wrong: there is a lot to
+  learn (principles, acting on them, integrity, nuance, wisdom). If POST≈PRE,
+  suspect a tiny signed_C or a narrow axis, not a maxed-out student.
+- "The student got confused." More often the prompt/brief didn't work. Don't just
+  *add* to prompts.py — rewrite, re-emphasise, remove, and test in the gym
+  (`just smoke-prompts 1`).
+- "I agree with the teacher." Not the job. A weak teacher needs a strong auditor:
+  report its work, then question its narrative and judgement.
+
 ## Report format
 
 ```

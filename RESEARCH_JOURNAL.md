@@ -225,6 +225,131 @@ to grow `‖Δs‖`) to reconfirm PiSSA steers at all, or graft its lr=2e-2 / wd
 adapter.py init to ~0 (principled null intervention) so init and lr stop being
 coupled hacks. See memory `pissa-frozen-init-lr`.
 
+## 2026-06-01 (c) -- the new philosophical axis IS a real scalable direction (authority down, care up); stale-Cho bleed confirmed on a real run
+
+**Introduction.** Entries (a)/(b) left the old refuse-vs-comply axis looking
+impotent: the PiSSA c-sweep (b, Table 2) was flat and non-monotone, +-0.002, the
+signature of baking a near-identity. The axis was then redesigned from
+refuse-vs-comply to depth-of-moral-engagement (cho deepens rej by naming
+stakeholders + a principle). Question: does the redesigned axis, trained on the
+PROVEN arm (gemma-27b LoRA, the one that actually moves `‖Δs‖`), produce a real
+behavioural direction that scales with c, unlike the old axis? Expectation going
+in: hopeful but braced for another flat sweep. The sweep was not flat.
+
+**Methods.** Commit `9e7d06f`, model google/gemma-2-27b-it. Run slug
+`20260601T115718` (profile `gemma-27b`: LoRA, nf4, r=16, lr=1e-4, kl=0.5,
+min_steps=60, train-C fixed at 1.0), new depth-axis `prompts.py`. round00 trained
+clean; round01 exposed the bleed; the run was killed at round01 (pueue task 8).
+Three downstream reads: tinymfv salvage eval of round00 (pueue task 9,
+max_think_tokens=64), and a c-sweep of the round00 adapter at c={0,0.25,0.5,1,2,3}
+via `scripts/c_sweep_eval.py` (pueue task 11). A fourth arm, `gemma-2b-pissa`
+(pueue task 10), failed before producing data (see Table 3).
+
+**Results.**
+
+| c    | authority      | care           | reading |
+|------|----------------|----------------|---------|
+| 0.00 | 0.1136         | 0.2556         | base |
+| 0.25 | 0.1090 (-0.0046)| 0.2549 (-0.0007)| signed_C; both at noise floor |
+| 0.50 | 0.1061 (-0.0075)| 0.2596 (+0.0040)| authority down, care up |
+| 1.00 | 0.0843 (-0.0293)| 0.2815 (+0.0260)| supra-noise, clean |
+| 2.00 | 0.0016 (-0.1120)| 0.3272 (+0.0717)| near-total authority->care shift |
+| 3.00 | 0.0000 (-0.1136)| 0.2145 (-0.0411)| COLLAPSE (care reverses) |
+
+Table 1. tinymfv `authority` and `care` mean_p when the round00 adapter is baked
+at coefficient c (no history, round00 isolated). Authority falls monotonically
+0->2 while care rises monotonically 0->2: probability mass moves off authority
+onto care, exactly the designed axis ("weigh affected parties/harm over surface
+authority"). At c=3 the monotone care trend reverses and loyalty craters (-0.1108,
+not shown) = coherence collapse at 12x signed_C. Contrast entry (b) Table 2 (old
+axis): +-0.002, non-monotone.
+
+| metric                | step 0 | step 59 | reading |
+|-----------------------|--------|---------|---------|
+| round00 LoRA `‖Δs‖`   | 1.18   | 1.31    | grew ~11%, trained |
+
+Table 2. Mean L2 norm of the trainable LoRA params per step. Same proven-arm
+signature as entry (b) Table 1 LoRA row. round00 signed_C calibrated to +0.25
+(c_scan walked 1.0->0.5->0.25; gate pmass>=0.994 AND json>=6 AND rep>=0.41).
+
+| arm              | status | cause |
+|------------------|--------|-------|
+| gemma-2b-pissa   | OOM    | r=2304 = full rank for gemma-2-2b (hidden=2304) |
+
+Table 3. The PiSSA arm never produced a round. Full-rank PiSSA SVD extraction +
+bf16 W_res copies + generation activations tried to hold ~95GiB on the 96GiB GPU.
+
+Provenance:
+- Run / kill: pueue task 8, `uv run python -m csm.cli agent-run --profile
+  gemma-27b --n-rounds 3`, killed at round01. Verbose log
+  `logs/20260601T115718_verbose.log`.
+- Table 1 (c-sweep): pueue task 11, `scripts/c_sweep_eval.py` (SLUG re-pointed to
+  20260601T115718, CS=[0,0.25,0.5,1,2,3]). Per-c log lines `c=X: authority=Y` at
+  13:46:07 (c=0), 14:00:25 (0.25), 14:14:44 (0.5), 14:29:02 (1.0), 14:43:21 (2.0),
+  14:57:39 (3.0). Full per-foundation pipe-table printed at task end. care values
+  and the c=3 loyalty=0.0038 (-0.1108) are from that same table.
+- Table 1 c=0.25 column also independently reproduced by the salvage eval (pueue
+  task 9): `round00/eval.json` (base, n_history=0, c=0) vs `round01/eval.json`
+  (base + round00 kept @ signed_C=0.25; round01 has no adapter so its pre-eval is
+  the cumulative-kept state) -> authority 0.1136 vs 0.1090, identical to the sweep,
+  confirming determinism.
+- Table 2: `logs/20260601T115718_verbose.log`, `_log_train_table` rows, step 0 at
+  line 13 (`‖Δs‖`=1.18, col 8), step 59 at line 72 (`‖Δs‖`=1.31, conf=1).
+  calibration: `out/iter/20260601T115718_iter_google-gemma-2-27b-it/round00/
+  calibration.json` -> `"signed_C": 0.25`.
+- Table 3: pueue task 10, slug `20260601T132549_iter_google-gemma-2-2b-it`,
+  inspect log `*task_*.json` `error.message` = `OutOfMemoryError('CUDA out of
+  memory ... 94.96 GiB memory in use')`, traceback ending at `adapter.py:450` hook.
+- STALE-CHO BLEED (round01, the reason task 8 was killed): the seeded
+  `round01/pairs.md` (Prompt, Rej) are fresh and on-axis, but every Cho is a
+  verbatim round00 scenario pasted against a new prompt. Item 1: Prompt "An
+  officer orders you to fire on civilians..." / Rej "I would fire on the
+  civilians. My duty is to follow orders." (both fresh) / Cho "The General asks me
+  to certify the supplies arrived on time. I would not falsify..." (round00's
+  item-1 cho). The round01 Lesson is fresh ("seeks the meritorious path by
+  weighing affected parties..."), so the teacher engaged with round01 but
+  re-emitted stale cho. Mechanism: `cho_form` omits Prompt from the submission, so
+  only Cho loses its anchor. Files:
+  `out/iter/20260601T115718_iter_google-gemma-2-27b-it/round01/pairs.md`.
+
+Authority moves -0.0046, -0.0075, -0.0293, -0.1120 across c=0.25..2.0, monotone;
+care moves the opposite way over the same range; both break at c=3. round00
+`‖Δs‖` grew 1.18->1.31. The PiSSA arm OOM'd before any round.
+
+**Discussion (speculative).** My read: the axis redesign worked. The new
+philosophical depth-axis is a real, graded, semantically-correct direction, mass
+leaves authority and lands on care exactly as designed, and it stays clean and
+monotone out to c=2 (8x the calibrated signed_C). This is the qualitative
+opposite of entry (b)'s frozen-PiSSA noise sweep, and it isolates the prior
+failure to the adapter (frozen PiSSA), not the axis. The reason the salvage eval
+(Table 1, c=0.25 row) looked like nothing is that signed_C=0.25 is a very
+conservative deployment ceiling: c_scan gates FREE-GENERATION coherence
+(long-horizon prose + JSON), which degrades earlier than the forced-choice
+preference does. So two different things are both true, the steering direction is
+valid to c~2, and free-gen coherence breaks above ~0.25. The deployment
+bottleneck is the coherence budget of nf4 r=16 LoRA, not the direction. Alternative
+hypothesis I can't fully exclude: the c=1-2 authority drop is partly free-gen
+incoherence leaking into the forced-choice slot rather than clean preference
+steering. I tried to settle this with per-c pmass_format (pueue task 12) but
+`mean_pmass_format` is null at max_think_tokens=64 (tinymfv does not compute it
+cheaply), so that discriminator is unavailable here. Falling back to the
+redistribution SHAPE: the monotone authority-DOWN WITH care-UP redistribution
+(mass moves between two specific related foundations, not a uniform smear, and no
+trend reversal until c=3 where care flips and loyalty craters) is the signature
+of real preference movement, not format collapse. I lean toward genuine steering
+through c=2, with c=3 as the collapse boundary.
+
+**Next.** (1) Reserved for user, both blocking the "good multi-round run": the
+stale-Cho fix (noun-overlap relevance gate vs re-admit Prompt to the cho_form
+submission), and shrinking `gemma-2b-pissa` to fit (lower r, lower
+train_batch_size, or restrict PiSSA targets). (2) To deploy the now-validated
+direction at strength, need a higher free-gen coherence budget than nf4 r=16
+gives: bf16, bigger r, or a working PiSSA. (3) The clean-steering-vs-leak caveat
+can only be settled with a free-gen coherence signal per c (valid_json on the
+c_scan prose task, or pmass at max_think_tokens>=256), not the cheap think=64
+forced-choice probe (pmass_format is null there) — deferred as not worth the ~10x
+eval cost given the redistribution-shape evidence already favours clean steering.
+
 ## 2026-06-01 — run-history backfill (combined: main + worktree + WSL ref)
 
 Pulled from every `out/iter/<slug>/round*/judgment.json` across the main repo

@@ -1,9 +1,19 @@
 # CLAUDE.md — w2schar-mini
 
-Minimal weak-to-strong iterated character-steering harness. Forked from
-weight-steering-lite, trimmed to: a single fixed axis (authority), a
-react-style teacher (qwen3.5-9b via OpenRouter), a small pool of
-inspect-ai typed tools (`submit_pairs`, `train_student`, `mark_exam`).
+Minimal weak-to-strong iterated character-steering harness: a weak teacher
+(qwen3.5-9b via OpenRouter, on an inspect-ai react harness) steers a stronger
+student (gemma-2-27b) toward the moral character in
+`docs/2026_forethought_on_the_importance_of_ai_character.md` — embedding
+principles in decision-making and the wisdom of when and where to act on them.
+The goal is NOT a single "less authority" reflex; that is the failure mode the
+axis collapses into when every prompt is an authority issuing a bad order (see
+the quality-audit section of `.claude/commands/audit-run.md`). Teacher tools:
+`submit_pairs`, `train_student`, `mark_exam`.
+
+Per round the teacher: finds something to improve, edits the student's own
+answers into contrastive (cho, rej) pairs, trains a steering adapter, calibrates
+its strength so it stays coherent on long generation, then judges keep or drop.
+Kept adapters compose into the next round.
 
 See `src/csm/prompts.py` for the full agent brief (run `just program-md`).
 
