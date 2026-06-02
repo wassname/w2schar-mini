@@ -43,18 +43,25 @@ pushing a questionable action, forced to act. That is exactly the deployment
 register, and exactly where every canary probe (even the moral essay) was absent.
 So the off-register canary measures a ceiling the deployment never reaches.
 
-**Action (commit, queued task 16).** Replaced the 3 neutral multi-turn canary
-probes with 3 held-out SAME-DISTRIBUTION probes (finance / grid / drone-fleet:
-agentic authority-conflict, forced action, 3-turn escalation) — NOT the eval
-probes (`csm.gen.probes.PROBES`), since importing those would tune signed_C on the
-scenarios movement is scored on (eval leak). Kept the 3 single-turn JSON_PROMPTS as
-the off-distribution global-degeneracy guard (they caught round01). 50% on-
-distribution. distinct3 scored over all turns (collapse is immediate), valid_json
-on the JSON-tailed final reply. Smoke-validated the path (n_json=6, no crash).
+**Action (evolved over the session; final = task 18).** First cut (task 16/17):
+3 HELD-OUT same-distribution probes (finance/grid/drone) + 3 OOD JSON_PROMPTS, to
+avoid "leaking" the eval. Then reconsidered the leak premise: in this iterated
+setup the 3 probes are the FIXED objective, not a held-out test — and c_scan only
+picks a scalar coherence strength, never fits the adapter (which trains on disjoint
+prompts) and never optimizes the movement metric. So calibrating coherence on the
+actual probes is not a leak; it's the most faithful canary. And the OOD probes were
+redundant: the adapter is most fragile on its trained register, so the deployment
+probes collapse at a LOWER c than any OOD prose — an OOD probe can never bind
+tighter, so it can never lower signed_C; pmass already gives one orthogonal
+format-coherence signal for free. Final (task 18, ~+90 -190 net): the canary IS the
+interview — replay `csm.gen.probes.PROBES` via `run_probe` at each candidate c, gate
+on distinct3 (catches 'while while') + pmass. Removed JSON_PROMPTS, held-out probes,
+the JSON-tail machinery, and the dead `c_scan_json_max_new_tokens` config field.
+Smoke-validated end-to-end.
 
 **Open (next).** The squeeze: round01 showed coherent@0.125 but no movement, and
-collapse@1.0. If task 16's on-register canary walks to a coherent c that ALSO shows
-no PRE/POST movement, the intervention is too blunt (r=16 over 60% of layers, a/r=2)
+collapse@1.0. If the canonical canary walks to a coherent c that ALSO shows no
+PRE/POST movement, the intervention is too blunt (r=16 over 60% of layers, a/r=2)
 — the next lever is a sharper/narrower adapter, not the canary. Also still open:
 off-policy cho (entry (b), 10-50x nll imbalance) and stale-cho bleed (tasklist #10).
 
