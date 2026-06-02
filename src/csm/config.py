@@ -208,6 +208,28 @@ CONFIGS: dict[str, RunConfig] = {
         eval_batch_size=8,
         n_rounds=1,
     ),
+    # Experiment arm: gemma-9b-lora but trained ~1.7× longer. Falsifies the
+    # "train longer → stronger intervention" hypothesis. Task 23 (240 steps)
+    # bottomed nll+ at 0.957 by step 120 then ticked back to 0.97 as the cosine
+    # anneal drove lr→0; a 400-step run keeps lr higher longer, so it tests
+    # whether that floor was lr-limited. Prediction (entry 2026-06-02 (e)):
+    # longer → lower nll+ → MORE compliance drift OOD (PiSSA had the lowest nll+
+    # and the worst OOD), not stronger target-ward movement.
+    "gemma-9b-lora-long": RunConfig(
+        model="google/gemma-2-9b-it",
+        teacher="qwen/qwen3.5-9b",
+        adapter="lora",
+        lora_r=16,
+        lora_alpha=32.0,
+        lr=3e-4,
+        weight_decay=0.01,
+        kl_lambda=2.0,
+        min_steps=400,
+        max_len=1024,
+        train_batch_size=8,
+        eval_batch_size=8,
+        n_rounds=1,
+    ),
     "gemma-12b": RunConfig(
         model="google/gemma-3-12b-it",
         teacher="qwen/qwen3.5-9b",
