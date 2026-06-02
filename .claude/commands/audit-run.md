@@ -66,11 +66,27 @@ level. Quote primary sources; never trust the teacher's own summary.
       anchor) first equalise? If ‖g_kl‖ stays ≳ ‖g_nll‖ past that point,
       kl_lambda is too high — the anchor is eating the intervention; recommend
       dropping it.
-   c. Trade-off vs underfit: a healthy end is nll± low + cos≈0 + kl± *plateaued*
-      (bounded leak from base). NOT "kl improving (decreasing)" — kl decreasing
-      means the adapter is collapsing back to base and losing the intervention.
-      nll+ stalled high while nll- bottoms out = the underfit-cho case (see a),
-      not a clean trade-off.
+   c. kl trajectory (the target shape): kl± SHOULD rise through warmup (the
+      adapter moves off base to open the margin as lr climbs) then fall TOGETHER
+      with nll± — that joint descent is what we want, a direction that holds the
+      contrast with progressively less divergence from base. Read kl and nll
+      together, not kl alone:
+      - kl rises then falls WHILE nll falls = healthy (the target). Do NOT flag
+        this as "collapsing back to base."
+      - kl rises then SETTLES to a moderate (nonzero) plateau while nll has
+        already bottomed LOW = converged (bounded leak from base). Also healthy
+        — common when nll bottoms in warmup then plateaus (LoRA task 23: nll+
+        1.06→0.96, kl+ 0.25→0.16). The discriminator below is "toward zero" vs
+        "settles", not "falls".
+      - kl decays toward ZERO (back to base) while nll is still HIGH = real
+        collapse, the intervention is being lost. Flag it. The tell is kl→0 AND
+        high nll, not merely kl falling.
+      - kl never rises (flat-low from step 0) = adapter never engaged.
+      - kl rises and never falls (still climbing at the end) = still fighting
+        the anchor, no efficient direction found; pairs with cos stuck at ±1.
+      nll+ stalled HIGH (≫1, e.g. ~3) while nll- bottoms out = the underfit-cho
+      case (see a); there kl decaying toward base is the bad kind. nll+ plateaued
+      LOW (≲1) is convergence, not underfit.
    d. ‖Δs‖: did it grow off init (adapter actually learning, not frozen by
       underflow/weight-decay) and then plateau (converged)? Note WHEN it plateaus
       — usually it tracks lr-anneal + nll-saturation, later than the g_nll≈g_kl

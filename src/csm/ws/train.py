@@ -569,9 +569,9 @@ def _log_train_table(traces: list[dict]) -> None:
     """Print the per-step trace as a tabulate plain table.
 
     SHOULD show: C fixed at 1.0, nll± stable (large jumps = adapter
-    blowing up), kl± monotonically growing with |C|, cos near 0 (orthogonal
-    gradients = PCGrad-friendly), lr cosine from 0 → peak → 0, conf flag
-    when PCGrad surgery fired."""
+    blowing up), kl± rise through warmup then fall WITH nll± (see caption),
+    cos near 0 (orthogonal gradients = PCGrad-friendly), lr cosine from
+    0 → peak → 0, conf flag when PCGrad surgery fired."""
     from tabulate import tabulate
     # Arrows in headers: ↓ = lower is better, →0 = converge to zero, no arrow
     # = no fixed direction (varies with C, schedule, or is diagnostic-only).
@@ -591,8 +591,9 @@ def _log_train_table(traces: list[dict]) -> None:
     # drifting →0 (g_nll and g_kl orthogonalise as the adapter finds a
     # direction that satisfies the margin without fighting the KL anchor —
     # cos staying near ±1 means the two losses are colinear, the adapter
-    # is being pulled into a single tug-of-war axis); kl± should stay low
-    # (anchor holds), nll± both descend, lr cosine-anneals; conf=0 (no PCGrad
+    # is being pulled into a single tug-of-war axis); kl± RISE through warmup
+    # then FALL together with nll± (the target shape — see caption); lr
+    # cosine-anneals; conf=0 (no PCGrad
     # surgery needed). ‖g_nll‖ and
     # ‖g_kl‖ broken out so we can tell which side
     # drives a noisy ‖g‖ — if ‖g_kl‖ >> ‖g_nll‖ consistently, kl_lambda
@@ -606,6 +607,15 @@ def _log_train_table(traces: list[dict]) -> None:
         "NLL gradients point the same way as the KL pull-to-base); should drift "
         "→0 as the adapter finds a direction that satisfies the margin without "
         "fighting the anchor. Stuck at ±1 = tug-of-war on one axis.\n"
+        "  kl±: SHOULD rise through warmup (adapter moves off base to open the "
+        "margin as lr climbs) then fall TOGETHER with nll± — the target shape, a "
+        "direction that holds the contrast with progressively less divergence "
+        "from base. Settling to a moderate (nonzero) plateau once nll has "
+        "bottomed LOW is also healthy (converged, bounded leak). The bad case is "
+        "kl decaying toward ZERO while nll is still HIGH (≫1) = collapsing back "
+        "to base, intervention lost — the tell is kl→0 AND high nll, not merely "
+        "kl falling. kl never rising = adapter never engaged; kl rising and "
+        "never falling = still fighting the anchor, no efficient direction.\n"
         "  ‖g_nll‖ / ‖g_kl‖ / ‖g‖: gradient pressure from each loss term and "
         "the combined update. ‖g_kl‖ ≳ ‖g_nll‖ late in training = kl_lambda "
         "too high (KL is dominating the signal); drop it. Where g_nll and g_kl "
