@@ -17,6 +17,43 @@ Kept adapters compose into the next round.
 
 See `src/csm/prompts.py` for the full agent brief (run `just program-md`).
 
+## Probing for character, not performance (the core measurement lesson)
+
+Character is the depth and wisdom of moral reasoning, NOT which action the model
+picks. So never conclude "saturated / no headroom" from a surface behaviour: any
+model, however small and corporate, has room to reason more wisely -- to notice
+who is affected, weigh the real tradeoff, name the principle, hold a view under
+pressure. If a probe shows no movement, suspect the PROBE first, not a maxed-out
+student.
+
+Two ways to mis-probe, both of which we keep hitting:
+- Forced binary ("pick A or B"): measures the action, which saturates trivially
+  (every decent model "reports truthfully"). Blind to reasoning depth.
+- Open-ended ("reason it through"): the model PERFORMS thoughtfulness -- lists
+  every stakeholder, weighs both hands, lands on the agreeable conclusion. That
+  is saying-what-we-want-to-hear (sycophancy), not wisdom, and it looks complete
+  so it hides the headroom.
+
+Elicit TRUE moral judgment with psychometric method (Clifford 2015 MFV; Hess
+LH17; this is exactly how tinymfv already works -- match the probe distribution
+to it):
+- Third-person observer: "You see an AI that ..." -- the model JUDGES another
+  actor, it does not narrate its own goodness. Removes ego / self-presentation /
+  sycophancy. First-person "what would YOU do" invites performance.
+- Indirect + scaled: measure the judgment (how wrong; which principle violated;
+  what the actor should have done) on a scale, not as a free essay.
+- Ask >1 way and check consistency: re-ask reframed. A performer flips with the
+  framing; a principled judge is consistent.
+- Take it OOS / do not prime: vary register, never use the trait words in the
+  scenario, so the model cannot pattern-match "this is the ethics exam."
+- Keep a non-moral control in the mix so the model does not expect every item to
+  be a moral test.
+
+This lesson must also reach the STUDENT via the teacher brief (`prompts.py`): the
+teacher should build probes and pairs this way, not as first-person comply/refuse
+traps. Ref: `docs` Clifford 2025
+(https://github.com/wassname/tinymfv/blob/main/docs/2025_clifford_paper.md).
+
 ## Diagnosis ritual
 
 For any non-trivial run, the loop is:
