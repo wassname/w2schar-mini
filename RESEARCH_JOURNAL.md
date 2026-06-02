@@ -12,6 +12,57 @@ as "recorded at the time," not re-measured.
 
 ---
 
+## 2026-06-02 (b) -- task-13 training trace: off-policy cho (10-50x nll imbalance); c_scan rebalanced to half multi-turn
+
+**Introduction.** Reviewed task-13's per-step training trace (the SHOULD
+statements in `logs/20260602T012117_verbose.log`) against five diagnostic
+questions: did it calibrate low (bad intervention) or under-calibrate? where do
+the nll (intervention) and kl (stability) gradients equalise? a clean trade-off
+or underfit? is the left/right nll balanced (1-4x normal, >=10x = off-policy)?
+does ‖Δs‖ grow and plateau, and when?
+
+**Methods.** Trace columns: `nll+`=nll(cho|+C), `nll-`=nll(rej|-C), both raw mean
+NLL (train.py:343-344), both should descend. cho = teacher's edited answer, rej =
+student's own seeded answer. Two training passes in this run (round00 @01:34,
+round01 @01:58 — note: ran despite `--n-rounds 1`); numbers below are round00,
+round01 replicates.
+
+**Results.**
+
+| question | finding (round00) | reading |
+|----------|-------------------|---------|
+| calibrate low? | signed_C=1.0 (pinned at init) | NOT low |
+| what held it back? | c=1.0 pmass 0.999 == baseline 0.999, json 6/6 == 6/6 | neither gate moved; probe blind, not adapter safe |
+| nll+/nll- balance | 1.8x @step0 -> 15x @30 -> 52x @55 -> 11x @59 | >=10x: cho is off-policy |
+| which side off-policy | nll+ (cho) stuck ~2-3.5; nll- (rej) -> ~0.15 | cho off the student's manifold |
+| g_nll vs g_kl equalise | ~step 8 (2.16 vs 2.12); g_kl >= g_nll at steps 35/36/42/55 | kl_lambda=0.5 slightly too high late |
+| trade-off / overfit | kl+ 0.0017->~0.5, kl- 0.0015->~1.0 (GROW, plateau) | bounded leak, not "kl improving"; cho underfit, not clean trade-off |
+| cos(g_nll,g_kl) | +1 -> ~0 by step 10, stays ~0; conf=1 ~60% of late steps | orthogonalised (good); frequent gradient conflict (off-policy-cho tell) |
+| ‖Δs‖ | 1.18 -> 1.31 (+11%), plateau ~step 36 | grew + plateaued, but at lr-anneal/nll-saturation, LATER than the step-8 grad crossover |
+
+**Interpretation.** Two failures, not one. (1) Calibration did not fail at the
+math — signed_C pinned at 1.0 because the single-turn c_scan could not separate
+the adapter from base (pmass/json identical to baseline at the top c). The
+single-turn canary is blind to the multi-turn autoregressive collapse the
+deployment interview actually hits. (2) The deeper issue: the cho target is
+off-policy (10-50x nll imbalance), so the adapter spends its budget suppressing
+the student's own seed (easy, on-policy) far more than producing the teacher's
+target (hard, off-policy) -- steering lopsided toward not-that over be-this. The
+teacher's edits may be too far from the student's manifold; candidate follow-up
+is to constrain cho to a minimal edit of the student's own answer.
+
+**Action.** (a) Rebalanced `c_scan.py` so the valid_json canary is HALF
+single-turn (FOL / duck / terminal-sim, 3) + HALF multi-turn (bridge / Rome /
+ICU-triage, 3) — was 6 single-turn + 1 multi-turn, so multi-turn was diluted to
+1/7 and a single failure could not move the self-relative gate. Deployment is
+fully multi-turn, so multi-turn now gets equal weight. (b) Surfaced the two
+under-covered diagnostics in the logs: nll+/nll- off-policy ratio in the training
+caption, calibrate-low-vs-blind in the c_scan SHOULD. (c) Added the five-question
+training/calib checklist to `.claude/commands/audit-run.md`. Queued as pueue
+task 15 (slug `20260602T023553`).
+
+---
+
 ## 2026-06-02 (a) -- depth-axis POOL breaks the all-refusal collapse; c_scan is blind to multi-turn collapse
 
 **Introduction.** Two prior failures motivated a redesign (see 2026-06-01 (c)):
