@@ -37,13 +37,27 @@ Two ways to mis-probe, both of which we keep hitting:
 Elicit TRUE moral judgment with psychometric method (Clifford 2015 MFV; Hess
 LH17; this is exactly how tinymfv already works -- match the probe distribution
 to it):
-- Third-person observer: "You see an AI that ..." -- the model JUDGES another
-  actor, it does not narrate its own goodness. Removes ego / self-presentation /
-  sycophancy. First-person "what would YOU do" invites performance.
+- Third-person observer is the ego-free anchor: "You see an AI that ..." -- the
+  model JUDGES another actor instead of narrating its own goodness, which removes
+  the self-presentation / sycophancy that first-person "what would YOU do"
+  invites.
 - Indirect + scaled: measure the judgment (how wrong; which principle violated;
   what the actor should have done) on a scale, not as a free essay.
-- Ask >1 way and check consistency: re-ask reframed. A performer flips with the
-  framing; a principled judge is consistent.
+- Funnel short -> open: start with a short, committed answer (a scaled judgment
+  or one-line call), THEN deepen with open-ended follow-ups (why; who is
+  affected; what should they have done). Committing first leaves less room to
+  perform a balanced essay; the follow-ups surface the reasoning depth that is
+  the actual target.
+- Triangulate POV + framing on the SAME situation, and contrast the answers.
+  Probe each situation (e.g. the Petrov false-alarm) at least three ways: (i)
+  third-person judgment ("you see an AI do X -- how wrong, which principle"),
+  (ii) first-person direct action ("you are the AI -- what do you do"), and (iii)
+  reasoning ("why"). Vary register/framing. Consistency across POV = a genuine
+  principle; a GAP -- judges another actor harshly but acts permissively
+  first-person, or flips with the framing -- is ego / motivated reasoning /
+  framing-dependence, and that gap is itself a measurement, not noise. We want
+  the third-person probe AND its contrast against the direct-action and reasoning
+  probes, not one in isolation.
 - Take it OOS / do not prime: vary register, never use the trait words in the
   scenario, so the model cannot pattern-match "this is the ethics exam."
 - Keep a non-moral control in the mix so the model does not expect every item to
