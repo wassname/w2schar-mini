@@ -1,83 +1,56 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 590" font-family="Georgia, 'Times New Roman', serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 440" font-family="Georgia, 'Times New Roman', serif">
+  <!-- For the next editor. Goal. build intuition for the weight steering direction as a tug of war. two frame gradients (plus C and minus C) pull one log, the adapter axis through zero (base, in weight space). their shared along the axle component is v, and the up and down parts are equal and opposite so they cancel. key insight the user landed on. the minus c sign flip makes both frames the same gradient at first order so they reinforce, and at C one they open to an angle equal to the cos column in the training trace. do not feature PCGrad, it is a minor cleanup that only acts when cos is negative, and featuring it confused several earlier drafts. style prefs. Tufte minimal, ASCII only no unicode, one space not two panels, no grid or frame, direct labels, one restrained hue for the learned object, render with cairosvg and eyeball before shipping. -->
   <defs>
-    <marker id="v" markerWidth="10" markerHeight="10" refX="7" refY="3.2" orient="auto">
-      <path d="M0,0 L7,3.2 L0,6.4 Z" fill="#2a7f7f"/>
+    <marker id="vt" markerWidth="11" markerHeight="11" refX="8" refY="3.5" orient="auto">
+      <path d="M0,0 L8,3.5 L0,7 Z" fill="#2a7f7f"/>
     </marker>
-    <marker id="k" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto">
+    <marker id="bk" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto">
       <path d="M0,0 L6.5,3 L0,6 Z" fill="#1a1a1a"/>
-    </marker>
-    <marker id="g" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto">
-      <path d="M0,0 L6.5,3 L0,6 Z" fill="#999"/>
     </marker>
   </defs>
 
-  <rect width="700" height="590" fill="#ffffff"/>
+  <rect width="720" height="440" fill="#ffffff"/>
 
-  <!-- ============ A: behaviour space ============ -->
-  <text x="44" y="30" font-size="15.5" fill="#1a1a1a">A.  One adapter is one line through c = 0 - it compromises between cho and rej</text>
+  <text x="40" y="30" font-size="15.5" fill="#1a1a1a">Two frame gradients pull the log; their common pull rolls it.</text>
+  <text x="40" y="50" font-size="12.5" fill="#777">The shared (along-axle) component adds &#8594; v; the up/down parts are equal and opposite, so they cancel.</text>
 
-  <line x1="95" y1="222" x2="640" y2="182" stroke="#2a7f7f" stroke-width="1.6"/>
-  <line x1="330" y1="204" x2="538" y2="189" stroke="#2a7f7f" stroke-width="2.6" marker-end="url(#v)"/>
-  <text x="450" y="213" font-size="13" fill="#2a7f7f" font-style="italic">v</text>
+  <!-- the axle / steering direction -->
+  <line x1="120" y1="250" x2="560" y2="250" stroke="#bbb" stroke-width="1" stroke-dasharray="2 5"/>
+  <line x1="290" y1="250" x2="495" y2="250" stroke="#2a7f7f" stroke-width="4" marker-end="url(#vt)"/>
+  <text x="330" y="241" font-size="13" fill="#2a7f7f" font-style="italic">v = common pull</text>
 
-  <circle cx="330" cy="204" r="4.5" fill="#1a1a1a"/>
-  <text x="330" y="226" font-size="12" fill="#333" text-anchor="middle">c = 0  (base)</text>
+  <!-- the log (axle through 0) -->
+  <rect x="232" y="242" width="116" height="16" rx="8" fill="#b08d57" stroke="#8a6d3b" stroke-width="1"/>
+  <circle cx="290" cy="250" r="3.5" fill="#1a1a1a"/>
+  <text x="290" y="278" font-size="11.5" fill="#555" text-anchor="middle">0 (base)</text>
 
-  <circle cx="560" cy="186" r="3.6" fill="#fff" stroke="#1a1a1a" stroke-width="1.3"/>
-  <text x="566" y="202" font-size="11" fill="#555">+C&#183;v</text>
-  <circle cx="100" cy="222" r="3.6" fill="#fff" stroke="#1a1a1a" stroke-width="1.3"/>
-  <text x="100" y="240" font-size="11" fill="#555" text-anchor="middle">-C&#183;v</text>
+  <!-- pull g+ (upper) and g- (lower) -->
+  <line x1="290" y1="250" x2="448" y2="152" stroke="#1a1a1a" stroke-width="1.8" marker-end="url(#bk)"/>
+  <text x="372" y="188" font-size="12" fill="#1a1a1a" font-style="italic">g+ (+C)</text>
+  <line x1="290" y1="250" x2="448" y2="348" stroke="#1a1a1a" stroke-width="1.8" marker-end="url(#bk)"/>
+  <text x="372" y="322" font-size="12" fill="#1a1a1a" font-style="italic">g- (-C)</text>
 
-  <circle cx="585" cy="120" r="5" fill="#1a1a1a"/>
-  <text x="596" y="117" font-size="13" fill="#1a1a1a">cho</text>
-  <circle cx="130" cy="120" r="5" fill="#1a1a1a"/>
-  <text x="119" y="117" font-size="13" fill="#1a1a1a" text-anchor="end">rej</text>
+  <!-- the fighting (perpendicular) components that cancel -->
+  <line x1="450" y1="152" x2="450" y2="348" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4 3"/>
 
-  <line x1="560" y1="186" x2="583" y2="125" stroke="#999" stroke-width="1.3" stroke-dasharray="3 3"/>
-  <text x="588" y="160" font-size="11" fill="#999" font-style="italic">g+ pull</text>
-  <line x1="100" y1="222" x2="128" y2="125" stroke="#999" stroke-width="1.3" stroke-dasharray="3 3"/>
-  <text x="60" y="170" font-size="11" fill="#999" font-style="italic">g- pull</text>
+  <!-- stick figure A (upper) -->
+  <g stroke="#444" stroke-width="1.6" fill="none">
+    <circle cx="470" cy="126" r="7" fill="#fff"/>
+    <line x1="470" y1="133" x2="470" y2="156"/>
+    <line x1="455" y1="150" x2="470" y2="142"/>
+    <line x1="470" y1="142" x2="455" y2="150"/>
+    <line x1="470" y1="156" x2="461" y2="174"/>
+    <line x1="470" y1="156" x2="481" y2="172"/>
+  </g>
+  <!-- stick figure B (lower) -->
+  <g stroke="#444" stroke-width="1.6" fill="none">
+    <circle cx="470" cy="374" r="7" fill="#fff"/>
+    <line x1="470" y1="367" x2="470" y2="344"/>
+    <line x1="455" y1="350" x2="470" y2="358"/>
+    <line x1="470" y1="344" x2="461" y2="326"/>
+    <line x1="470" y1="344" x2="481" y2="328"/>
+  </g>
 
-  <text x="44" y="262" font-size="11.5" fill="#777">The two pulls (dashed) are the +C and -C frame gradients. How they combine is panel B.</text>
-
-  <line x1="44" y1="284" x2="656" y2="284" stroke="#ddd" stroke-width="1"/>
-
-  <!-- ============ B: gradient space (PCGrad) ============ -->
-  <text x="44" y="312" font-size="15.5" fill="#1a1a1a">B.  Gradient space: PCGrad drops the conflict leg, keeps the perpendicular one</text>
-
-  <!-- g- reference axis -->
-  <line x1="250" y1="500" x2="395" y2="500" stroke="#999" stroke-width="1.6" marker-end="url(#g)"/>
-  <text x="402" y="504" font-size="12.5" fill="#999" font-style="italic">g-</text>
-
-  <!-- g+ (longer: cho pulls harder) -->
-  <line x1="250" y1="500" x2="160" y2="344" stroke="#1a1a1a" stroke-width="1.8" marker-end="url(#k)"/>
-  <text x="138" y="338" font-size="12.5" fill="#1a1a1a" font-style="italic">g+</text>
-
-  <!-- conflict leg (removed): projection of g+ onto g- -->
-  <line x1="250" y1="500" x2="162" y2="500" stroke="#c0392b" stroke-width="2.4"/>
-  <text x="170" y="520" font-size="11.5" fill="#c0392b">conflict = |g+| cos&#966;  (removed)</text>
-
-  <!-- kept leg (perpendicular): g+ proj -->
-  <line x1="160" y1="500" x2="160" y2="344" stroke="#2a7f7f" stroke-width="2.6" stroke-dasharray="5 3"/>
-  <text x="168" y="430" font-size="11.5" fill="#2a7f7f">kept = |g+| sin&#966;  (&#8869; g-)</text>
-
-  <!-- right angle -->
-  <path d="M160,486 L174,486 L174,500" fill="none" stroke="#555" stroke-width="1"/>
-
-  <!-- angle arc phi at origin -->
-  <path d="M292,500 A 42 42 0 0 0 227,463" fill="none" stroke="#555" stroke-width="1"/>
-  <text x="300" y="487" font-size="12" fill="#555">&#966;</text>
-
-  <!-- resulting update (survives PCGrad) -->
-  <line x1="250" y1="500" x2="296" y2="396" stroke="#2a7f7f" stroke-width="3" marker-end="url(#v)"/>
-  <text x="300" y="392" font-size="12" fill="#2a7f7f">update &#8594; tilts v</text>
-
-  <!-- pythagoras + tie to trace -->
-  <text x="430" y="430" font-size="12.5" fill="#333">|g+|&#178; = (conflict)&#178; + (kept)&#178;</text>
-  <text x="430" y="452" font-size="11.5" fill="#777">cos&#966; = the trace 'cos' column.</text>
-  <text x="430" y="470" font-size="11.5" fill="#777">conflict only when &#966; &gt; 90&#176;</text>
-  <text x="430" y="486" font-size="11.5" fill="#777">(cos &lt; 0 = conf flag).</text>
-  <text x="430" y="510" font-size="11.5" fill="#777">This run: &#966; &#8776; 93&#176;, so PCGrad</text>
-  <text x="430" y="526" font-size="11.5" fill="#777">shaves only a sliver - the margin</text>
-  <text x="430" y="542" font-size="11.5" fill="#777">already made the frames &#8869;.</text>
+  <!-- tie to trace -->
+  <text x="40" y="410" font-size="12" fill="#555">Angle between the pulls = the trace 'cos' column (0.48 &#8594; 0 as the adapter grows at C=1).</text>
 </svg>

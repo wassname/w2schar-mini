@@ -5,28 +5,23 @@ direction. This note pins down, directly: how much each pole contributes to that
 direction, whether the contribution is computed in gradient or loss space, and
 why exactly one of the four loss terms needs a normalization cap.
 
-![Two panels. A: one adapter is one line through c=0, compromising between cho and rej. B: in gradient space PCGrad drops the conflict leg of the two frame gradients and keeps the perpendicular leg, a Pythagorean split set by the angle between them](steering_direction.svg)
+![Two frame gradients pull the log; their common along-axle component is the steering direction v](steering_direction.svg)
 
-Panel A (behaviour space): the adapter is one line through `c=0` — a single
-direction `v`, with `+C·v` aimed at cho and `-C·v` at rej. When base, cho and rej
-are not collinear no line reaches both targets, so `v` settles at a weighted
-compromise and the two ends fall short. Those two misses are the `+C` and `-C`
-frame gradients, evaluated at the pinned `c` (so they are the oblique gap to the
-target, not a perpendicular drop to the line).
+The two frames (`+C` and `-C`) pull on the adapter direction like two people on a
+log. To first order they are the *same* gradient: let `G_x = ∂nll(x)/∂θ` be the
+weight-direction that raises `nll(x)`. The adapter adds `c·(...)` to the logits,
+so `∂nll(x|c)/∂θ = c·G_x`, and the `-c` sign flip turns the role-swap (the `+C`
+frame pulls cho / pushes rej, the `-C` frame does the reverse) back into one
+shared update:
 
-Panel B (gradient space, where PCGrad acts): the two frame gradients sit at an
-angle `φ`. PCGrad projects each off the other, which is a Pythagorean split of
-`g+`:
+$$\nabla_\theta L_+ = \nabla_\theta L_- = C\,(G_\text{cho} - G_\text{rej})$$
 
-$$\|g_+\|^2 = \underbrace{(\|g_+\|\cos\varphi)^2}_{\text{conflict, removed}} + \underbrace{(\|g_+\|\sin\varphi)^2}_{\text{kept, }\perp\,g_-}$$
-
-`cos φ` is exactly the `cos` column in the training trace; PCGrad's surgery
-(`conf=1`) fires only when `φ > 90°` (`cos φ < 0`). In the run above `cos`
-drifts to ≈0 (`φ ≈ 93°`), so PCGrad shaves only a sliver — the contrastive
-margin already drove the two frames near-perpendicular, which is the designed
-behaviour. Which way the surviving update tilts `v` is set by the bounded CE
-gradient magnitudes (next section): rej is the on-policy seed (`rej ≈ base`), so
-`‖g-‖` is small and `v` leans toward cho.
+So both pull straight down the same axle. At the `C=1` we actually train, the two
+operating points differ and the pulls open to a real angle — that angle is the
+`cos` column in the trace (`0.48 → 0` as the adapter grows). Only their shared
+(along-axle) component adds up; that is the steering direction `v`. The up/down
+parts are equal and opposite, so they cancel. `0` is base (no adapter) in weight
+space, and the log's axle is the line `c·v`.
 
 ## The direction lives in gradient space
 
