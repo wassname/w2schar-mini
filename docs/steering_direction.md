@@ -5,6 +5,14 @@ direction. This note pins down, directly: how much each pole contributes to that
 direction, whether the contribution is computed in gradient or loss space, and
 why exactly one of the four loss terms needs a normalization cap.
 
+![Steering geometry: the line is forced through c=0 so it threads a compromise between cho and rej; the pole it leans toward is set by the bounded gradient, not the loss value](steering_direction.svg)
+
+The figure shows the two facts this note builds on. (A) The adapter is one line
+through `c=0`; when base, cho and rej are not collinear, no line reaches both
+targets, so it settles at a weighted compromise. (B) The weight is the bounded
+CE gradient `1-p`, which saturates near 1 — so the far pole (cho) pulls hardest
+even though a "far" loss value could be arbitrarily large.
+
 ## The direction lives in gradient space
 
 The adapter is one weight-space direction `v` (the `B@A` factorization of one
