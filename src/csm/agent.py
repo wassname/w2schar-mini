@@ -12,6 +12,8 @@ import os
 import sys
 from pathlib import Path
 
+from loguru import logger
+
 from inspect_ai import Task, eval as inspect_eval
 from inspect_ai.agent import AgentState, react
 from inspect_ai.dataset import Sample
@@ -71,6 +73,7 @@ def _format_validation_error(e: ValidationError) -> str:
 # ---------------------------------------------------------------------------
 
 MAX_SUBMIT_REJECTS = 4  # >4 rejects in one round → on_continue stops the run
+MAX_CONSEC_DROPS = 3    # ≥3 drops since the last keep → config not converging, stop
 
 
 def _rejects_path(round_dir: Path) -> Path:
@@ -253,6 +256,25 @@ def _n_drops(slug_path: Path) -> int:
     )
 
 
+def _drops_since_last_keep(slug_path: Path) -> int:
+    """Consecutive drops since the most recent keep (or run start). A long
+    target_keeps run shouldn't die on drops scattered between keeps, but N in a
+    row means the teacher can't make a keepable adapter on this config, so retry
+    is just burning GPU (and bleeding stale cho into each new round)."""
+    n = 0
+    for rd in sorted((p for p in slug_path.glob("round*") if p.is_dir()),
+                     reverse=True):
+        jp = rd / "judgment.json"
+        if not jp.exists():
+            continue
+        action = json.loads(jp.read_text()).get("action")
+        if action == "keep":
+            break
+        if action == "drop":
+            n += 1
+    return n
+
+
 def _round_history_lines(slug_path: Path) -> str:
     """One indented line per completed round: name, action, axis-hint snippet.
     Empty string for the first round (nothing to show). Helps the agent see
@@ -283,6 +305,16 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     async def on_continue(state):
         n_keeps = _n_keeps(slug_path)
         if n_keeps >= target_keeps:
+            return False
+        # Real-mode drop-streak stop: ≥MAX_CONSEC_DROPS drops since the last keep
+        # means the config isn't converging — keep whatever we kept and stop
+        # (clean, not a crash: a drop is a legitimate judge call, unlike the
+        # unparseable-pairs reject below which IS a broken teacher → raise).
+        if _drops_since_last_keep(slug_path) >= MAX_CONSEC_DROPS:
+            logger.warning(
+                f"{_drops_since_last_keep(slug_path)} drops since last keep "
+                f"(≥{MAX_CONSEC_DROPS}) — config not converging, stopping run "
+                f"with {n_keeps} keep(s).")
             return False
         # Gym hard-cap: in fake-student mode POST is canned and never moves,
         # so every round drops and target_keeps is unreachable. Cap on
