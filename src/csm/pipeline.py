@@ -88,7 +88,20 @@ _FAKE_REJ_POOL = tuple(_extract_rej_blocks(_FIXTURES / "real_seed.md"))
 
 
 def _fake_student() -> bool:
-    return os.environ.get("CSM_FAKE_STUDENT") == "1"
+    return os.environ.get("CSM_FAKE_STUDENT") == "1" or _replay_dir() is not None
+
+
+def _replay_dir() -> Path | None:
+    """Replay mode: `CSM_REPLAY_DIR=out/iter/<slug>/roundNN` makes the no-GPU
+    gym path source a PAST run's real prebaked outputs (interview_pre/post.json,
+    seeded prompts+rej, signed_C) instead of the synthetic fixtures. So a prompt
+    change (judge guide, cho brief, gates) can be re-run against real data with
+    the live teacher — no GPU, no hand-copying. The prebaked POST reflects the
+    past cho/adapter, so it is faithful for judging and gate-testing; if you
+    change the cho brief the new cho won't move the (stale) POST — that path
+    needs a real run. Implies fake-student (no model load)."""
+    p = os.environ.get("CSM_REPLAY_DIR")
+    return Path(p) if p else None
 
 
 from contextlib import contextmanager
@@ -183,18 +196,28 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
     train_prompts = sample_prompts(cfg.n_train_pairs, seed=42 + n)
 
     if _fake_student():
+        replay = _replay_dir()
         if not pre_path.exists():
-            shutil.copy(_FIXTURES / "interview_pre.json", pre_path)
+            shutil.copy((replay or _FIXTURES) / "interview_pre.json", pre_path)
         if not pairs_path.exists():
-            # Real student rej blocks, deterministic per-prompt via hash, so
-            # the teacher faces real-shaped rewriting work (long refusing prose
-            # with `###` subheaders) instead of a toy that confirms the
-            # harness's assumptions.
-            import hashlib
-            rej_texts = [_FAKE_REJ_POOL[int(hashlib.md5(p.encode()).hexdigest(), 16)
-                                        % len(_FAKE_REJ_POOL)]
-                         for p in train_prompts]
-            write_seeded_pairs(pairs_path, train_prompts, rej_texts)
+            if replay is not None:
+                # Replay: reuse the past run's REAL prompts + on-policy rej (cho
+                # stripped to TODO), so the teacher rewrites the same scenarios
+                # under the current brief.
+                _, past_pairs = load_pairs_md(replay / "pairs.md")
+                prompts = [p["prompt"] for p in past_pairs]
+                rej_texts = [p["rej"] for p in past_pairs]
+            else:
+                # Real student rej blocks, deterministic per-prompt via hash, so
+                # the teacher faces real-shaped rewriting work (long refusing
+                # prose with `###` subheaders) instead of a toy that confirms
+                # the harness's assumptions.
+                import hashlib
+                prompts = train_prompts
+                rej_texts = [_FAKE_REJ_POOL[int(hashlib.md5(p.encode()).hexdigest(), 16)
+                                            % len(_FAKE_REJ_POOL)]
+                             for p in train_prompts]
+            write_seeded_pairs(pairs_path, prompts, rej_texts)
         return
 
     history = kept_history_dirs(slug_dir, before_round=n)
@@ -395,17 +418,22 @@ def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
             f"train_student: only {len(pairs)} filled pairs, "
             f"need ≥{cfg.min_pairs_to_train}."
         )
+    replay = _replay_dir()
+    # Replay bakes the PAST run's signed_C so the judge sees the real deployed
+    # strength; plain gym uses the configured init.
+    signed_C = (json.loads((replay / "calibration.json").read_text())["signed_C"]
+                if replay is not None else float(cfg.signed_C))
     (round_dir / "adapter.safetensors").write_bytes(b"")
     (round_dir / "calibration.json").write_text(json.dumps({
-        "signed_C": float(cfg.signed_C), "sign": SIGN,
-        "cscan_trace": [], "fake": True,
+        "signed_C": signed_C, "sign": SIGN,
+        "cscan_trace": [], "fake": True, "replay": str(replay) if replay else None,
     }, indent=2))
-    shutil.copy(_FIXTURES / "interview_post.json",
+    shutil.copy((replay or _FIXTURES) / "interview_post.json",
                 round_dir / "interview_post.json")
-    set_state(round_dir, "mark_exam", note=f"FAKE signed_C={cfg.signed_C:+.4f}")
+    set_state(round_dir, "mark_exam", note=f"FAKE signed_C={signed_C:+.4f}")
     post = json.loads((round_dir / "interview_post.json").read_text())
     return {
-        "signed_C": float(cfg.signed_C),
+        "signed_C": signed_C,
         "n_probes_post": len(post.get("probes", [])),
         "n_pairs_trained": len(pairs),
     }
@@ -462,7 +490,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     with mem_stage("c_scan"):
         signed_C, trace = c_scan(
             model, tok, lora,
-            init_c=cfg.signed_C, sign=SIGN,
+            init_c=cfg.signed_C, gate_frac=cfg.gate_frac, sign=SIGN,
             batch_size=cfg.eval_batch_size,
             enable_thinking=cfg.enable_thinking,
             probe_max_new_tokens=cfg.dialogue_max_new_tokens,

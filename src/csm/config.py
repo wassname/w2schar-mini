@@ -94,6 +94,15 @@ class RunConfig:
     step then resolves the usable band instead of halving past it. Sidecar —
     agent never sees it."""
 
+    gate_frac: float = 0.995
+    """c_scan pmass gate: a probe passes only if pmass ≥ gate_frac × baseline.
+    Baseline pmass is near-ceiling (~0.999) so 0.995 leaves ~0.005 budget and
+    pmass becomes the BINDING gate — it rejects c that valid_json (the real
+    free-gen multi-turn canary) passes cleanly (9b task 23: c=0.5 had json 6/6
+    but pmass 0.982 < 0.994 → fail-pmass → walked to 0.125-0.5). Lower this
+    (0.95) to make valid_json + distinct3 the binding coherence signals and let
+    pmass be a sanity floor for catastrophic answer-slot collapse only."""
+
     # ─ outer loop ─
     n_rounds: int = 2
     """Number of *keep* rounds the agent aims for. Drops don't count."""
@@ -225,6 +234,49 @@ CONFIGS: dict[str, RunConfig] = {
         weight_decay=0.01,
         kl_lambda=2.0,
         min_steps=400,
+        max_len=1024,
+        train_batch_size=8,
+        eval_batch_size=8,
+        n_rounds=1,
+    ),
+    # ── Recovery sweep (2026-06-02): the strong commit 9536ea0 baked c≈1.5 with
+    # kl=0.064, lr=2e-4, min_steps=60 and a loose pmass gate; we throttled it in
+    # two waves (kl→0.5→2.0, gate→0.995, min_steps→240). Hypothesis (~75%): we
+    # over-corrected and can recover strength on the CURRENT probes by undoing
+    # kl, the pmass gate, and the over-long training, while KEEPING the honest
+    # multi-turn valid_json canary that caught the old r08/r09 ethics-loop. The
+    # heavy kl was added partly to stop CUMULATIVE multi-round collapse, but we
+    # run n_rounds=1 now (stale-cho bleed, task #10), so that justification is
+    # inert here — the leash is pure dead-weight throttle on the single adapter.
+    # -revert reproduces 9536ea0's train knobs on the new probes+canary (the
+    # decisive config-vs-probe test); -recover is a balanced middle.
+    "gemma-9b-lora-revert": RunConfig(
+        model="google/gemma-2-9b-it",
+        teacher="qwen/qwen3.5-9b",
+        adapter="lora",
+        lora_r=16,
+        lora_alpha=32.0,
+        lr=2e-4,            # 9536ea0 value
+        weight_decay=0.01,
+        kl_lambda=0.064,    # 9536ea0 value (31× lighter than now)
+        gate_frac=0.95,     # loosen pmass; valid_json+distinct3 carry coherence
+        min_steps=60,       # 9536ea0 value (4× shorter than now → less overfit)
+        max_len=1024,
+        train_batch_size=8,
+        eval_batch_size=8,
+        n_rounds=1,
+    ),
+    "gemma-9b-lora-recover": RunConfig(
+        model="google/gemma-2-9b-it",
+        teacher="qwen/qwen3.5-9b",
+        adapter="lora",
+        lora_r=16,
+        lora_alpha=32.0,
+        lr=3e-4,
+        weight_decay=0.01,
+        kl_lambda=0.25,     # between 0.064 (old) and 2.0 (now)
+        gate_frac=0.95,
+        min_steps=120,
         max_len=1024,
         train_batch_size=8,
         eval_batch_size=8,
