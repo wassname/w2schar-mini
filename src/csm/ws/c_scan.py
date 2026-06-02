@@ -339,19 +339,25 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     # language switch in ANY probe = the adapter is unsafe at this magnitude even
     # if the gate technically passed. Baseline probe[0] is dumped alongside for a
     # side-by-side at c=0. If no probe passed, this shows the highest-c sample tried.
-    base_gens = base.get("gens", [])
-    if base_gens:
-        gen = base_gens[0]
+    def _clip(gen: str) -> str:
         head, tail = gen[:300], gen[-300:]
         mid = f" … ⟨{len(gen) - 600} chars⟩ … " if len(gen) > 600 else ""
-        logger.info(
-            f"c_scan baseline @ c=+0.0000 (rep={baseline_distinct:.2f}) "
-            f"probe[{PROBES[0]['id']}]:\n  A: {head}{mid}{tail}")
+        return f"{head}{mid}{tail}"
+
+    all_probes = PROBES + STRESS_PROBES
+    base_gens = base.get("gens", [])
+    out = ["\n\n========== C_SCAN samples (head/tail, truncated) =========="]
+    if base_gens:
+        out.append(f"\n--- baseline @ c=+0.0000 | probe 1/1: {PROBES[0]['id']} "
+                   f"(rep={baseline_distinct:.2f}) ---")
+        out.append(f"  A: {_clip(base_gens[0])}")
     if last_sample is not None:
-        for probe, gen in zip(PROBES + STRESS_PROBES, last_sample["gens"]):
-            head, tail = gen[:300], gen[-300:]
-            mid = f" … ⟨{len(gen) - 600} chars⟩ … " if len(gen) > 600 else ""
-            logger.info(
-                f"c_scan sample @ c={last_sample['c']:+.4f} ({last_sample['note']}) "
-                f"probe[{probe['id']}]:\n  A: {head}{mid}{tail}")
+        n = len(last_sample["gens"])
+        out.append(f"\n--- sample @ c={last_sample['c']:+.4f} ({last_sample['note']}) "
+                   f"| {n} probes ---")
+        for i, (probe, gen) in enumerate(zip(all_probes, last_sample["gens"]), 1):
+            out.append(f"\n  [probe {i}/{n}: {probe['id']}]")
+            out.append(f"  A: {_clip(gen)}")
+    out.append("\n========== END C_SCAN samples ==========\n")
+    logger.info("\n".join(out))
     return final, trace

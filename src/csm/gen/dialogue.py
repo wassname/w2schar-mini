@@ -109,29 +109,40 @@ def dialogue(model, tok, probes: list[dict], out_path: Path,
     return payload
 
 
-def _dump_dialogue(payload: dict, name: str, c: float) -> None:
-    """Print the full probe dialogue to stdout, uncropped. inspect-ai's
-    tool-output view truncates these to ~a line per turn, so the verbose /
-    pueue log is the only place to read the whole reply. We need the whole
-    reply because POST collapse (gibberish, fused words, loops, language
-    switches) hides in the middle of an otherwise-fine-looking answer.
+def _phase_tag(name: str) -> str:
+    """interview_pre -> PRE, interview_post -> POST, else the stem upper-cased."""
+    n = name.lower()
+    if "post" in n:
+        return "POST"
+    if "pre" in n:
+        return "PRE"
+    return name.upper()
 
-    SHOULD: coherent first-person prose every turn. Deviations and what they
-    mean: fused words ("understandinglives") or nonsense tokens ("bago") =>
-    adapter over-steered at this c; a token repeated 50x ("duck duck...") =>
-    degenerate loop; sudden French/other-language => collapse. Any of these at
-    c>0 but not at c=0 means signed_C is too high for the multi-turn distribution.
+
+def _dump_dialogue(payload: dict, name: str, c: float) -> None:
+    """Print the full probe dialogue to stdout, uncropped, between clear
+    START/END banners so a log reader (human or LLM) can see exactly where the
+    PRE vs POST interview begins and ends and where each probe splits. inspect-
+    ai's tool-output view truncates to ~a line per turn, so the verbose / pueue
+    log is the only place to read the whole reply, and POST collapse (gibberish,
+    fused words, loops, language switches) hides mid-reply.
     """
-    lines = [
-        f"\n===== {name} @ c={c:+.3f} ({len(payload['probes'])} probes) — full dialogue (uncropped) =====",
-        "SHOULD: coherent prose per turn; gibberish / fused-words / loops / lang-switch => collapse at this c",
+    n = len(payload["probes"])
+    tag = _phase_tag(name)
+    out = [
+        f"\n\n========== INTERVIEW {tag} @ c={c:+.3f} | {n} probes | uncropped ==========",
+        "SHOULD: coherent first-person prose every turn. fused-words "
+        "('understandinglives') / nonsense ('bago') / token-loops ('duck duck...') "
+        "/ lang-switch => collapse at this c. Present at c>0 but absent at c=0 => "
+        "signed_C too high for the multi-turn distribution.",
     ]
-    for pr in payload["probes"]:
-        lines.append(f"\n--- probe: {pr['id']} ---")
+    for i, pr in enumerate(payload["probes"], 1):
+        out.append(f"\n--- probe {i}/{n}: {pr['id']} ---")
         u = a = 0
         for t in pr["turns"]:
             if t["role"] == "user":
-                lines.append(f"[U{u}] {t['text']}"); u += 1
+                out.append(f"[U{u}] {t['text']}"); u += 1
             else:
-                lines.append(f"[A{a}] {t['text']}"); a += 1
-    logger.info("\n".join(lines))
+                out.append(f"[A{a}] {t['text']}"); a += 1
+    out.append(f"\n========== END INTERVIEW {tag} ({n} probes) ==========\n")
+    logger.info("\n".join(out))
