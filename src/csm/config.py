@@ -356,16 +356,17 @@ CONFIGS: dict[str, RunConfig] = {
         teacher="qwen/qwen3.5-9b",
         quant="nf4",
         adapter="lora",
-        # bs=1 + max_len=768 (2026-06-03, task 37 OOM at bs=2/max_len=2048):
-        # the persona-gen poles run longer than the old teacher-authored cho,
-        # so the full-vocab KL transient (3 forwards: pos cho, neg rej, base)
-        # at bs=2 over ~800-tok sequences exceeded 96 GiB at train.py:573.
-        # bs=1 halves the per-step activation/KL memory; max_len=768 hard-caps
-        # the sequence (matches the memory-conscious qwen-27b/gemma-9b-pissa
-        # profiles). steps stay 120 (min_steps floor), so strength is unchanged.
-        train_batch_size=1,
+        # bs=2 + max_len=512 (2026-06-03): bs=1 is too noisy a contrastive
+        # gradient. Task 37 OOM'd at bs=2/max_len=2048 = 4096 token-positions;
+        # bs=2/max_len=512 = 1024 positions is a 4× cut on the full-vocab KL
+        # transient (3 forwards: pos cho, neg rej, base; gemma-4 vocab ~262k),
+        # well under the OOM and only 1.33× the bs=1/max_len=768 it replaces.
+        # 512 truncates the longest poles, accepted to keep bs≥2; the
+        # MATCH-LENGTH brief keeps the two poles short and symmetric so
+        # truncation hits both equally. steps stay 120 (min_steps floor).
+        train_batch_size=2,
         eval_batch_size=2,
-        max_len=768,
+        max_len=512,
         lr=3e-4,
         kl_lambda=2.0,
         # 120 not 240: task 31's val trace falsified the "train 2× for strength"

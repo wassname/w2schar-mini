@@ -374,25 +374,30 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     #     not the old blind spot (RJ 2026-06-02: an off-register canary certified
     #     1.0 while the interview collapsed — that cannot happen with these probes).
     rows = [[t["stage"], t["c"],
-             f"{t['pmass']:.3f}" if t.get("pmass") is not None else "—",
+             f"{t['pmass']:.5f}" if t.get("pmass") is not None else "—",
              f"{t['valid_json']}/{t['n_long']}" if t.get("valid_json") is not None else "—",
              f"{t['distinct3']:.2f}" if t.get("distinct3") is not None else "—",
              f"{t['kl_fwd_p95']:.2f}/{t['kl_bwd_p95']:.2f}"
              if t.get("kl_fwd_p95") else "—",
              t.get("mean_len", "—"),
              t["note"]] for t in trace]
-    # SHOULD (un-gated diagnostic): kl = fwd_p95/bwd_p95 of KL(steered‖base) on the 2
-    # multiturn probes. Coherent-but-steered (incl. a real 1p moral shift) ≤~1.2;
-    # varied-salad collapse ~2-4. So if a BAKED c shows kl≥2 while json/rep/pmass all
-    # pass, the multiturn register has collapsed in the way those three are blind to
-    # (RJ 2026-06-03 task-31). If the ≥2-vs-≤1.2 margin holds across rounds, promote to
-    # a gate at ~1.5 nat. kl='—' at baseline (c=0 ⇒ KL≡0, trivially).
+    # kl = fwd_p95/bwd_p95 of KL(steered‖base) on the 2 multiturn probes, teacher-forced
+    # on the steered generation. It measures DIVERGENCE FROM BASE, NOT coherence, and is
+    # NOT gateable (RJ 2026-06-03, task-35 vs task-38):
+    #   - LOOP (rep→0): teacher-forced repetition is predicted by base too, so kl→0. The
+    #     loop is KL's blind spot; `rep` catches it, not this.
+    #   - VARIED salad (task-31): high kl (1p p95 ~2-3 on that adapter).
+    #   - COHERENT strong steering: ALSO high kl (task-38 coherent 1p @c=0.667 → ~5). KL
+    #     cannot tell this from a varied salad — so a kl gate would kill the steering we
+    #     want. Task-35's apparent 1p-salad(2.9)-vs-3p-coherent(0.6) separation was
+    #     adapter-specific (that adapter's coherent 3p tracked base). Keep as a logged
+    #     anomaly-flag only. kl='—' at baseline (c=0 ⇒ KL≡0, trivially).
     table = tabulate(rows, headers=["stage", "c", "pmass", "json", "rep", "kl", "len", "note"],
                      tablefmt="plain", floatfmt="+.3f")
-    logger.info(f"\nc_scan (baseline_pmass={baseline_pmass:.3f}, "
+    logger.info(f"\nc_scan (baseline_pmass={baseline_pmass:.5f}, "
                 f"baseline_json={baseline_json}/{base['n_long']}, "
                 f"baseline_rep={baseline_distinct:.2f}, "
-                f"gate=pmass≥{gate:.3f} AND json≥{json_frac*baseline_json:.0f} AND "
+                f"gate=pmass≥{gate:.5f} AND json≥{json_frac*baseline_json:.0f} AND "
                 f"rep≥{0.5*baseline_distinct:.2f}, "
                 f"2 long(json) + 2 multiturn(rep) + {n_vignettes} tinymfv(pmass)):\n{table}\n")
     if warn:
