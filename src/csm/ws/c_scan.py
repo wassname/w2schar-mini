@@ -160,7 +160,13 @@ def _kl_p95(model, tok, lora: ModulatedLoRA, messages: list[dict], upto_idx: int
     full_ids = tok(full, return_tensors="pt").input_ids.to(model.device)
     p = tok(prefix, return_tensors="pt").input_ids.shape[1]
     T = full_ids.shape[1]
-    assert T > p, f"no scored tokens (T={T} p={p})"
+    # Empty/near-empty assistant turn → the templated prefix can tokenize to ≥ the
+    # full sequence, leaving no completion to score. That is a COLLAPSE (the model
+    # emitted nothing at this c) — already caught by the rep/json gates, which then
+    # walk c down. KL is logged-not-gated, so it must not crash the calibration here;
+    # the honest value is nan ("undefined, gen was empty"), not 0 ("no divergence").
+    if T <= p:
+        return float("nan"), float("nan")
     with lora(model, c=c):
         steered = model(full_ids).logits[0, p - 1:T - 1].float()
     with lora(model, c=0.0):
@@ -224,7 +230,12 @@ def _free_gen_probeset(probes: list[dict], model, tok, lora: ModulatedLoRA, c: f
             f, b = _kl_p95(model, tok, lora, msgs, last_a, c)
             fs.append(f)
             bs.append(b)
-        fwd_p95, bwd_p95 = sum(fs) / len(fs), sum(bs) / len(bs)
+        # nan-aware: a probe that collapsed to an empty turn contributes nan (see
+        # _kl_p95). Average over the probes that DID score; nan only if all collapsed.
+        fv = [x for x in fs if not math.isnan(x)]
+        bv = [x for x in bs if not math.isnan(x)]
+        fwd_p95 = sum(fv) / len(fv) if fv else float("nan")
+        bwd_p95 = sum(bv) / len(bv) if bv else float("nan")
     return (len(probes), n_valid, sum(distincts) / len(distincts), gens,
             fwd_p95, bwd_p95)
 
