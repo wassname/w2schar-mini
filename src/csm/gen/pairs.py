@@ -266,7 +266,9 @@ def gen_completions(model, tok, prompts: list[str], *,
             torch.manual_seed(seed + i)
             gen = model.generate(
                 **enc, max_new_tokens=max_new_tokens, do_sample=False,
-                pad_token_id=pad_id, eos_token_id=tok.eos_token_id,
+                pad_token_id=pad_id,
+                # No eos override: trust generation_config (gemma-4 stops on
+                # <turn|>=106, not just <eos>=1). See dialogue._gen_one.
             )
             cont = gen[:, enc["input_ids"].shape[1]:]
             for ids in cont:

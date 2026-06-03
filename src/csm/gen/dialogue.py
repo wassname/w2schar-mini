@@ -39,7 +39,12 @@ def _gen_one(model, tok, messages: list[dict], *, max_new_tokens: int,
     out = model.generate(
         **enc, max_new_tokens=max_new_tokens, do_sample=False,
         pad_token_id=tok.pad_token_id or tok.eos_token_id,
-        eos_token_id=tok.eos_token_id,
+        # No eos_token_id override: use the model's own generation_config set.
+        # gemma-4 ends a turn with <turn|> (id 106), not <eos> (id 1); its config
+        # lists eos=[1,106,50]. Overriding with tok.eos_token_id=1 dropped 106, so
+        # generation ran past the answer and looped empty <|channel>thought blocks
+        # (the "thought"-loop collapse, task 28). Trusting the model's config is the
+        # general fix (gemma-2/3, qwen all carry the right stops in their config).
     )
     cont = out[0, enc["input_ids"].shape[1]:]
     return tok.decode(cont, skip_special_tokens=True).strip()
