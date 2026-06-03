@@ -60,6 +60,15 @@ robustness fixes above before it can be trusted to bank a HIGH c. Logged as cand
 acting unilaterally (n=1, and canary changes warrant the user's call). The encouraging signal is
 ceo +2 — the method can produce real wisdom; we need the calibration to stop over-certifying.
 
+### Completion: task-41 ran 3 rounds, ALL drop (graceful 3-drop stop, 0 crashes — fix held)
+The signature is robust across every round (ceo always +, the two hard seats always −):
+r00 surv −2 / weap −1 / ceo +2; r01 −1 / −2 / +2; r02 −1 / −1 / +1; mean −0.33 each. The agent
+stopped on `_drops_since_last_keep ≥ MAX_CONSEC_DROPS=3` ("config not converging, 0 keeps") —
+the intended clean stop, marked Success not Failed. So the over-steer at signed_C=1.5 is n=3,
+and #53's over-certification is well-evidenced. NEXT (queued task 42 = gemma-31b-c10, init
+signed_C=1.0): bracket the middle between task-40's too-weak 0.667 (+0.33) and this too-strong
+1.5 (−0.33). A strength probe via the profile knob, NOT a canary change.
+
 # 2026-06-03 (f) — task-40 completes: canary delivers a COHERENT deploy-c, honest DROP on a persistent 1p/3p gap
 
 commit: b216354 · pueue task 40 (done) · slug out/iter/20260603T122735_iter_google-gemma-4-31b-it
