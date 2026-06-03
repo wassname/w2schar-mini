@@ -346,7 +346,13 @@ CONFIGS: dict[str, RunConfig] = {
         eval_batch_size=2,
         lr=3e-4,
         kl_lambda=2.0,
-        min_steps=240,
+        # 120 not 240: task 31's val trace falsified the "train 2× for strength"
+        # rationale inherited from gemma-27b. val nll+ (the +C pole we bake/deploy)
+        # plateaus by step 60 (2.76→2.89 flat to 239); the second 120 steps bought
+        # zero generalizing strength and only memorized the on-policy rej seeds
+        # (val nll- 1.9@120 → 6.66@239). 120 sits just under the rej detonation at
+        # 150, and the cosine schedule re-derives to anneal lr→0 by 120.
+        min_steps=120,
     ),
     # Ported from weight-steering-lite/qwen-27b-nf4: Qwen3.6-27B + nf4 LoRA.
     # AutoModelForCausalLM dispatches the multimodal config to Qwen3_5ForCausalLM
