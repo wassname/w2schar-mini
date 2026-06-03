@@ -616,23 +616,29 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
 
 
 def _log_val_table(val_traces: list[dict]) -> None:
-    """Print the held-out overfit canary. Empty (pool too small) → skipped."""
+    """Print the held-out generalization check. Empty (pool too small) → skipped.
+
+    `val` = the n_val pairs (min(3, n//4)) held OUT of training this round; the
+    adapter never sees them in any gradient step. val_nll+ / val_nll- = the mean
+    per-token NLL the ±C-steered model assigns the held-out cho / rej TEXT given
+    its prompt — literally: feed (prompt + cho) through the +C model, average
+    -log p(token) over the cho tokens, average over the held-out pairs. It asks:
+    does the trained direction TRANSFER to pairs it was not fit on? Both poles
+    are on-policy student gens, so it is a symmetric generalization probe."""
     if not val_traces:
         return
     from tabulate import tabulate
     keys    = ["step", "train_nll+", "val_nll+", "train_nll-", "val_nll-"]
     headers = ["step", "train nll+ ↓", "val nll+ ↓", "train nll-", "val nll-"]
     rows = [[t[k] for k in keys] for t in val_traces]
-    # SHOULD: train nll+ and val nll+ DESCEND TOGETHER → the adapter learns the
-    # target direction, generalizing past the train cho. OVERFIT tell: train
-    # nll+ keeps dropping while val nll+ FLATTENS or RISES — then the extra
-    # steps are memorizing, and earlier stopping / more kl would help. val nll+
-    # is the load-bearing column (cho is the teacher's off-policy edit, so it
-    # is the genuine generalization probe); val nll- (rej is on-policy, easy)
-    # should already be low. With ~3 val pairs this is noisy — read the trend
-    # across rows, not any single digit.
     table = tabulate(rows, headers=headers, tablefmt="plain", floatfmt=".3g")
-    logger.info(f"\nval trace (overfit canary, held-out pairs):\n{table}\n")
+    logger.info(
+        "\nval trace (held-out pairs — does the steer GENERALIZE or just memorize?):\n"
+        "SHOULD: train nll+ AND val nll+ DESCEND TOGETHER → the direction transfers.\n"
+        "  train nll+ falls while val nll+ FLATTENS/RISES → memorizing the train pairs,\n"
+        "  the banked direction won't transfer (early-stop at the val-nll+ min, or add\n"
+        "  pairs). val nll+ is load-bearing; ~3 pairs, so read the TREND not one digit.\n"
+        f"{table}\n")
 
 
 def _log_train_table(traces: list[dict]) -> None:

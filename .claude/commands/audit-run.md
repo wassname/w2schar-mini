@@ -95,6 +95,16 @@ level. Quote primary sources; never trust the teacher's own summary.
       single-axis tug-of-war. conf=1 firing often late = the cho-pull and
       rej-push gradients conflict (PCGrad surgery active), another off-policy-cho
       tell.
+   f. GENERALIZATION — quote the SEPARATE `val trace` table (train/val nll±
+      on held-out pairs), NOT just the per-step train table. This is the
+      highest-signal lens and the easiest to skip: the per-step table only
+      shows TRAIN descent, which looks healthy even when the adapter is
+      memorizing. If train nll+ falls while val nll+ FLATTENS or RISES, the
+      banked direction is memorized and will not transfer (task-38: val nll+
+      1.74→10.2 while train fell → judge dropped on no-movement). Note the
+      step of the val-nll+ MIN vs min_steps: training past it = wasted steps
+      that only memorize. Few pairs (≤~15) + a high-capacity adapter is the
+      classic setup for this; suspect it before "small signed_C / narrow axis."
 4. Calibration — quote the FULL c_scan table (stage/c/pmass/json/rep/len). What
    signed_C, and why? Three cases, and they mean different things:
    - LOW (walked well below init): small coherence budget, so a real direction
