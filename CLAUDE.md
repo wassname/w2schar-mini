@@ -2,18 +2,23 @@
 
 Minimal weak-to-strong iterated character-steering harness: a weak teacher
 (qwen3.5-9b via OpenRouter, on an inspect-ai react harness) steers a stronger
-student (gemma-2-27b) toward the moral character in
+student (currently gemma-4-31b) toward the moral character in
 `docs/2026_forethought_on_the_importance_of_ai_character.md` — embedding
 principles in decision-making and the wisdom of when and where to act on them.
+The teacher is weak BY DESIGN: the 9b→31b capability gap IS the w2s hypothesis,
+so the teacher model is not a quality knob — don't swap it for a peer-sized one.
 The goal is NOT a single "less authority" reflex; that is the failure mode the
 axis collapses into when every prompt is an authority issuing a bad order (see
 the quality-audit section of `.claude/commands/audit-run.md`). Teacher tools:
-`submit_pairs`, `train_student`, `mark_exam`.
+`propose_personas`, `edit_pairs`, `train_student`, `mark_exam`.
 
-Per round the teacher: finds something to improve, edits the student's own
-answers into contrastive (cho, rej) pairs, trains a steering adapter, calibrates
-its strength so it stays coherent on long generation, then judges keep or drop.
-Kept adapters compose into the next round.
+Per round the teacher: finds something to improve, then proposes a (pos, neg)
+persona pair. The STUDENT generates both poles on-policy (cho under pos, rej
+under neg) and the personas are stripped, leaving contrastive (cho, rej) pairs
+in the student's own coherent voice; the teacher may then lightly edit a pole.
+It trains a steering adapter, calibrates its strength so it stays coherent on
+long generation, then judges keep or drop. Kept adapters compose into the next
+round.
 
 See `src/csm/prompts.py` for the full agent brief (run `just program-md`).
 
@@ -88,13 +93,14 @@ just smoke-prompts 1   # real teacher (OpenRouter), stubbed student, ~1 min/roun
 ```
 
 Then read the artifacts, don't just check it exited 0:
-`out/iter/<slug>/round00/{pairs.md, rej_seed.json, judgment.json}`. Confirm
-the teacher did the thing the brief now asks (kept the seeded rej, wrote a
-matching cho twin, filled the lesson) and that the gates fired or passed for
-the right reason. A unit test of a gate function is not a substitute — it
-skips prepare_round seeding, the agent loop, and the real teacher. Gym
-caveat: the fake branch hash-shuffles the seeded rej, so prompt and rej can
-be different scenarios; that's a fake-mode artifact, not a real-run bug.
+`out/iter/<slug>/round00/{pairs.md, personas.json, judgment.json}`. Confirm
+the teacher did the thing the brief now asks (proposed a sharp (pos, neg)
+persona pair, the student-generated poles came out length-symmetric and in
+its own voice, filled the lesson) and that the gates fired or passed for the
+right reason. A unit test of a gate function is not a substitute — it skips
+propose_personas gen, the agent loop, and the real teacher. Gym caveat: the
+fake branch hash-shuffles a seed pool, so the two poles can be different
+scenarios; that's a fake-mode artifact, not a real-run bug.
 
 Slash commands wired up for this:
 
@@ -138,16 +144,19 @@ buffers aren't reversibly writable (`config._validate` raises on pissa+nf4).
 
 ## Repo-specific rules
 
-**Coherence canary = two signals, AND-gated:**
+**Coherence canary = three signals, AND-gated** (the 2+2+2 wide sampling in `csm.ws.c_scan`), each catching what the others miss:
 
-1. **`mean_pmass_allowed`** from `tinymfv.evaluate`: sum of probability over the K=7 allowed answer tokens at the JSON answer slot. Cheap. Vulnerable to *guided-suffix rescue* — the forced JSON prefill can keep the answer-slot prediction sane even if free generation has collapsed.
-2. **`valid_json` on a long-horizon free-gen task** (in `csm.ws.c_scan`): the model is asked to do a varied-register prose task (first-order logic / free verse / counterfactual history) then emit `{"ans": true|false}`. Catches collapse modes pmass_allowed misses: no JSON emitted, schema copied verbatim (placeholder `boolean` is not a valid JSON literal), gibberish, mid-recitation loops. Registers chosen to match the dialogue probe distribution — earlier formal/structured set (lorem / FizzBuzz) passed even when moral-prose probes collapsed (task 36 r08/r09).
+1. **`mean_pmass_allowed`** from `tinymfv.evaluate` (2 forced-choice vignettes): sum of probability over the K=7 allowed answer tokens at the JSON answer slot. Cheap, off-register aliveness. Vulnerable to *guided-suffix rescue* — the forced JSON prefill can keep the answer-slot prediction sane even if free generation has collapsed.
+2. **`valid_json` on 2 long single-turn probes**: the model does a varied-register prose task (first-order logic / free verse / counterfactual history) then emits `{"ans": true|false}`. Catches collapse modes pmass_allowed misses: no JSON emitted, schema copied verbatim (placeholder `boolean` is not a valid JSON literal), gibberish, mid-recitation loops. Registers chosen to match the dialogue probe distribution — earlier formal/structured set (lorem / FizzBuzz) passed even when moral-prose probes collapsed (task 36 r08/r09).
+3. **`distinct3` (rep) on 2 multiturn deployment probes** (surveillance_1p, autonomous_weapon_1p), run BYTE-IDENTICAL to deployment: token-trigram diversity over the turns. A loop drives it → 0; the long-trajectory deployment register collapse the other two miss. Gate `rep ≥ 0.5 × base`.
+
+Plus an **un-gated KL diagnostic** logged alongside: fwd/bwd p95 KL(steered‖base) teacher-forced on the multiturn gens. It measures DIVERGENCE FROM BASE, not coherence — ~0 on a loop (both models predict the repetition; rep catches loops), and HIGH for BOTH a varied salad AND coherent strong steering — so it is NOT gateable (would kill the steering we want). Logged anomaly-flag only (RJ 2026-06-03, task-35 vs task-38).
 
 Same rule applies in two places:
 - `csm eval` post-hoc: tinymfv at `max_think_tokens=64` (cheap, comparable across rounds). pmass_allowed only.
-- `csm.ws.c_scan` mid-train calibration: pmass_allowed AND valid_json. Walk-down by ×0.5 until both pass, then ×0.75 backoff for cumulative-history headroom. **Both gates are self-relative to baseline (c=0)**: pmass ≥ 0.995 × baseline_pmass, valid_json ≥ baseline_valid_json. The strict 3/3 valid_json gate broke 2b (base fails prompt[2] at c=0 — long-horizon counterfactual exceeds 2b's coherence budget even with no adapter) and any probe is then unsatisfiable. Self-relative says "don't get worse than the un-steered base," which is exactly the canary semantics.
+- `csm.ws.c_scan` mid-train calibration: pmass AND valid_json AND rep. Walk-down by ×2/3 until all three pass, then backoff=1.0 (bake at the passing c). **All gates are self-relative to baseline (c=0)**: pmass ≥ 0.995 × baseline_pmass, valid_json ≥ 1.0 × baseline_valid_json (strict, both long probes), rep ≥ 0.5 × baseline_rep. Self-relative says "don't get worse than the un-steered base," which is exactly the canary semantics; an absolute gate broke 2b (base fails the long counterfactual at c=0, making any probe unsatisfiable).
 
-**NOT a coherence canary**: mass-on-base's-top-K over a teacher-forced sequence (the early mini c_scan tried this; the steered model never sees its own emissions so autoregressive collapse is invisible). **Δtop1 is label-agreement, NOT a coherence budget** — we shift it intentionally. If you find yourself ranking adapters by Δtop1, stop.
+**NOT a coherence canary**: mass-on-base's-top-K over a teacher-forced sequence (the early mini c_scan tried this; the steered model never sees its own emissions so autoregressive collapse is invisible). **Δtop1 is label-agreement, NOT a coherence budget** — we shift it intentionally. If you find yourself ranking adapters by Δtop1, stop. **fwd/bwd KL is NOT a coherence canary either** (see above) — log it, don't gate it.
 
 **Eval default is `max_think_tokens=64`.** tinymfv evals at 256 think-tokens take ~14 min/phase × 8 phases × N rounds — pushing a 10-round 9b eval over 8 hours. 64 is ~10× faster and within bf16 noise of 256 on mean_p. Bump to 256+ only for publication runs.
 
