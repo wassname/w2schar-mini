@@ -63,6 +63,24 @@ counts KEPT rounds, so an all-drop retries indefinitely at the same collapse
 strength. Killed task 31 (round01 would reproduce the c=1.0 1p-collapse; the
 canary fix is not yet in code). round00 artifacts banked.
 
+### Fix (commit pending) — alpha_ratio canary, JSON scaffold removed
+Root cause of the canary blind spot: `_free_gen_probeset` appended a JSON tail to
+the LAST turn, which for a 1p probe IS the collapse-bearing 'why' turn — the format
+anchor rescued it, so valid_json read 8/9 at c=1.0 while the un-anchored interview
+collapsed. Two things were wrong: (1) the scaffold made the canary off-distribution
+from deployment; (2) the only free-gen signals (valid_json, distinct3) are both
+blind to *varied* salad — distinct3=1.0 on the collapsed turns (not looping),
+valid_json rescued.
+
+Replaced valid_json with `alpha_ratio` = fraction of letter/space chars, scored on
+the deployment-IDENTICAL free turns (no tail). Offline replay on round00's saved
+interview: coherent turns 0.93-0.96, the 2 collapsed 1p turns 0.81 — clean gap,
+ALPHA_FLOOR=0.88 sits in it. n_coherent: PRE 6/6, POST(c=1.0) 4/6 → at 9 probes
+the 0.83×baseline gate (≥8 needed) FAILS at c=1.0, so c_scan now walks below 1.0
+where the old json gate (8/9) passed. distinct3 stays for the looping mode
+alpha_ratio is blind to (a loop is all word-chars); the two are complementary.
+Canary is now byte-identical to the interview. just smoke green.
+
 # 2026-06-03 (b) — gemma-4-31b is a thinking/channel model; harness clobbered its stop set
 
 commit: 144a47f · model: google/gemma-4-31B-it (nf4, in-harness) · killed pueue
