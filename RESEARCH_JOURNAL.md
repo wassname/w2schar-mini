@@ -96,6 +96,18 @@ pinned to a single round by n_rounds=1" (tasks #10/#52) was a misread.
   unpark trigger). Letting it run: it's clean, bounded (≤3 drops), and a real attempt at the
   exact gap round00 surfaced.
 
+### Update — round01 CRASHED in the KL diagnostic; fixed (39e2cb0), requeued as task 41
+task 40 FAILED in round01's c_scan: `_kl_p95` asserted `no scored tokens (T=156 p=158)`. A
+multiturn probe collapsed to an EMPTY last assistant turn at high c, so the templated prefix
+tokenized to ≥ the full sequence — nothing to score — and the assert killed the whole run.
+Root issue: KL is a logged-not-gated DIAGNOSTIC, but it pre-empted the rep/json gates that are
+designed to catch exactly this collapse and walk c down. Fix: `_kl_p95` returns nan ("undefined,
+gen was empty", not 0="no divergence") and the per-probe mean is nan-aware; the gate
+(pmass AND json AND rep) is untouched, table shows nan/nan. just smoke passes. The empty gen at
+high c is EXPECTED (that's what c_scan probes) — round00 simply never produced a fully-empty
+gen, so the latent bug only surfaced in round01. Requeued as pueue task 41 (same profile +
+fix). round00 of task 41 will re-run from scratch (no resume in this harness).
+
 # 2026-06-03 (e) — task-39 OOM: two stacked regressions (val builds a graph; bs=2 too big at 31b)
 
 commit: (this commit) · pueue task 39 (Failed) · slug out/iter/20260603T113635_iter_google-gemma-4-31b-it
