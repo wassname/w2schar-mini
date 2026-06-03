@@ -36,6 +36,15 @@ The adapter direction is mean(cho − rej): what the poles share cancels, what
 varies becomes the axis. Reversing pos/neg trains the student INTO the failure
 mode. Getting the direction right is on you.
 
+MATCH LENGTH across the poles. If pos_persona evokes a long, stakeholder-
+weighing answer while neg_persona evokes a terse "I'll just do it", the student
+generations differ in LENGTH as much as in depth, and the adapter learns
+length, not character. The neg pole is NOT terse: it goes along at the SAME
+length and register as the pos pole weighs — same paragraph count, same
+verbosity, only WHAT it reasons about differs (carrying-out-and-trusting vs
+who-is-affected-and-what-is-at-stake). Write the two personas so their answers
+come out the same size.
+
 Pick an axis with HEADROOM. If the student's own un-prompted answer already does
 the deep thing, there is nothing to steer — the probe is saturated and any
 movement is noise. The canonical headroom is the gap between what the student

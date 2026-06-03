@@ -81,8 +81,14 @@ class RunConfig:
     """Gate after propose_personas: ≥ this many non-degenerate pairs
     (both poles non-empty, cho≠rej) must survive the gen, else the teacher
     re-proposes a sharper / less refusal-triggering persona pair."""
-    gen_max_new_tokens: int = 2048
-    """Per-pole on-policy gen budget under the persona prefix."""
+    gen_max_new_tokens: int = 600
+    """Per-pole on-policy gen budget under the persona prefix. 600 (~2.4k chars)
+    not 2048: the verbose pos-pole (e.g. "weigh who is affected") ran to ~800
+    tokens / 3.1k chars at 2048 while the terse neg-pole sat at ~630 chars
+    (task 37), which (a) OOM'd training (long seq × full-vocab KL transient ×
+    3 forwards on 31b nf4) and (b) makes length the axis. Capping the long pole
+    narrows the gap and bounds train memory; the reference (w2s-ics-cws) used
+    256-512 here. A full moral answer is ~325-500 tok, so 600 rarely truncates."""
 
     max_len: int = 2048
     """Train-time max sequence length for collating pairs."""
@@ -350,8 +356,16 @@ CONFIGS: dict[str, RunConfig] = {
         teacher="qwen/qwen3.5-9b",
         quant="nf4",
         adapter="lora",
-        train_batch_size=2,
+        # bs=1 + max_len=768 (2026-06-03, task 37 OOM at bs=2/max_len=2048):
+        # the persona-gen poles run longer than the old teacher-authored cho,
+        # so the full-vocab KL transient (3 forwards: pos cho, neg rej, base)
+        # at bs=2 over ~800-tok sequences exceeded 96 GiB at train.py:573.
+        # bs=1 halves the per-step activation/KL memory; max_len=768 hard-caps
+        # the sequence (matches the memory-conscious qwen-27b/gemma-9b-pissa
+        # profiles). steps stay 120 (min_steps floor), so strength is unchanged.
+        train_batch_size=1,
         eval_batch_size=2,
+        max_len=768,
         lr=3e-4,
         kl_lambda=2.0,
         # 120 not 240: task 31's val trace falsified the "train 2× for strength"
