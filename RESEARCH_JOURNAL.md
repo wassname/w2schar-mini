@@ -10,6 +10,55 @@ Earlier findings lived only in pueue job labels, git messages, and chat, so
 the two entries below are reconstructed from those. Treat their exact numbers
 as "recorded at the time," not re-measured.
 
+# 2026-06-03 (e) — task-39 OOM: two stacked regressions (val builds a graph; bs=2 too big at 31b)
+
+commit: (this commit) · pueue task 39 (Failed) · slug out/iter/20260603T113635_iter_google-gemma-4-31b-it
+
+### Context
+Task 39 = the (d) three-fix run on gemma-4-31b. It got through gen (30 pairs, both
+poles) but OOM'd in the FIRST train step (step 0), `pcgrad_train_step:331`, the 4th
+forward: CUDA OOM, 93.08 GiB allocated on a 94.97 GiB card, 130 MiB free. The outer
+"inspect eval failed" in the traceback is the wrapper, not the site.
+
+### Observation
+- mem[load]=17.0 GiB (nf4 31b), mem[gen_pairs]=18.5 GiB — fine. The jump to 93 GiB
+  happened inside the train step, before any per-step table or val ran.
+- Two regressions, both introduced this session, stack:
+  1. `_val_nll` (the early-stop diagnostic, new in (d)) ran its forwards with
+     autograd LIVE — `model.eval()` toggles dropout only, NOT grad; there was no
+     `torch.no_grad()`. It also collates the WHOLE val set into one full-vocab
+     forward. At 31b that graph alone is large, and val fires at step 0
+     (`0 % 30 == 0`). It was not the OOM site only because the train step OOM'd
+     first; it would have OOM'd at val immediately after.
+  2. `train_batch_size` was bumped 1→2 today on the claim "bs=2/max_len=512 is a 4×
+     cut vs task-37's OOM at 2048." That reasoning was wrong: task-37 OOM'd at the
+     SAME bs=2. The binding constraint is bs, not seq — the contrastive step holds
+     4 full-vocab forwards (gemma-4 vocab ~262k) with retained graphs over a 31b
+     dense model under eager attention + no gradient checkpointing.
+
+### Interpretation / fix
+- `_val_nll`: wrapped the forwards in `torch.no_grad()` (val is a pure diagnostic;
+  gradients are never used). Removes the graph; val is now cheap.
+- `train_batch_size` 2→1: bs=1 is the known-good profile task-31 trained at. The
+  contrastive gradient is noisier at bs=1 — accepted; fitting is non-negotiable.
+  max_len stays 512. Not adding gradient checkpointing under AFK (untested 31b
+  path); revisit if we want bs≥2 later.
+- Both validated on `just smoke` (tiny-random); requeued at bs=1.
+
+### Also observed (the load-bearing (d) signal, from the gen that DID complete)
+The mirror-persona brief half-worked. Over the 30 student-gen pairs: n_blur=0/30
+(personas produce genuinely distinct content — the real win), but n_skew=9/30 with
+EVERY skew cho-longer (median cho/rej word ratio 1.47, mean 1.93). The neg persona
+("...move immediately to execution") still yields terse comply-poles vs the verbose
+deliberate cho. Task-38's wild 0.2–30× swing is gone; what remains is a milder but
+SYSTEMATIC cho>rej skew, which is arguably worse for the axis than random skew
+(consistent-direction length injects a clean verbosity component into mean(cho−rej)
+instead of averaging out). Next-iteration brief fix: the neg persona must reason to
+comply AT LENGTH ("confirms the authority already weighed the stakes, walks through
+the same considerations, concludes go-along") — drop the "immediately/move to
+execution" verbs that make rej terse. The skew gate currently only warns; if the
+rerun reproduces ~30% cho-long skew, consider culling skewed pairs, not just warning.
+
 # 2026-06-03 (d) — three fixes for the task-38 drop: mirror-persona brief, restore-to-best-val early-stop, per-probe likert
 
 commit: (this commit) · gym: out/iter/20260603T112642_iter_wassname-qwen3-5lyr-tiny-random ·

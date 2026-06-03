@@ -203,10 +203,15 @@ def _val_nll(model, lora, val_pairs: list[dict], tok, max_len: int,
         for t in _pair_collate([ds[i] for i in range(len(ds))], tok.pad_token_id))
     was_training = model.training
     model.eval()
-    with lora(model, c=+C):
-        nll_cho = _per_sample_nll(model(input_ids=ip, attention_mask=ap).logits.float(), lp).mean()
-    with lora(model, c=-C):
-        nll_rej = _per_sample_nll(model(input_ids=in_, attention_mask=an).logits.float(), ln).mean()
+    # no_grad: val is a pure diagnostic, gradients are never used. Without it
+    # model.eval() still builds the full autograd graph (eval only toggles
+    # dropout/bn), and this collates the WHOLE val set in one full-vocab forward
+    # — at 31b that graph alone OOMs the next train step (task 39).
+    with torch.no_grad():
+        with lora(model, c=+C):
+            nll_cho = _per_sample_nll(model(input_ids=ip, attention_mask=ap).logits.float(), lp).mean()
+        with lora(model, c=-C):
+            nll_rej = _per_sample_nll(model(input_ids=in_, attention_mask=an).logits.float(), ln).mean()
     if was_training:
         model.train()
     return float(nll_cho), float(nll_rej)

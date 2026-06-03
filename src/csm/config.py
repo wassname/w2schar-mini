@@ -359,15 +359,17 @@ CONFIGS: dict[str, RunConfig] = {
         teacher="qwen/qwen3.5-9b",
         quant="nf4",
         adapter="lora",
-        # bs=2 + max_len=512 (2026-06-03): bs=1 is too noisy a contrastive
-        # gradient. Task 37 OOM'd at bs=2/max_len=2048 = 4096 token-positions;
-        # bs=2/max_len=512 = 1024 positions is a 4× cut on the full-vocab KL
-        # transient (3 forwards: pos cho, neg rej, base; gemma-4 vocab ~262k),
-        # well under the OOM and only 1.33× the bs=1/max_len=768 it replaces.
-        # 512 truncates the longest poles, accepted to keep bs≥2; the
-        # MATCH-LENGTH brief keeps the two poles short and symmetric so
-        # truncation hits both equally. steps stay 120 (min_steps floor).
-        train_batch_size=2,
+        # bs=1 + max_len=512 (2026-06-03, task-39 OOM revert): bs=2 OOM'd in the
+        # train step at step 0 (93GiB alloc on the 95GiB card). The earlier
+        # "bs=2/max_len=512 is a 4× cut vs task-37's OOM at 2048" reasoning was
+        # wrong — task-37 OOM'd at the SAME bs=2; the binding constraint is bs,
+        # not seq, because the contrastive step holds 4 full-vocab forwards
+        # (gemma-4 vocab ~262k) with retained graphs over a 31b dense model under
+        # EAGER attention + no gradient checkpointing. bs=1 is the known-good
+        # profile task-31 trained at. The contrastive gradient is noisier at
+        # bs=1, accepted; fits is non-negotiable. max_len=512 truncates the
+        # longest poles equally (the MATCH-LENGTH brief keeps poles symmetric).
+        train_batch_size=1,
         eval_batch_size=2,
         max_len=512,
         lr=3e-4,
