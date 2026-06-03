@@ -140,25 +140,38 @@ def _format_dialogue_inline(payload: dict) -> str:
     return "\n".join(lines)
 
 
-def _format_pre_post_interleaved(pre: dict, post: dict) -> str:
-    """Probe-by-probe PRE / POST interleave so the agent sees the contrast
-    on each probe before moving to the next. PRE = c=0 (base+history),
-    POST = c=signed_C (this round's adapter active)."""
+def _format_by_situation(pre: dict, post: dict) -> str:
+    """Group PRE/POST by SITUATION (the `{stem}_1p` / `{stem}_3p` pair), so the
+    judge sees BOTH framings of one situation together before moving on: the 1P
+    seat (what the student DOES) directly above its 3P twin (the principle it NAMES
+    judging another in that seat). The 3P POST is the standard the 1P POST should be
+    moving toward; separating them into independent blocks (the old per-probe view)
+    let a weak judge read only the 1P side and miss the gap (task 31, RJ 2026-06-03).
+    PRE = c=0 (base+history), POST = c=signed_C (this round's adapter active)."""
     pre_by_id = {p["id"]: p for p in pre.get("probes", [])}
     post_by_id = {p["id"]: p for p in post.get("probes", [])}
     ids = list(pre_by_id) or list(post_by_id)
-    out: list[str] = []
+    stems: list[str] = []
     for pid in ids:
-        out.append(f"========= probe: {pid} =========")
-        for label, payload in (("PRE  (c=0)", pre_by_id.get(pid)),
-                               ("POST (c=signed_C)", post_by_id.get(pid))):
-            out.append(f"--- {label} ---")
-            if not payload:
-                out.append("(missing)")
-                continue
-            for t in payload["turns"]:
-                out.append(f"[{t['role']}] {_format_turn(t['text'])}")
-        out.append("")
+        stem = pid.rsplit("_", 1)[0]
+        if stem not in stems:
+            stems.append(stem)
+    out: list[str] = []
+    for stem in stems:
+        out.append(f"################ SITUATION: {stem} ################")
+        for suffix, fn_label in (
+                ("1p", "1P · what the student DOES in the seat"),
+                ("3p", "3P · the principle it NAMES judging another (the standard)")):
+            out.append(f"===== {fn_label} =====")
+            for label, payload in (("PRE  (c=0)", pre_by_id.get(f"{stem}_{suffix}")),
+                                   ("POST (c=signed_C)", post_by_id.get(f"{stem}_{suffix}"))):
+                out.append(f"--- {label} ---")
+                if not payload:
+                    out.append("(missing)")
+                    continue
+                for t in payload["turns"]:
+                    out.append(f"[{t['role']}] {_format_turn(t['text'])}")
+            out.append("")
     return "\n".join(out)
 
 
@@ -186,8 +199,8 @@ def train_student_tool(slug: str) -> Tool:
             f"tokens at the tail (e.g. `ethics ethics ethics …`) = degenerate "
             f"loop = the model collapsed. Drop the round (the prefix may look "
             f"fine but the model is broken).\n"
-            f"========== PRE vs POST (interleaved per probe) ==========\n"
-            f"{_format_pre_post_interleaved(pre, post)}\n"
+            f"========== PRE vs POST (grouped by situation: 1P over its 3P) ==========\n"
+            f"{_format_by_situation(pre, post)}\n"
             f"{AFTER_TRAIN}"
         )
 
