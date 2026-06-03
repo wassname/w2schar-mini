@@ -74,16 +74,15 @@ class RunConfig:
 
     # ─ data ─
     n_train_pairs: int = 15
-    """Per-round prompts sampled from POOL. Student generates a c=0
-    completion seeded under rej's TODO as reference; teacher rewrites
-    BOTH rej and cho as twinned poles (same voice, only axis flipped)."""
+    """Per-round prompts sampled from POOL. The teacher proposes a
+    (pos_persona, neg_persona) pair; the student generates BOTH poles
+    on-policy over these prompts (cho under pos, rej under neg)."""
     min_pairs_to_train: int = 10
-    """Gate before train_student: ≥ this many pairs must have BOTH
-    rej and cho filled (TODOs replaced). Lets the agent skip pairs
-    that are unsalvageable."""
+    """Gate after propose_personas: ≥ this many non-degenerate pairs
+    (both poles non-empty, cho≠rej) must survive the gen, else the teacher
+    re-proposes a sharper / less refusal-triggering persona pair."""
     gen_max_new_tokens: int = 2048
-    """Student seed-gen budget. Longer → teacher sees more of the
-    student's natural failure mode for reference (but rewrites it)."""
+    """Per-pole on-policy gen budget under the persona prefix."""
 
     max_len: int = 2048
     """Train-time max sequence length for collating pairs."""
@@ -339,7 +338,12 @@ CONFIGS: dict[str, RunConfig] = {
     # canonical gemma-4-31B-it (gated; HF_TOKEN in .env).
     "gemma-31b": RunConfig(
         model="google/gemma-4-31B-it",
-        teacher="qwen/qwen3.5-9b",
+        # Teacher bumped qwen3.5-9b → gemma-3-27b-it (2026-06-03): the teacher's
+        # job is now to PROPOSE a contrastive persona pair under PERSONA_RULES
+        # (esp. rule 9 trait-vs-refusal), the hard cognitive step since the
+        # student writes both poles. Stronger writer; matches w2s-ics-cws's
+        # 31b-student pairing.
+        teacher="google/gemma-3-27b-it",
         quant="nf4",
         adapter="lora",
         train_batch_size=2,

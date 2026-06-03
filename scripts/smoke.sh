@@ -14,8 +14,9 @@ from csm.pipeline import init_run
 from pathlib import Path
 slug = Path('$SLUG')
 init_run(slug, '$M')
+# run() reads interview_pre.json for the initial task (the teacher picks the
+# axis off it); pairs.md is created later by propose_personas, not at task start.
 (slug / 'round00' / 'interview_pre.json').write_text('{\"id\": \"pre\", \"probes\": []}')
-(slug / 'round00' / 'pairs.md').write_text('## Lesson\nx\n## 1\n### Prompt\np\n### Rej\nr\n### Cho\nc\n')
 run(model='$M', teacher='qwen/qwen3.5-9b', slug=slug, n_rounds=1)
 "
 echo "SHOULD: dry-run printed 'DRY_RUN PASS' above."
@@ -25,8 +26,8 @@ rm -rf "$SLUG"
 uv run python - <<PYEOF
 import json
 from pathlib import Path
-from csm.pipeline import (init_run, latest_round_dir, mark_exam,
-                          prepare_round, submit_pairs, train_student)
+from csm.pipeline import (init_run, latest_round_dir, mark_exam, prepare_round,
+                          propose_personas, edit_pairs, train_student)
 from csm.gen.pairs import load_pairs_md
 
 slug = Path("$SLUG")
@@ -36,45 +37,34 @@ init_run(slug, model)
 rd = latest_round_dir(slug)
 print(f"\n=== smoke round: {rd} ===")
 
-print("\n-- prepare_round (probes + on-policy rej gen) --")
+print("\n-- prepare_round (probes @ c=0 only; no pair gen here) --")
 prepare_round(slug, rd)
+assert (rd / "interview_pre.json").exists()
+assert not (rd / "pairs.md").exists(), "pairs.md must not exist before propose_personas"
 
-# Read the seeded form: prompt + rej (student's natural answer = anchor),
-# cho is TODO. New contract: keep the seeded rej, write cho as an in-band
-# twin. rej is no longer a TODO — it's the on-policy anchor.
+print("\n-- propose_personas (student generates BOTH poles on-policy) --")
+res = propose_personas(
+    slug, rd,
+    axis="weighs-who-is-affected vs goes-along",
+    rationale="> smoke: tiny gibberish, exercising the persona-gen path",
+    pos_persona="You are someone who weighs who is affected and what is at stake before acting.",
+    neg_persona="You are someone who goes along with what is asked without weighing the rights and wrongs.",
+)
+print(f"   n_pairs={res['n_pairs']}  enough={res['enough']}  min={res['min_to_train']}")
+assert res["enough"], f"too few non-degenerate pairs: {res}"
 lesson, pairs = load_pairs_md(rd / "pairs.md")
-print(f"   {len(pairs)} pairs; prompts + rej (anchor) pre-filled by student")
-assert all(p["prompt"] and p["rej"] for p in pairs), pairs
-assert all(p["cho"].startswith("TODO(") for p in pairs), pairs
-assert not any(p["rej"].startswith("TODO(") for p in pairs), pairs
+# SHOULD: both poles filled by the student gen, no TODO, cho≠rej (personas differ).
+assert all(p["prompt"] and p["cho"] and p["rej"] for p in pairs), pairs
+assert not any(p["cho"].startswith("TODO(") or p["rej"].startswith("TODO(")
+               for p in pairs), pairs
+assert (rd / "personas.json").exists()
 
-from difflib import SequenceMatcher
-def in_band_cho(rej: str) -> str:
-    """cho = rej with a middle slice swapped so the char-diff lands inside the
-    harness gate [2%,40%]. tiny-random rej is gibberish; this walks the real
-    diff gate without depending on the (meaningless) tiny gen content."""
-    n = len(rej)
-    repl = "; on the merits I would decline this. "
-    for k in range(max(2, n // 8), max(3, n // 2) + 1):
-        i = (n - k) // 2
-        cho = rej[:i] + (repl * (k // len(repl) + 1))[:k] + rej[i + k:]
-        pct = 1 - SequenceMatcher(a=rej, b=cho, autojunk=False).ratio()
-        if 0.05 <= pct <= 0.35:
-            return cho
-    raise RuntimeError(f"smoke: no in-band cho for rej (len {n}): {rej!r}")
-
-# Stand-in for the agent: build the cho-form the real teacher submits — a
-# `## Lesson` block then `## <id>` + that pair's Cho twin (cho-only; Prompt
-# and seeded Rej stay on disk, submit_pairs merges). Passing the FULL pairs.md
-# here re-injects Prompt/Rej into the cho field → duplicate `### Prompt`.
-lesson = "Teach the student to weigh who is affected before going along."
-cho_form = f"## Lesson\n{lesson}\n" + "".join(
-    f"## {p['id']}\n{in_band_cho(p['rej'])}\n" for p in pairs)
-
-print("\n-- submit_pairs --")
-res = submit_pairs(rd, cho_form)
-print(f"   filled={res['filled']}/{res['total']}  min={res['min_to_train']}")
-assert res["filled"] >= 3, f"gate not reached: {res}"
+print("\n-- edit_pairs (optional lite curation: rewrite one pole) --")
+e = edit_pairs(rd, f"## Lesson\n{lesson}\n## {pairs[0]['id']}\n### Cho\n"
+                   f"On the merits I would weigh who is affected before acting.\n")
+print(f"   edited={e['edited']}")
+_, pairs2 = load_pairs_md(rd / "pairs.md")
+assert pairs2[0]["cho"].strip().startswith("On the merits"), pairs2[0]
 
 print("\n-- train_student + post-dialogue --")
 r = train_student(slug, rd)
@@ -85,7 +75,7 @@ mark_exam(rd, keep=True,
           reason="smoke: all stages ran end-to-end on tiny-random",
           next_focus="smoke: nothing")
 
-for fname in ("state.json", "pairs.md", "adapter.safetensors",
+for fname in ("state.json", "pairs.md", "personas.json", "adapter.safetensors",
               "calibration.json", "interview_pre.json",
               "interview_post.json", "judgment.json"):
     p = rd / fname

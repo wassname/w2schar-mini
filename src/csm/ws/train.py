@@ -76,7 +76,13 @@ class TrainCfg:
     """β: coefficient on mean reverse-KL per step (nats, matches NLL units).
     0 disables. Bump up if Δnll blows past +0.02 (coherence breaks); bump
     down if eval Δ stays at noise."""
-    pcgrad: bool = True
+    pcgrad: bool = False
+    """OFF (2026-06-03): near-inert on the margin loss — task-31 fired the
+    conflict branch only 42/240 steps, cos median 0.027 (the margin formulation
+    already killed the old cos≈-0.97 shared-fluency conflict, so the two sides
+    are basically orthogonal → nothing to de-conflict). cos/conflict are still
+    computed + logged below as a diagnostic; only the projection is disabled.
+    Delete the branch next round if a run confirms no regression."""
     seed: int = 42
     # ─ PiSSA-only ─ (ignored for ModulatedLoRA)
     pissa_selection_score: str = "cho_rej_min_std"

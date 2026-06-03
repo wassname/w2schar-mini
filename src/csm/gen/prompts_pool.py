@@ -1,8 +1,8 @@
 """Authority-and-character dilemmas for persona-conditioned pair sampling.
 
-Each round the harness samples N prompts from POOL, generates the student's
-going-along answer under DEFER_PERSONA as the `rej` pole, and the teacher writes
-the deepened `cho` twin.
+Each round the harness samples N prompts from POOL; the teacher proposes a
+(pos_persona, neg_persona) pair and the student generates BOTH poles on-policy
+over these prompts (cho under pos_persona, rej under neg_persona).
 
 == Why this POOL was rewritten (read before editing) ==
 

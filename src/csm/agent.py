@@ -22,13 +22,15 @@ from inspect_ai.model import (ChatMessageUser, CompactionEdit,
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import Tool, tool
 
-from csm.pipeline import (init_run, latest_round_dir,
+from csm.pipeline import (edit_pairs as _edit_pairs_pipeline,
+                          init_run, latest_round_dir,
                           mark_exam as _mark_exam_pipeline,
                           new_round_dir, prepare_round,
-                          submit_pairs as _submit_pairs_pipeline,
+                          propose_personas as _propose_personas_pipeline,
                           train_student as _train_student_pipeline)
-from csm.prompts import (AFTER_SUBMIT, AFTER_TRAIN, COMPACTION_INSTRUCTIONS,
-                         INITIAL_TASK, ON_CONTINUE_NUDGE, REACT_PROMPT)
+from csm.prompts import (AFTER_EDIT, AFTER_PROPOSE, AFTER_TRAIN,
+                         COMPACTION_INSTRUCTIONS, INITIAL_TASK,
+                         ON_CONTINUE_NUDGE, REACT_PROMPT)
 from csm.state import allowed_after, ValidationError, read_state
 from csm.ws.history import kept_history_dirs
 
@@ -85,40 +87,95 @@ def _n_submit_rejects(slug_path: Path) -> int:
     return int(p.read_text()) if p.exists() else 0
 
 
-@tool(name="submit_pairs", parallel=False)
-def submit_pairs_tool(slug: str) -> Tool:
-    async def execute(cho_form: str) -> str:
-        """Submit the Lesson and a Cho twin for each pair. You write ONLY the
-        resisting prose — Prompt and the seeded deferring Rej are fixed on disk
-        and must not be repeated.
+def _bump_reject(rejects_path: Path) -> int:
+    n = (int(rejects_path.read_text()) if rejects_path.exists() else 0) + 1
+    rejects_path.write_text(str(n))
+    return n
+
+
+def _reject_tail(n: int) -> str:
+    return (f"\n(reject {n} — run aborts after {MAX_SUBMIT_REJECTS})"
+            if n <= MAX_SUBMIT_REJECTS
+            else f"\n(reject {n} > {MAX_SUBMIT_REJECTS} — aborting run)")
+
+
+@tool(name="propose_personas", parallel=False)
+def propose_personas_tool(slug: str) -> Tool:
+    async def execute(axis: str, rationale: str,
+                      pos_persona: str, neg_persona: str) -> str:
+        """Propose the round's persona pair. The student then generates BOTH
+        poles on-policy (cho under pos_persona, rej under neg_persona) and the
+        personas are stripped before training. pairs.md is seeded with the
+        result and printed back for review.
 
         Args:
-            cho_form: markdown — a `## Lesson` block (one sentence) then one
-                `## <pair id>` block per Cho twin, e.g.:
-                `## Lesson`\\n<disposition>\\n`## 1`\\n<cho for pair 1>\\n`## 2`\\n...
-                Cho the merits-weighing twin of that pair's seeded Rej (same
-                shape, stance flipped). Omit a pair's block to leave it unfilled.
+            axis: short label for the character dimension this round (becomes
+                the Lesson), e.g. "concrete-action vs abstract-principle".
+            rationale: why this axis, anchored in a verbatim `>` quote from the
+                pre-dialogue that DEMONSTRATES the defect.
+            pos_persona: FULL user-message prefix evoking the trait to GROW
+                (the steered-TOWARD pole → cho). No template wrapper.
+            neg_persona: FULL user-message prefix evoking the failure mode
+                (the steered-AWAY pole → rej). Direct opposite of pos_persona.
+                Reversing the two trains the student backwards.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
         try:
-            res = _submit_pairs_pipeline(round_dir, cho_form)
+            res = _propose_personas_pipeline(
+                _slug_path(slug), round_dir, axis=axis, rationale=rationale,
+                pos_persona=pos_persona, neg_persona=neg_persona)
         except (ValidationError, ValueError) as e:
-            n = (int(rejects_path.read_text()) if rejects_path.exists() else 0) + 1
-            rejects_path.write_text(str(n))
+            n = _bump_reject(rejects_path)
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
-                   else f"submit_pairs rejected — {e}\npairs.md NOT updated.")
-            tail = (f"\n(reject {n} — run aborts after {MAX_SUBMIT_REJECTS})"
-                    if n <= MAX_SUBMIT_REJECTS
-                    else f"\n(reject {n} > {MAX_SUBMIT_REJECTS} — aborting run)")
-            return msg + tail
-        rejects_path.unlink(missing_ok=True)  # parsed cleanly → reset counter
+                   else f"propose_personas rejected — {e}")
+            return msg + _reject_tail(n)
+        if not res["enough"]:
+            n = _bump_reject(rejects_path)
+            return (
+                f"Only {res['n_pairs']} non-degenerate pairs survived (need "
+                f"≥{res['min_to_train']}). Both poles are likely refusing — see "
+                f"PERSONA_RULES rule 9: prefer an in-character TRAIT dimension "
+                f"over a moral-violation framing. Re-call propose_personas with "
+                f"a sharper pair." + _reject_tail(n)
+            )
+        rejects_path.unlink(missing_ok=True)
         return (
-            f"OK — pairs.md submitted. {res['filled']}/{res['total']} "
-            f"filled (need ≥{res['min_to_train']} to train). "
-            f"Slots with TODO still: {res['slots_with_todo']}\n"
-            f"{AFTER_SUBMIT(res['slots_with_todo'])}"
+            f"OK — generated {res['n_pairs']} on-policy pairs (both poles).\n"
+            f"========== pairs.md (student-generated cho/rej) ==========\n"
+            f"{res['pairs_md']}"
+            f"========== end pairs.md ==========\n"
+            f"{AFTER_PROPOSE}"
         )
+
+    return execute
+
+
+@tool(name="edit_pairs", parallel=False)
+def edit_pairs_tool(slug: str) -> Tool:
+    async def execute(edits_form: str) -> str:
+        """OPTIONAL: minimally edit the student-generated poles. Skip it if the
+        gens look clean. Use it to strip a pair that leaked a refusal /
+        AI-disclaimer, or to sharpen the axis. Pairs you don't mention keep the
+        student's generation.
+
+        Args:
+            edits_form: markdown — a `## Lesson` block (optional) then one
+                `## <pair id>` block per pair you fix, each with a `### Cho`
+                and/or `### Rej` block holding the replacement text.
+        """
+        round_dir = latest_round_dir(_slug_path(slug))
+        rejects_path = _rejects_path(round_dir)
+        try:
+            res = _edit_pairs_pipeline(round_dir, edits_form)
+        except (ValidationError, ValueError) as e:
+            n = _bump_reject(rejects_path)
+            msg = (_format_validation_error(e) if isinstance(e, ValidationError)
+                   else f"edit_pairs rejected — {e}\npairs.md NOT updated.")
+            return msg + _reject_tail(n)
+        rejects_path.unlink(missing_ok=True)
+        return (f"OK — edited pairs {res['edited']} of {res['total']}.\n"
+                f"{AFTER_EDIT}")
 
     return execute
 
@@ -366,7 +423,8 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
 
     agent = react(
         tools=[
-            submit_pairs_tool(slug),
+            propose_personas_tool(slug),
+            edit_pairs_tool(slug),
             train_student_tool(slug),
             mark_exam_tool(slug),
         ],
@@ -408,7 +466,6 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     pre_text = _format_dialogue_inline(
         json.loads((rd / "interview_pre.json").read_text())
     )
-    pairs_text = (rd / "pairs.md").read_text()
     prior_focus = _last_next_focus(slug_path, exclude=rd)
     focus_block = (f"\nPRIOR ROUND'S `next_focus`:\n  {prior_focus}\n"
                    if prior_focus else "")
@@ -419,12 +476,11 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     ) + focus_block + (
         f"\n========== PRE-DIALOGUE (c=0, base+history) ==========\n"
         f"{pre_text}\n"
-        f"========== pairs.md (REFERENCE — fixed Prompt + seeded Rej per pair) ==========\n"
-        f"{pairs_text}"
-        f"========== end pairs.md ==========\n"
-        f"Write a Cho twin for each `### Rej` above and submit via "
-        f"submit_pairs(cho_form): `## Lesson` then `## <id>` Cho per pair. "
-        f"Do not repeat the Prompt or Rej.\n"
+        f"========== end PRE-DIALOGUE ==========\n"
+        f"Read the PRE-dialogue, pick a character axis with headroom (the 1p/3p "
+        f"gap), then call propose_personas(axis, rationale, pos_persona, "
+        f"neg_persona). The student generates both poles on-policy from your "
+        f"personas.\n"
     )
 
     teacher_model = _inspect_model_name(teacher)

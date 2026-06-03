@@ -28,11 +28,10 @@ from loguru import logger
 
 from csm.config import config_by_model, config_for_run
 from csm.gen.dialogue import DialogueCfg, dialogue
-from csm.gen.pairs import (LESSON_TODO, gen_completions, load_cho_form,
-                           load_pairs_md, n_filled, sample_prompts,
-                           write_pairs_md, write_seeded_pairs)
+from csm.gen.pairs import (LESSON_TODO, generate_pairs_from_personas,
+                           load_edits_form, load_pairs_md, sample_prompts,
+                           write_gen_pairs, write_pairs_md)
 from csm.gen.probes import PROBES
-from csm.prompts import DEFER_PERSONA
 from csm.state import (RoundState, ValidationError, require_state, set_state,
                        write_state)
 from csm.ws.bake import AdapterSpec, baked
@@ -145,7 +144,7 @@ def init_run(slug_dir: Path, model: str, teacher: str | None = None,
     (slug_dir / "run.json").write_text(json.dumps(run, indent=2))
     round_dir = slug_dir / "round00"
     round_dir.mkdir(exist_ok=True)
-    write_state(round_dir, RoundState(state="submit_pairs"))
+    write_state(round_dir, RoundState(state="propose_personas"))
     return round_dir
 
 
@@ -165,7 +164,7 @@ def new_round_dir(slug_dir: Path) -> Path:
         n = int(last.replace("round", "")) + 1
     rd = slug_dir / f"round{n:02d}"
     rd.mkdir(exist_ok=True)
-    write_state(rd, RoundState(state="submit_pairs"))
+    write_state(rd, RoundState(state="propose_personas"))
     return rd
 
 
@@ -175,16 +174,14 @@ def new_round_dir(slug_dir: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 def prepare_round(slug_dir: Path, round_dir: Path) -> None:
-    """Run the student on:
-      1. PROBES at c=0 (writes interview_pre.json)
-      2. POOL-sampled training prompts at c=0 (seeds pairs.md with
-         prompt + rej; cho remains TODO for the agent to fill).
-    Both go in one model session so we only load weights once.
+    """Run the student on PROBES at c=0 (writes interview_pre.json). The
+    teacher reads this PRE-dialogue to pick the axis, THEN proposes a persona
+    pair; the (cho, rej) pairs are generated later by `propose_personas`, so
+    no pair gen happens here. Idempotent.
     """
     pre_path = round_dir / "interview_pre.json"
-    pairs_path = round_dir / "pairs.md"
-    if pre_path.exists() and pairs_path.exists():
-        return  # both done
+    if pre_path.exists():
+        return
 
     run = json.loads((slug_dir / "run.json").read_text())
     cfg = config_for_run(run)
@@ -193,67 +190,112 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
         n = int(round_dir.name.replace("round", ""))
     except ValueError:
         n = 0
-    train_prompts = sample_prompts(cfg.n_train_pairs, seed=42 + n)
 
     if _fake_student():
         replay = _replay_dir()
-        if not pre_path.exists():
-            shutil.copy((replay or _FIXTURES) / "interview_pre.json", pre_path)
-        if not pairs_path.exists():
-            if replay is not None:
-                # Replay: reuse the past run's REAL prompts + on-policy rej (cho
-                # stripped to TODO), so the teacher rewrites the same scenarios
-                # under the current brief.
-                _, past_pairs = load_pairs_md(replay / "pairs.md")
-                prompts = [p["prompt"] for p in past_pairs]
-                rej_texts = [p["rej"] for p in past_pairs]
-            else:
-                # Real student rej blocks, deterministic per-prompt via hash, so
-                # the teacher faces real-shaped rewriting work (long refusing
-                # prose with `###` subheaders) instead of a toy that confirms
-                # the harness's assumptions.
-                import hashlib
-                prompts = train_prompts
-                rej_texts = [_FAKE_REJ_POOL[int(hashlib.md5(p.encode()).hexdigest(), 16)
-                                            % len(_FAKE_REJ_POOL)]
-                             for p in train_prompts]
-            write_seeded_pairs(pairs_path, prompts, rej_texts)
+        shutil.copy((replay or _FIXTURES) / "interview_pre.json", pre_path)
         return
 
     history = kept_history_dirs(slug_dir, before_round=n)
     with mem_stage("load"):
         model, tok, hist_specs = load_base_with_history_specs(cfg.model, history, quant=cfg.quant)
     try:
-        # Bake history once for the whole prepare phase (pre-dialogue + rej gen
-        # both run at base + history, no current adapter, c=0 for current).
         with baked(model, hist_specs):
-            if not pre_path.exists():
-                dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
-                                   enable_thinking=cfg.enable_thinking)
-                with mem_stage("dialogue_pre"):
-                    dialogue(model, tok, PROBES, pre_path,
-                             hist_specs=None, current_spec=None, c=0.0, cfg=dcfg)
-            if not pairs_path.exists():
-                with mem_stage("gen_rej"):
-                    # system=DEFER_PERSONA: the seed IS the on-policy deferring
-                    # pole (Rej). Without it a strong aligned student answers at
-                    # the merit-weighing pole and there is no deferring anchor.
-                    # Validated (pueue #39): Qwen3.6-27B complies 6/6 on blatant
-                    # authority prompts under this persona, refuses 6/6 without.
-                    rej_texts = gen_completions(
-                        model, tok, train_prompts,
-                        max_new_tokens=cfg.gen_max_new_tokens,
-                        batch_size=cfg.eval_batch_size,
-                        enable_thinking=cfg.enable_thinking,
-                        seed=42 + n,
-                        system=DEFER_PERSONA,
-                    )
-                write_seeded_pairs(pairs_path, train_prompts, rej_texts)
+            dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
+                               enable_thinking=cfg.enable_thinking)
+            with mem_stage("dialogue_pre"):
+                dialogue(model, tok, PROBES, pre_path,
+                         hist_specs=None, current_spec=None, c=0.0, cfg=dcfg)
     finally:
         del model
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+
+def _fake_gen_rows(prompts: list[str]) -> list[dict]:
+    """Gym/replay path for propose_personas: synthesize both poles without a
+    model. Replay reuses a past run's real (cho, rej); plain gym hash-shuffles
+    the real-student rej pool into two DIFFERENT blocks per prompt so the
+    teacher faces real-shaped pairs (the personas don't actually drive the fake
+    gen — that's the documented fake-mode artifact)."""
+    replay = _replay_dir()
+    if replay is not None:
+        _, past = load_pairs_md(replay / "pairs.md")
+        return [{"prompt": p["prompt"], "cho": p["cho"], "rej": p["rej"]} for p in past]
+    import hashlib
+    pool = _FAKE_REJ_POOL
+    rows = []
+    for p in prompts:
+        h = int(hashlib.md5(p.encode()).hexdigest(), 16)
+        cho = pool[h % len(pool)]
+        rej = pool[(h // 7) % len(pool)]
+        if cho.strip() == rej.strip():
+            rej = pool[(h // 7 + 1) % len(pool)]
+        rows.append({"prompt": p, "cho": cho, "rej": rej})
+    return rows
+
+
+def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
+                     rationale: str, pos_persona: str, neg_persona: str) -> dict:
+    """The teacher's persona pair → both poles generated on-policy by the
+    student (cho under pos_persona, rej under neg_persona), personas stripped.
+    Writes pairs.md + personas.json (audit), advances to train_student. If too
+    few non-degenerate pairs survive, stays in propose_personas so the teacher
+    can pick a sharper / less refusal-triggering axis (PERSONA_RULES rule 9).
+    """
+    require_state(round_dir, "propose_personas", "propose_personas")
+    run = json.loads((slug_dir / "run.json").read_text())
+    cfg = config_for_run(run)
+    n = int(round_dir.name.replace("round", ""))
+    train_prompts = sample_prompts(cfg.n_train_pairs, seed=42 + n)
+    pairs_path = round_dir / "pairs.md"
+
+    if _fake_student():
+        rows = _fake_gen_rows(train_prompts)
+    else:
+        history = kept_history_dirs(slug_dir, before_round=n)
+        with mem_stage("load"):
+            model, tok, hist_specs = load_base_with_history_specs(
+                cfg.model, history, quant=cfg.quant)
+        try:
+            with baked(model, hist_specs), mem_stage("gen_pairs"):
+                rows = generate_pairs_from_personas(
+                    model, tok, train_prompts,
+                    pos_persona=pos_persona, neg_persona=neg_persona,
+                    max_new_tokens=cfg.gen_max_new_tokens,
+                    batch_size=cfg.eval_batch_size, seed=42 + n,
+                    enable_thinking=cfg.enable_thinking,
+                )
+        finally:
+            del model
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    write_gen_pairs(pairs_path, rows, lesson=axis or LESSON_TODO)
+    (round_dir / "personas.json").write_text(json.dumps({
+        "axis": axis, "rationale": rationale,
+        "pos_persona": pos_persona, "neg_persona": neg_persona,
+        "n_pairs": len(rows),
+    }, indent=2))
+    transcript().info(
+        {"event": "propose_personas", "round": round_dir.name,
+         "axis": axis, "n_pairs": len(rows)},
+        source=f"{round_dir.name}.propose",
+    )
+
+    if len(rows) < cfg.min_pairs_to_train:
+        set_state(round_dir, "propose_personas",
+                  note=f"only {len(rows)} non-degenerate pairs")
+        return {"n_pairs": len(rows), "enough": False,
+                "min_to_train": cfg.min_pairs_to_train,
+                "pairs_md": pairs_path.read_text()}
+
+    set_state(round_dir, "train_student", note=f"gen {len(rows)} pairs")
+    return {"n_pairs": len(rows), "enough": True,
+            "min_to_train": cfg.min_pairs_to_train,
+            "pairs_md": pairs_path.read_text()}
 
 
 # Backward-compat alias (smoke / tests / agent.py haven't all migrated).
@@ -263,142 +305,46 @@ def run_pre_dialogue(slug_dir: Path, round_dir: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Verb 1: submit_pairs — teacher writes the whole pairs.md form at once.
+# Verb 1b: edit_pairs — OPTIONAL lite curation of the gen'd poles.
 # ---------------------------------------------------------------------------
 
-# Loose guardrail — pct_changed is `1 - difflib.SequenceMatcher.ratio()` on
-# raw strings (char-level). 0.02 rejects near-identity (cho ≈ rej trains
-# nothing). 0.90 only rejects two answers with almost no shared text. The
-# ceiling is high because flipping a *substantive* stance ("refuse" -> "obey")
-# legitimately rewrites most of a long answer even when structure matches —
-# a 40% ceiling was unmeetable for full-answer authority pairs and forced
-# every round to drop (see the fake-student gym). This gate is now only a
-# style/length sanity check; it is SIGN-BLIND (a pole-inverted pair passes),
-# so correct poling rests on prompts.py and, in real runs, the PRE/POST judge.
-_PCT_MIN, _PCT_MAX = 0.02, 0.90
+def edit_pairs(round_dir: Path, edits_form: str) -> dict:
+    """Splice the teacher's minimal edits over the student-generated pairs.md.
 
-
-def _measure_diff(rej: str, cho: str) -> dict:
-    from difflib import SequenceMatcher
-    sm = SequenceMatcher(a=rej, b=cho, autojunk=False)
-    return {
-        "n_rej": len(rej), "n_cho": len(cho),
-        "pct_changed": 1.0 - sm.ratio(),
-    }
-
-
-def _validate_pair_diffs(pairs: list[dict]) -> list[dict]:
-    """Per-pair gate. Skip incomplete pairs (TODO markers / empty slots);
-    those are caught by the filled-count check downstream."""
-    issues = []
-    for p in pairs:
-        if any(p[k].strip().startswith("TODO(") or not p[k].strip()
-               for k in ("prompt", "cho", "rej")):
-            continue
-        d = _measure_diff(p["rej"], p["cho"])
-        if not _PCT_MIN <= d["pct_changed"] <= _PCT_MAX:
-            kind = "too_similar" if d["pct_changed"] < _PCT_MIN else "too_different"
-            issues.append({"id": p["id"], "kind": kind, **d})
-    return issues
-
-
-def _format_diff_issues(issues: list[dict]) -> str:
-    """One block per failed pair with measured numbers + the actual asymmetric
-    tokens. Goal: agent can see EXACTLY what leaked, not just 'failed'."""
-    lines = []
-    for iss in issues:
-        pct = iss["pct_changed"]
-        if iss["kind"] == "too_similar":
-            lines.append(
-                f"  pair {iss['id']}: TOO SIMILAR — {pct:.0%} changed "
-                f"(need >{_PCT_MIN:.0%}). cho is nearly identical to rej; "
-                f"mean(cho − rej) ≈ 0 so this pair trains nothing."
-            )
-        else:
-            lines.append(
-                f"  pair {iss['id']}: TOO DIFFERENT — {pct:.0%} changed "
-                f"(need ≤{_PCT_MAX:.0%}), len {iss['n_rej']}→{iss['n_cho']} chars. "
-                f"cho diverged from rej's shape; length/style will dominate the axis."
-            )
-    return "\n".join(lines)
-
-
-def submit_pairs(round_dir: Path, cho_form: str) -> dict:
-    """Splice the teacher's Lesson + Cho twins into the seeded pairs.md.
-
-    `cho_form` is a `## Lesson` block then one `## <pair id>` block per Cho.
-    Prompt and the on-policy deferring Rej are fixed by prepare_round and read
-    straight off disk — the teacher never round-trips locked text, so there is
-    nothing to gate them against (no prompt-lock, no rej-drift). Advance to
-    train_student once ≥min_pairs_to_train cho slots are filled. Callable again
-    from the train_student state so the agent can fill remaining slots.
+    `edits_form` is a `## Lesson` block then one `## <pair id>` block per pair
+    the teacher chose to fix, each with a `### Cho` and/or `### Rej` block.
+    Pairs not mentioned keep the student's generation. No char-diff gate and no
+    touch-every-pair gate (~15 pairs, both poles already on-policy from the
+    persona gen) — this is light polish to strip a leaked refusal or sharpen
+    the axis, not a rewrite. Stays in train_student.
     """
-    require_state(round_dir, ("submit_pairs", "train_student"), "submit_pairs")
-
+    require_state(round_dir, "train_student", "edit_pairs")
     pairs_path = round_dir / "pairs.md"
-    _, pairs = load_pairs_md(pairs_path)  # seeded prompt + rej, cho still TODO
-
+    lesson_existing, pairs = load_pairs_md(pairs_path)
     try:
-        lesson, cho_by_id = load_cho_form(cho_form)
+        lesson, edits = load_edits_form(edits_form)
     except ValueError as e:
-        raise ValueError(f"submit_pairs: cho_form doesn't parse — {e}") from e
+        raise ValueError(f"edit_pairs: edits_form doesn't parse — {e}") from e
 
     ids = {p["id"] for p in pairs}
-    unknown = sorted(set(cho_by_id) - ids)
+    unknown = sorted(set(edits) - ids)
     if unknown:
         raise ValidationError(
-            f"submit_pairs: cho_form references pair id(s) {unknown} that "
+            f"edit_pairs: edits_form references pair id(s) {unknown} that "
             f"don't exist this round (valid ids: {sorted(ids)})."
         )
-    for p in pairs:
-        if p["id"] in cho_by_id:
-            p["cho"] = cho_by_id[p["id"]]
-    write_pairs_md(pairs_path, pairs, lesson=lesson or LESSON_TODO)
-
-    filled = n_filled(pairs)
-    run = json.loads((round_dir.parent / "run.json").read_text())
-    cfg = config_for_run(run)
-
-    # Per-pair rej↔cho diff gate. The adapter direction is mean(cho − rej);
-    # any token that differs between sides contributes to the axis. Style
-    # differences (length, named institutions, contingency branches not
-    # mirrored across sides) become style axes — the length/verbosity confound
-    # seen in past runs (RESEARCH_JOURNAL). Gate: pct_changed band on raw tokens.
-    issues = _validate_pair_diffs(pairs)
-    if issues:
-        raise ValueError(
-            f"submit_pairs: {len(issues)} pair(s) failed the rej↔cho diff "
-            f"gate. The two poles must be a copy-flip twin: same structure "
-            f"and length, only the stance words changed. If a pair can only "
-            f"be written as two different essays — because the stance pervades "
-            f"the whole answer — it has no twinnable axis: drop the round with "
-            f"mark_exam(keep=False, reason=...) rather than resubmit.\n\n"
-            f"{_format_diff_issues(issues)}"
-        )
-
-    if filled >= cfg.min_pairs_to_train:
-        set_state(round_dir, "train_student",
-                  note=f"filled={filled}/{len(pairs)}")
-    else:
-        set_state(round_dir, "submit_pairs",
-                  note=f"filled={filled}/{len(pairs)}")
-
-    remaining = [p["id"] for p in pairs
-                 if p["cho"].strip().startswith("TODO(")
-                 or not p["cho"].strip()]
-    if not lesson.strip() or lesson.strip().startswith("TODO("):
-        remaining = [-1] + remaining  # signal that Lesson is still TODO
+    by_id = {p["id"]: p for p in pairs}
+    for i, sides in edits.items():
+        for side, text in sides.items():
+            if text.strip():
+                by_id[i][side] = text
+    write_pairs_md(pairs_path, pairs, lesson=lesson or lesson_existing or LESSON_TODO)
+    set_state(round_dir, "train_student", note=f"edited {sorted(edits)}")
     transcript().info(
-        {"event": "submit_pairs", "round": round_dir.name,
-         "filled": filled, "total": len(pairs)},
-        source=f"{round_dir.name}.submit",
+        {"event": "edit_pairs", "round": round_dir.name, "edited": sorted(edits)},
+        source=f"{round_dir.name}.edit",
     )
-    return {
-        "filled": filled,
-        "total": len(pairs),
-        "min_to_train": cfg.min_pairs_to_train,
-        "slots_with_todo": remaining,
-    }
+    return {"edited": sorted(edits), "total": len(pairs)}
 
 
 # ---------------------------------------------------------------------------
@@ -454,9 +400,9 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
                          for k in ("prompt", "cho", "rej"))]
     if len(pairs) < cfg.min_pairs_to_train:
         raise ValidationError(
-            f"train_student: only {len(pairs)} filled pairs (TODO not yet "
-            f"replaced in the rest), need ≥{cfg.min_pairs_to_train}. "
-            f"Resubmit pairs.md with submit_pairs, or call "
+            f"train_student: only {len(pairs)} non-degenerate pairs, need "
+            f"≥{cfg.min_pairs_to_train}. Re-run propose_personas with a sharper "
+            f"(less refusal-triggering) persona pair, or call "
             f"mark_exam(keep=False, reason=...) to abort."
         )
 
@@ -553,7 +499,7 @@ def mark_exam(round_dir: Path, keep: bool, reason: str,
     if keep:
         require_state(round_dir, "mark_exam", "mark_exam")
     else:
-        require_state(round_dir, ("submit_pairs", "train_student", "mark_exam"),
+        require_state(round_dir, ("propose_personas", "train_student", "mark_exam"),
                       "mark_exam")
     judgment = {
         "action": "keep" if keep else "drop",
