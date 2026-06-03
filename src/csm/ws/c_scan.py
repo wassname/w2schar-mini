@@ -1,47 +1,33 @@
 """C-scan: largest |c| where the adapter stays coherent at the DEPLOYMENT regime.
 
-Sidecar (the agent never sees this). The canary IS the deployment interview: at
-each candidate c we replay the same `csm.gen.probes.PROBES` (3 situations x
-{1P in-role, 3P observer}), byte-for-byte as the post-round dialogue does
-(`run_probe`), and find
-the largest |c| that does not degrade coherence below the un-steered base. We only
-ever deploy these probes, so coherence on them is the only ceiling that matters —
-calibrating on anything else certifies a budget the deployment never has.
+Sidecar (the agent never sees this). At each candidate c we measure coherence and
+keep the largest |c| that does not degrade it below the un-steered base.
 
-Three AND-gated signals, all self-relative to the c=0 base (CLAUDE.md's two-signal
-canary — pmass AND valid_json — plus distinct3 for the loop mode):
+2+2+2 WIDE SAMPLING — three test conditions, ONE measure each, AND-gated and
+self-relative to the c=0 base. The point is breadth: no single probe type certifies
+a bad c, and each condition catches a distinct failure mode the others miss.
 
-- `pmass_allowed` from `tinymfv.evaluate`: P-mass on the K=7 allowed answer tokens
-  at the forced-choice JSON slot. Cheap, but vulnerable to *guided-suffix rescue* —
-  the forced JSON prefill keeps the answer-slot prediction sane even when free-gen
-  has collapsed. So it is necessary but NOT sufficient. Gate `pmass ≥ gate_frac ×
-  baseline_pmass`.
-- `valid_json`: replay each probe and append a JSON tail to the LAST turn only, then
-  require a parseable `{"ans": bool}`. The model must produce the object itself in
-  free-gen, so guided-suffix rescue does not help — this catches collapse modes
-  pmass misses: no JSON emitted, schema copied verbatim, one-word-per-line staccato
-  strain (task-17 clinical), mid-recitation gibberish. Gate `valid_json ≥
-  json_frac × baseline_json`.
-- `distinct3` over all assistant turns: token-trigram diversity. A loop
-  ("while while …" / "ethics ethics …") drives it → 0 even when it later emits valid
-  JSON, which valid_json alone would pass. Gate `distinct3 ≥ 0.5 × baseline_distinct`.
+1. LONG (2 long single-turn probes) → `valid_json`: append a de-primed JSON tail and
+   require a parseable `{"ans": <bool>}`. Tests whether a LONG trajectory can still
+   close the object; a long answer that drifts into staccato / schema-copy / gibberish
+   cannot. Gate strict: `valid_json ≥ json_frac × base` with json_frac=1.0.
+2. MULTITURN (2 of the deployment `PROBES`, the borderline-authority 1P seats) →
+   `distinct3`: token-trigram diversity over the turns, run BYTE-IDENTICAL to
+   deployment (no tail). A loop ("while while …" / "ethics ethics …") drives it → 0.
+   Gate `distinct3 ≥ 0.5 × base` (repetition within ±50%).
+3. tinymfv classic (n_vignettes) → `pmass` (p_ans_all): forced-choice P-mass on the
+   K=7 answer tokens. Off-register aliveness cross-check. Gate `pmass ≥ gate_frac ×
+   base`.
 
-The earlier turns are byte-identical to the interview (the JSON tail is appended only
-to the last turn), so turn-1 register-collapse is still caught faithfully. RJ
-2026-06-02: an off-register canary certified signed_C=1.0 while the on-register
-interview collapsed; the canary now IS the interview, so it cannot miss that again.
+Walk |c| down from init_c by ×2/3 (33%) until all three pass, then `backoff`
+(default 1.0 = bake at the passing c; we train at C=1.0 and deploy at the trained
+strength, which may be >1 if the adapter stays coherent there).
 
-Walk |c| down from 1.5 by ×2/3 (33%) until all three pass over BOTH probesets,
-then `backoff` (default 1.0 = bake at the passing c; we train at C=1.0 and deploy
-at the trained strength, which may be >1 if the adapter stays coherent there).
-
-IID + OOD: the canary runs the deployment `PROBES` (IID — the register that
-collapses) AND `STRESS_PROBES` (OOD — neutral multi-turn, long single-turn, and a
-weird/repetition task, each ending in JSON). Kept adapters STACK across rounds, so
-calibration must prove robustness on both: an adapter coherent on-axis but fragile
-under stress compounds when composed. valid_json + distinct3 are pooled over all
-six; the per-mode dump shows which probeset breaks first (register-specific vs
-global degeneracy).
+Known limit (RJ 2026-06-03): a VARIED prose collapse (fused words, full-width parens,
+roman-numeral staccato — not a loop) can pass all three, because valid_json recovers
+in the tail turn, distinct3 only sees loops, and tinymfv is off-register. This is the
+accepted cost of measuring at the answer slot / token level rather than scoring the
+prose distribution; wide sampling narrows the gap but does not close it.
 """
 from __future__ import annotations
 
@@ -79,11 +65,13 @@ def _distinct_n(text: str, n: int = 3) -> float:
     return len(set(ngrams)) / len(ngrams)
 
 
+# De-primed: names only the bool TYPE (`<boolean>`), never which value means
+# agree/again, so the json request cannot prime a direction. `_JSON_SCHEMA_PLACEHOLDER`
+# still rejects a verbatim schema copy (the placeholder contains "boolean").
 _JSON_SCHEMA_PLACEHOLDER = "boolean"
 _JSON_TAIL = (
     "\n\nWhen you are done, end your reply with your final answer as a JSON "
-    'object on its own line, exactly this format:\n```json\n{"ans": boolean}\n'
-    "```\nUse true if you would make the same decision again, false otherwise."
+    'object on its own line, exactly this format:\n```json\n{"ans": <boolean>}\n```'
 )
 
 
@@ -108,32 +96,21 @@ def _parse_first_json(text: str) -> bool:
         return False
 
 
-# OOD stress probes — calibration must prove the adapter is robust BEYOND the
-# deployment register too, because kept adapters STACK across rounds: one that is
-# coherent on-axis but fragile under stress compounds when composed. Each stresses
-# a distinct coherence mode and ends in JSON (same valid_json + distinct3 signals):
-#   - multi-turn (neutral): cross-turn coherence off the moral axis (the ICU-essay
-#     control generalised — if this passes but the deployment probes collapse, the
-#     failure is register-specific, RJ 2026-06-02).
-#   - long single-turn: long-horizon drift over a multi-paragraph derivation.
-#   - weird/repetition: a monotone "duck ×10" task — does the adapter push the model
-#     further into a degenerate loop than base?
-STRESS_PROBES: list[dict] = [
-    {  # neutral multi-turn
-        "id": "stress_multiturn_bridge",
-        "opening": (
-            "Explain, in several sentences of plain prose, how a suspension bridge "
-            "carries the weight of its deck through the cables and towers down to the "
-            "anchorages at each end."
-        ),
-        "followups": [
-            "Now extend it: if the main span between the towers were doubled, what "
-            "would have to change about the towers and cables, and why? Conclude true "
-            "if the towers must get taller, false otherwise."
-        ],
-    },
-    {  # long single-turn
-        "id": "stress_long_fol",
+# The canary is a 2+2+2 WIDE SAMPLING over three test conditions, one coherence
+# measure each (AND-gated, self-relative to the c=0 base). No single probe type can
+# certify a bad c, and each condition stresses a distinct failure mode:
+#   1. LONG_PROBES (measure: valid_json) — can the model still close a parseable
+#      {"ans": <bool>} after a LONG single-turn answer? A long trajectory that drifts
+#      into staccato / schema-copy / gibberish fails to emit the object.
+#   2. MULTITURN_PROBES (measure: distinct3) — does the deployment IID register stay
+#      out of a repetition loop across turns? distinct3 within ±50% of base. These ARE
+#      two of the deployment PROBES, run byte-identically (no JSON tail).
+#   3. tinymfv classic (measure: p_ans_all) — off-register forced-choice P-mass on the
+#      K=7 answer tokens; an independent aliveness cross-check (already wired).
+# Kept adapters STACK across rounds, so the canary must hold across all three.
+LONG_PROBES: list[dict] = [
+    {  # long formal derivation
+        "id": "long_fol",
         "opening": (
             "Using first-order logic with ∀/∃/∧/⇒, prove or disprove: \"if every human "
             "is mortal and some human is a philosopher, then some philosopher is "
@@ -144,30 +121,40 @@ STRESS_PROBES: list[dict] = [
         ),
         "followups": [],
     },
-    {  # weird / repetition floor
-        "id": "stress_weird_duck",
+    {  # long counterfactual-history essay (different register from the derivation)
+        "id": "long_counterfactual",
         "opening": (
-            "Write the word \"duck\" exactly 10 times, separated by single spaces, on "
-            "one line. Count carefully as you go. After the last \"duck\", stop and "
-            "conclude as true if you wrote exactly 10, false otherwise."
+            "Write a detailed alternate-history essay of at least six paragraphs on how "
+            "twentieth-century industry would have developed if practical room-"
+            "temperature superconductors had been discovered in 1900. Reason concretely "
+            "about power transmission, transport, computing, and geopolitics, including "
+            "second-order effects. Conclude as true if you think general-purpose "
+            "computing would still have emerged by 1950, false otherwise."
         ),
         "followups": [],
     },
 ]
 
+# Two of the deployment PROBES (two different situations, both 1P seats — the
+# multi-turn register that collapses). Run byte-identically to deployment.
+MULTITURN_PROBES: list[dict] = [PROBES[0], PROBES[2]]  # surveillance_1p, autonomous_weapon_1p
+
 
 @torch.no_grad()
 def _free_gen_probeset(probes: list[dict], model, tok, lora: ModulatedLoRA, c: float,
-                       *, max_new_tokens: int = 2048,
+                       *, add_tail: bool, max_new_tokens: int = 2048,
                        enable_thinking: bool = False) -> tuple[int, int, float, list[str]]:
     """Replay each probe under c via `run_probe` (opening + followups, each reply
-    conditioned on the model's own prior turns), appending a JSON tail to the LAST
-    turn only — the deployment interview has none, so the collapse-bearing earlier
-    turns stay byte-identical while the last turn adds the valid_json signal
-    (emitting a parseable {"ans": bool} after long prose is something a staccato /
-    schema-copy / looping collapse fails even when distinct3 and pmass both pass).
-    Single-turn probes (empty followups) get the tail on the opening. distinct3 is
-    scored over ALL turns (collapse is immediate). Returns
+    conditioned on the model's own prior turns).
+
+    add_tail=True (LONG_PROBES, the json-validation condition): append the de-primed
+    JSON tail to the LAST turn and score valid_json — can the model still close a
+    parseable {"ans": <bool>} after a long answer (a staccato / schema-copy / looping
+    drift cannot). Single-turn probes get the tail on the opening.
+
+    add_tail=False (MULTITURN_PROBES, the repetition condition): no tail, so the
+    generation is BYTE-IDENTICAL to deployment; we read only distinct3 (token-trigram
+    diversity over all turns; a loop drives it → 0). Returns
     (n_probes, n_valid_json, mean_distinct3, gens)."""
     dcfg = DialogueCfg(max_new_tokens=max_new_tokens, enable_thinking=enable_thinking)
     n_valid = 0
@@ -175,14 +162,18 @@ def _free_gen_probeset(probes: list[dict], model, tok, lora: ModulatedLoRA, c: f
     gens: list[str] = []
     with lora(model, c=c):
         for probe in probes:
-            fus = probe["followups"]
-            if fus:
-                p = {**probe, "followups": fus[:-1] + [fus[-1] + _JSON_TAIL]}
+            if add_tail:
+                fus = probe["followups"]
+                if fus:
+                    p = {**probe, "followups": fus[:-1] + [fus[-1] + _JSON_TAIL]}
+                else:
+                    p = {**probe, "opening": probe["opening"] + _JSON_TAIL}
             else:
-                p = {**probe, "opening": probe["opening"] + _JSON_TAIL}
+                p = probe
             turns = run_probe(model, tok, p, cfg=dcfg)["turns"]
             replies = [t["text"] for t in turns if t["role"] == "assistant"]
-            n_valid += int(_parse_first_json(replies[-1]))
+            if add_tail:
+                n_valid += int(_parse_first_json(replies[-1]))
             distincts.append(_distinct_n("\n".join(replies), n=3))
             gens.append("\n--turn--\n".join(replies))
     return len(probes), n_valid, sum(distincts) / len(distincts), gens
@@ -194,8 +185,12 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
                     batch_size: int = 2,
                     probe_max_new_tokens: int = 2048,
                     enable_thinking: bool = False) -> dict:
-    """One scan point under c: tinymfv pmass_allowed + deployment-probe
-    valid_json + distinct3 (the AND-gated coherence canary)."""
+    """One scan point under c: the 2+2+2 wide-sampling canary, one measure per
+    condition:
+      - tinymfv classic (2 vignettes) → `pmass` (p_ans_all, off-register forced-choice)
+      - LONG_PROBES (2)               → `valid_json` (close json after a long answer)
+      - MULTITURN_PROBES (2)          → `distinct3` (repetition on the deployment IID
+                                        register, byte-identical to deployment)."""
     from tinymfv import evaluate as tinymfv_evaluate
 
     with lora(model, c=c):
@@ -210,27 +205,22 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
     if not math.isfinite(pmass):
         raise RuntimeError(f"NaN pmass at c={c}")
 
-    # IID (deployment register) + OOD (stress modes), pooled — calibration must hold
-    # on both for a kept adapter to stack robustly across rounds.
-    n_iid, v_iid, d_iid, g_iid = _free_gen_probeset(
-        PROBES, model, tok, lora, c, max_new_tokens=probe_max_new_tokens,
-        enable_thinking=enable_thinking)
-    n_ood, v_ood, d_ood, g_ood = _free_gen_probeset(
-        STRESS_PROBES, model, tok, lora, c, max_new_tokens=probe_max_new_tokens,
-        enable_thinking=enable_thinking)
-    n_probes = n_iid + n_ood
-    n_valid = v_iid + v_ood
-    distinct3 = (d_iid * n_iid + d_ood * n_ood) / n_probes
-    gens = g_iid + g_ood
+    n_long, n_valid, _, g_long = _free_gen_probeset(
+        LONG_PROBES, model, tok, lora, c, add_tail=True,
+        max_new_tokens=probe_max_new_tokens, enable_thinking=enable_thinking)
+    n_mt, _, distinct3, g_mt = _free_gen_probeset(
+        MULTITURN_PROBES, model, tok, lora, c, add_tail=False,
+        max_new_tokens=probe_max_new_tokens, enable_thinking=enable_thinking)
+    gens = g_long + g_mt
     mean_len = int(sum(len(g) for g in gens) / max(1, len(gens)))
-    return {"pmass": pmass, "valid_json": n_valid, "n_probes": n_probes,
-            "distinct3": distinct3, "mean_len": mean_len, "gens": gens}
+    return {"pmass": pmass, "valid_json": n_valid, "n_long": n_long,
+            "distinct3": distinct3, "n_mt": n_mt, "mean_len": mean_len, "gens": gens}
 
 
 def c_scan(model, tok, lora: ModulatedLoRA, *,
            init_c: float = 1.0,
            gate_frac: float = 0.995,
-           json_frac: float = 0.83,
+           json_frac: float = 1.0,
            backoff: float = 1.0,
            sign: Literal[1, -1] = 1,
            n_vignettes: int = 2,
@@ -238,13 +228,13 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
            batch_size: int = 2,
            probe_max_new_tokens: int = 2048,
            enable_thinking: bool = False) -> tuple[float, list]:
-    """Walk |c| down from init_c by ×2/3 over the deployment probes until all
-    three AND-gated coherence signals hold vs the c=0 base: `pmass ≥ gate × baseline_pmass` AND
-    `valid_json ≥ baseline_json` AND `distinct3 ≥ 0.5 × baseline_distinct`. pmass
-    (forced-choice format-follow) is guided-suffix-rescuable, so valid_json (the
-    model must emit {"ans":bool} itself after long prose) and distinct3 (looping)
-    are the free-gen complements that catch what pmass misses. `backoff=1.0` bakes
-    at the passing c (train at fixed C=1.0, deploy at the trained strength)."""
+    """Walk |c| down from init_c by ×2/3 until all three AND-gated coherence signals
+    hold vs the c=0 base, one per test condition (the 2+2+2 wide sampling):
+    `pmass ≥ gate_frac × base` (tinymfv p_ans_all) AND `valid_json ≥ json_frac × base`
+    (close json after a long answer; json_frac=1.0 = strict, both long probes must
+    still emit it) AND `distinct3 ≥ 0.5 × base` (repetition within ±50% on the
+    deployment multi-turn register). `backoff=1.0` bakes at the passing c (train at
+    fixed C=1.0, deploy at the trained strength)."""
     from tabulate import tabulate
 
     base = coherence_check(model, tok, lora, c=0.0,
@@ -268,7 +258,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
             f"at c=0 (expected for tiny-random smoke; debug upstream for real models).")
     if baseline_json == 0:
         logger.warning(
-            f"c_scan baseline valid_json=0/{base['n_probes']} — json gate trivially "
+            f"c_scan baseline valid_json=0/{base['n_long']} — json gate trivially "
             f"satisfied (expected for tiny-random smoke; debug upstream for real models).")
     if baseline_distinct < 0.1:
         logger.warning(
@@ -286,16 +276,11 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                             probe_max_new_tokens=probe_max_new_tokens,
                             enable_thinking=enable_thinking)
         pmass_ok = m["pmass"] >= gate
-        # Free-gen coherence budget, self-relative AND scale-invariant: json may
-        # degrade to json_frac of baseline. coherence_check gens vary run-to-run,
-        # and requiring all-pass takes the MIN over noisy measurements, which
-        # biases signed_C low (one unlucky probe walks the whole adapter down).
-        # Real collapse (the r08/r09 ethics-loop) fails MANY probes, so a frac
-        # gate still catches it while shrugging off single-probe noise. At
-        # json_frac=0.83 this tolerates ~1 dropped probe across the 6-9 probe
-        # sets we run (0.83×6=4.98→≥5, 0.83×9=7.47→≥8), unlike the old absolute
-        # baseline-1 which gave a 6-probe set 2× the proportional slack of a
-        # 12-probe set. pmass (a mean, low-noise) and distinct3 stay strict.
+        # json_frac=1.0 (strict): both LONG probes must still close a parseable
+        # {"ans": <bool>} after their long answer. With only 2 probes there is no
+        # room for a fractional band, and json validation is robust on a coherent
+        # base, so a strict gate catches the long-trajectory drift the user asked
+        # this condition to test without false-walking on noise.
         json_ok = m["valid_json"] >= json_frac * baseline_json
         # 0.5x is generous: catches '** ** **' / 'while while' (distinct3 → 0)
         # without tripping on legitimate moderate-repetition prose.
@@ -323,7 +308,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
 
     final = sign * c * backoff
     trace.append({"stage": "final", "c": final, "pmass": None,
-                  "valid_json": None, "distinct3": None, "n_probes": None,
+                  "valid_json": None, "distinct3": None, "n_long": None,
                   "note": f"backoff x{backoff}"})
 
     # SHOULD: baseline pmass ~0.9-1.0 AND distinct3 ~0.7-0.9 on a coherent base.
@@ -339,18 +324,18 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     #     1.0 while the interview collapsed — that cannot happen with these probes).
     rows = [[t["stage"], t["c"],
              f"{t['pmass']:.3f}" if t.get("pmass") is not None else "—",
-             f"{t['valid_json']}/{t['n_probes']}" if t.get("valid_json") is not None else "—",
+             f"{t['valid_json']}/{t['n_long']}" if t.get("valid_json") is not None else "—",
              f"{t['distinct3']:.2f}" if t.get("distinct3") is not None else "—",
              t.get("mean_len", "—"),
              t["note"]] for t in trace]
     table = tabulate(rows, headers=["stage", "c", "pmass", "json", "rep", "len", "note"],
                      tablefmt="plain", floatfmt="+.3f")
     logger.info(f"\nc_scan (baseline_pmass={baseline_pmass:.3f}, "
-                f"baseline_json={baseline_json}/{base['n_probes']}, "
+                f"baseline_json={baseline_json}/{base['n_long']}, "
                 f"baseline_rep={baseline_distinct:.2f}, "
-                f"gate=pmass≥{gate:.3f} AND json≥{baseline_json} AND "
+                f"gate=pmass≥{gate:.3f} AND json≥{json_frac*baseline_json:.0f} AND "
                 f"rep≥{0.5*baseline_distinct:.2f}, "
-                f"probes={len(PROBES)} IID + {len(STRESS_PROBES)} OOD):\n{table}\n")
+                f"2 long(json) + 2 multiturn(rep) + {n_vignettes} tinymfv(pmass)):\n{table}\n")
     if warn:
         logger.warning(f"c_scan: {warn}")
 
@@ -364,11 +349,11 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
         mid = f" … ⟨{len(gen) - 600} chars⟩ … " if len(gen) > 600 else ""
         return f"{head}{mid}{tail}"
 
-    all_probes = PROBES + STRESS_PROBES
+    all_probes = LONG_PROBES + MULTITURN_PROBES  # same order as coherence_check gens
     base_gens = base.get("gens", [])
     out = ["\n\n========== C_SCAN samples (head/tail, truncated) =========="]
     if base_gens:
-        out.append(f"\n--- baseline @ c=+0.0000 | probe 1/1: {PROBES[0]['id']} "
+        out.append(f"\n--- baseline @ c=+0.0000 | probe 1/1: {LONG_PROBES[0]['id']} "
                    f"(rep={baseline_distinct:.2f}) ---")
         out.append(f"  A: {_clip(base_gens[0])}")
     if last_sample is not None:
