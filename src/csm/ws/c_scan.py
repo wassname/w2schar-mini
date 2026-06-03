@@ -392,14 +392,28 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     #     want. Task-35's apparent 1p-salad(2.9)-vs-3p-coherent(0.6) separation was
     #     adapter-specific (that adapter's coherent 3p tracked base). Keep as a logged
     #     anomaly-flag only. kl='—' at baseline (c=0 ⇒ KL≡0, trivially).
-    table = tabulate(rows, headers=["stage", "c", "pmass", "json", "rep", "kl", "len", "note"],
+    table = tabulate(rows, headers=["stage", "c", "pmass↑", "json↑", "rep↑", "kl", "len", "note"],
                      tablefmt="plain", floatfmt="+.3f")
-    logger.info(f"\nc_scan (baseline_pmass={baseline_pmass:.5f}, "
-                f"baseline_json={baseline_json}/{base['n_long']}, "
-                f"baseline_rep={baseline_distinct:.2f}, "
-                f"gate=pmass≥{gate:.5f} AND json≥{json_frac*baseline_json:.0f} AND "
-                f"rep≥{0.5*baseline_distinct:.2f}, "
-                f"2 long(json) + 2 multiturn(rep) + {n_vignettes} tinymfv(pmass)):\n{table}\n")
+    # Column legend printed above the table (arrows = desired direction):
+    #   pmass↑  p(K=7 allowed answer toks), tinymfv forced-choice. 1=alive.
+    #   json↑   valid {"ans":bool} after a long free-gen, count/n_long. n/n=alive.
+    #   rep↑    distinct-trigram fraction over the multiturn gens. 1=varied prose, 0=LOOP.
+    #   kl      fwd/bwd p95 of PER-TOKEN KL, teacher-forced on the steered gen.
+    #           fwd=KL(steered‖base)=KL(new‖old); bwd=KL(base‖steered)=KL(old‖new).
+    #           DIAGNOSTIC, NOT a gate: ~0 on a loop (base predicts the repetition too),
+    #           HIGH for BOTH a varied salad AND coherent strong steering. No arrow: no
+    #           monotone "good" direction. '—' at baseline (c=0 ⇒ KL≡0).
+    #   len     mean gen chars. Ballooning len = the incoherence mode leaking in.
+    logger.info(
+        "\nc_scan cols: pmass↑=tinymfv p_allowed | json↑=valid-json/n after long gen | "
+        "rep↑=distinct-trigram (1=varied,0=loop) | kl=fwd/bwd p95 per-tok KL, "
+        "fwd=KL(steered‖base)=KL(new‖old) [diagnostic, NOT gated] | len=mean chars\n"
+        f"c_scan (baseline_pmass={baseline_pmass:.5f}, "
+        f"baseline_json={baseline_json}/{base['n_long']}, "
+        f"baseline_rep={baseline_distinct:.2f}, "
+        f"gate (AND, self-rel to c=0): pmass≥{gate:.5f} AND json≥{json_frac*baseline_json:.0f} AND "
+        f"rep≥{0.5*baseline_distinct:.2f}, "
+        f"2 long(json) + 2 multiturn(rep) + {n_vignettes} tinymfv(pmass)):\n{table}\n")
     if warn:
         logger.warning(f"c_scan: {warn}")
 

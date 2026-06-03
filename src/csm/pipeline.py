@@ -236,6 +236,10 @@ def _fake_gen_rows(prompts: list[str]) -> list[dict]:
     return rows
 
 
+def _head(s: str, n: int = 240) -> str:
+    return s[:n] + (" …" if len(s) > n else "")
+
+
 def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
                      rationale: str, pos_persona: str, neg_persona: str) -> dict:
     """The teacher's persona pair → both poles generated on-policy by the
@@ -284,6 +288,30 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
          "axis": axis, "n_pairs": len(rows)},
         source=f"{round_dir.name}.propose",
     )
+
+    # Sample dump so the persona pair AND one gen'd (cho, rej) are visible in the
+    # run log, not only in the artifact files. The cho/rej length ratio is the
+    # inline length-confound canary: a verbose structured cho vs a terse rej means
+    # the trained axis is verbosity/format, not the principle (task-38: 2.1x mean,
+    # 20-36x on ~1/3 of pairs → judge dropped on "voice change, no action change").
+    if rows:
+        chos, rejs = [len(r["cho"]) for r in rows], [len(r["rej"]) for r in rows]
+        ratio = (sum(chos) / len(chos)) / max(1.0, sum(rejs) / len(rejs))
+        ex = rows[0]
+        logger.info(
+            f"\n=== propose_personas [{round_dir.name}] axis={axis!r} n_pairs={len(rows)} ===\n"
+            "SHOULD: poles differ ONLY in the moral PRINCIPLE, at matched length+format\n"
+            "        (cho/rej len ~1x). A long structured cho vs a terse rej (ratio >2x)\n"
+            "        = the adapter learns verbosity/format, not the principle → no\n"
+            "        action-shift at deploy. cho head should NOT be a fixed checklist.\n"
+            f"pos_persona: {pos_persona}\n"
+            f"neg_persona: {neg_persona}\n"
+            f"cho/rej len: {sum(chos) // len(chos)}/{sum(rejs) // len(rejs)} chars = {ratio:.1f}x\n"
+            f"--- gen sample [pair 1/{len(rows)}] ---\n"
+            f"prompt: {_head(ex['prompt'])}\n"
+            f"cho(+C, pos pole): {_head(ex['cho'])}\n"
+            f"rej(-C, neg pole): {_head(ex['rej'])}\n"
+        )
 
     if len(rows) < cfg.min_pairs_to_train:
         set_state(round_dir, "propose_personas",
@@ -334,6 +362,7 @@ def edit_pairs(round_dir: Path, edits_form: str) -> dict:
             f"don't exist this round (valid ids: {sorted(ids)})."
         )
     by_id = {p["id"]: p for p in pairs}
+    before = {i: {s: by_id[i].get(s, "") for s in ("cho", "rej")} for i in edits}
     for i, sides in edits.items():
         for side, text in sides.items():
             if text.strip():
@@ -344,6 +373,14 @@ def edit_pairs(round_dir: Path, edits_form: str) -> dict:
         {"event": "edit_pairs", "round": round_dir.name, "edited": sorted(edits)},
         source=f"{round_dir.name}.edit",
     )
+    # Sample dump: one edited pole before/after, so the curation is visible in the
+    # run log (task-38 made zero edits — an empty section here = teacher skipped it).
+    i0 = sorted(edits)[0]
+    msg = [f"\n=== edit_pairs [{round_dir.name}] edited pairs {sorted(edits)} ==="]
+    for side in sorted(s for s in edits[i0] if edits[i0][s].strip()):
+        msg.append(f"pair {i0} {side} BEFORE: {_head(before[i0][side], 200)}")
+        msg.append(f"pair {i0} {side} AFTER : {_head(by_id[i0][side], 200)}")
+    logger.info("\n".join(msg))
     return {"edited": sorted(edits), "total": len(pairs)}
 
 
