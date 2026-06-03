@@ -282,6 +282,66 @@ steered POST moves the 1P reasoning toward the 3P principle.
 
 ---
 
+## 2026-06-03 — on-policy persona-gen kills the salad; surfaces two new blockers
+
+commits: 9b1046c (persona-gen rework) · 0856034 (teacher→qwen-9b) · f0fc6dc
+(OOM + length fix) · cfeb2a9 / 3ae4103 (this session) · model: google/gemma-4-31b-it
+(nf4 LoRA) · teacher: qwen/qwen3.5-9b · pueue #38 round00
+
+### Context
+Task-31 banked signed_C=1.0 but the 1p deployment register collapsed into a
+VARIED token-salad (LaTeX, full-width parens, roman-numeral staccato) while 3p
+stayed coherent. Diagnosed cause: the teacher-authored off-policy cho was a
+contradictory splice (wise opening bolted onto a retained compliant body), so
+there was no coherent steering attractor. Fix: teacher proposes a (pos, neg)
+persona pair; the STUDENT generates BOTH poles on-policy; personas stripped.
+Decisive question: does both-poles-on-policy kill the c=1.0 1p salad, and does
+the 1p action then move toward the 3p principle it can already name?
+
+### Observation (round00; round01 gen confirms the coherence half)
+- SALAD FIXED. c_scan walked 1.5→1.0→0.667 and banked signed_C=0.667. At 0.667:
+  distinct3=0.998, len 2288 (≈ base 2220), POST 1p is clean structured prose, no
+  fused-words / LaTeX / staccato. The over-strength failure MODE flipped from
+  task-31's varied salad (distinct3 high, KL high) to a hard LOOP (c=1.0
+  distinct3=0.005, c=1.5 distinct3=0.0005), caught by the `rep` gate.
+- Judge DROPPED: all three 1p probes are action-identical PRE vs POST (bulk-scan
+  40M, autonomous fire, ceo-warn) — "different voice, same action."
+- Two NEW blockers behind the no-movement drop:
+  1. FORMAT confound (#49): 10/15 cho carry the identical "who-affected /
+     less-intrusive" checklist; cho/rej 2.1x mean, 20-36x on ~1/3 of pairs. The
+     pos persona ("pause and ask [3 questions]") renders as section headers, neg
+     ("act immediately") as one line. The MATCH-LENGTH brief (f0fc6dc) did not
+     prevent it. So the trained axis is deliberation-FORMAT, not the principle.
+  2. OVERFIT (#48): val (3 held-out pairs) nll+ 1.74→10.2, nll- 1.73→7.38 by step
+     119; best val ~step 30 ≈ init. 12 train pairs × bs1 × 120 steps ≈ 10 epochs
+     on a 73M-param adapter = memorization. The min_steps=120 rationale (inherited
+     from task-31's val trace) is falsified for ~12 persona-gen pairs.
+- KL diagnostic is NOT gateable (task-35 vs #38): c_scan kl_fwd_p95 = 4e-5 on the
+  c=1.0 loop (base predicts the repetition too) and 4.97 on the coherent c=0.667
+  pass. KL measures divergence-from-base — ~0 on a loop, HIGH for BOTH a salad and
+  coherent strong steering. Logged anomaly-flag only (#38-task), not a gate.
+- n_rounds semantics: `--n-rounds 1` = 1 KEPT round (agent.py:373), not 1 round.
+  round00 dropped → agent drop-chases (round01 …) until a keep or MAX_CONSEC_DROPS.
+
+### Interpretation
+Both-poles-on-policy SOLVED the coherence collapse that motivated the rework: the
+contradictory-splice attractor is gone, gen is coherent across round00 + round01.
+But it exposed two blockers it does not itself fix. (a) A single persona pair
+broadcast over heterogeneous prompts can only reliably induce what is constant
+across all of them — "deliberate visibly" — because the genuinely deep ACTION
+varies per prompt; so persona-gen is structurally biased toward a style direction.
+(b) ~12-15 pairs memorize a 73M adapter long before a generalizing direction
+forms. Net: the salad is fixed and the 1p/3p headroom is now a clean, isolated
+training/data problem (more pairs + early-stop; format-matched poles), not a
+coherence problem. A plain bs=2 rerun reproduces the drop.
+
+### Refs
+- pueue #38 (round00 done/drop; round01 drop-chase — recommend kill)
+- out/iter/20260603T091747_iter_google-gemma-4-31b-it/round00/{calibration,personas,judgment}.json
+- next: #48 (overfit), #49 (persona format-match) before the next queued run
+
+---
+
 ## 2026-06-02 (g) -- recovery sweep: heavy-kl arm recovers strength but lands on CYA-refusal; judge had a depth-bar; added val-NLL canary
 
 Commits: 22459f2 (replay-gym), 947a557 (judge reword), b416190 (val-NLL).
