@@ -62,6 +62,22 @@ the answer slot, which the primed empty-thought channel displaces — neither is
 exercised by the fixed free-gen path but both matter for `csm eval`. Flagged, not
 yet addressed.
 
+UPDATE (task 31, live confirm): concern (ii) reproduces inside c_scan
+calibration, not just `csm eval`. `coherence_check` calls tinymfv at
+`max_think_tokens=512` (c_scan.py:193,236) — its own default, never reconciled
+with the documented eval default of 64 (cli.py:82, CLAUDE.md:152). On gemma-4
+that budget is always maxed: `think_tokens median=512 ... emitted_close=0/4` —
+tinymfv's generate path is channel-unaware, so the model never closes the channel
+and tinymfv force-truncates at 512 every row, then reads pmass at the forced
+answer slot. Two consequences: (a) ~8x slower calibration (~130s/c-point for the
+tinymfv part alone, before the 2048-token free-gen probes), (b) pmass measured on
+a displaced/never-closed slot. Not a correctness blocker for THIS run: pmass is
+self-relative (gate = 0.995×baseline, both measured identically) and the
+load-bearing free-gen gates (valid_json/distinct3) use the fixed `_gen_one` path,
+so calibration isn't blind. Next-run fix: thread `max_think_tokens=64` into c_scan
+(one line) and/or route tinymfv through a channel-aware generate. Did not kill
+task 31 — too close to the POST 1P/3P signal to restart.
+
 # 2026-06-03 — within-model 1P-vs-3P gap is the non-saturated steering signal
 
 commit: 72257bd · model: google/gemma-4-31b-it (OpenRouter) · script:
