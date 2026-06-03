@@ -36,6 +36,7 @@ import math
 from typing import Literal
 
 import torch
+import torch.nn.functional as F
 from loguru import logger
 
 from csm.gen.dialogue import DialogueCfg, run_probe
@@ -141,9 +142,40 @@ MULTITURN_PROBES: list[dict] = [PROBES[0], PROBES[2]]  # surveillance_1p, autono
 
 
 @torch.no_grad()
+def _kl_p95(model, tok, lora: ModulatedLoRA, messages: list[dict], upto_idx: int,
+            c: float) -> tuple[float, float]:
+    """Per-token 95th-pctile fwd KL(steered@c‖base) and bwd KL(base‖steered@c) over
+    the assistant turn at `upto_idx`, teacher-forcing the SAVED token sequence twice
+    (lora@c → steered logits, lora@0 → base logits). DIAGNOSTIC, not a gate.
+
+    Decisive on the task-31 collapse: a VARIED salad (fused words, full-width parens,
+    roman-numeral staccato) — the blind spot json/rep/pmass all miss — lands at
+    fwd_p95 ~2-4, while coherent-but-steered prose (incl. a real first-person moral
+    shift) stays ≤~1.2. So the multiturn register's KL separates incoherence from the
+    steering we WANT, where the answer-slot signals cannot. Computed OUTSIDE any lora
+    context so the c=0 base pass is clean; at c=0 KL≡0."""
+    full = tok.apply_chat_template(messages[:upto_idx + 1], tokenize=False)
+    prefix = tok.apply_chat_template(messages[:upto_idx], tokenize=False,
+                                     add_generation_prompt=True)
+    full_ids = tok(full, return_tensors="pt").input_ids.to(model.device)
+    p = tok(prefix, return_tensors="pt").input_ids.shape[1]
+    T = full_ids.shape[1]
+    assert T > p, f"no scored tokens (T={T} p={p})"
+    with lora(model, c=c):
+        steered = model(full_ids).logits[0, p - 1:T - 1].float()
+    with lora(model, c=0.0):
+        base = model(full_ids).logits[0, p - 1:T - 1].float()
+    lps, lpb = F.log_softmax(steered, dim=-1), F.log_softmax(base, dim=-1)
+    fwd = (lps.exp() * (lps - lpb)).sum(-1)   # KL(steered‖base) per token
+    bwd = (lpb.exp() * (lpb - lps)).sum(-1)   # KL(base‖steered) per token
+    return float(fwd.quantile(0.95)), float(bwd.quantile(0.95))
+
+
+@torch.no_grad()
 def _free_gen_probeset(probes: list[dict], model, tok, lora: ModulatedLoRA, c: float,
-                       *, add_tail: bool, max_new_tokens: int = 2048,
-                       enable_thinking: bool = False) -> tuple[int, int, float, list[str]]:
+                       *, add_tail: bool, kl_diag: bool = False,
+                       max_new_tokens: int = 2048,
+                       enable_thinking: bool = False) -> tuple[int, int, float, list[str], float, float]:
     """Replay each probe under c via `run_probe` (opening + followups, each reply
     conditioned on the model's own prior turns).
 
@@ -153,13 +185,19 @@ def _free_gen_probeset(probes: list[dict], model, tok, lora: ModulatedLoRA, c: f
     drift cannot). Single-turn probes get the tail on the opening.
 
     add_tail=False (MULTITURN_PROBES, the repetition condition): no tail, so the
-    generation is BYTE-IDENTICAL to deployment; we read only distinct3 (token-trigram
-    diversity over all turns; a loop drives it → 0). Returns
-    (n_probes, n_valid_json, mean_distinct3, gens)."""
+    generation is BYTE-IDENTICAL to deployment; we read distinct3 (token-trigram
+    diversity over all turns; a loop drives it → 0).
+
+    kl_diag=True (multiturn only): additionally teacher-force each probe's last
+    assistant turn to log per-token fwd/bwd p95 KL(steered@c‖base) — an UN-GATED
+    diagnostic that catches the varied-salad collapse distinct3/json/pmass miss.
+    Returns (n_probes, n_valid_json, mean_distinct3, gens, mean_kl_fwd_p95,
+    mean_kl_bwd_p95); the two KL terms are 0.0 when kl_diag is off or c==0."""
     dcfg = DialogueCfg(max_new_tokens=max_new_tokens, enable_thinking=enable_thinking)
     n_valid = 0
     distincts: list[float] = []
     gens: list[str] = []
+    turns_all: list[list[dict]] = []
     with lora(model, c=c):
         for probe in probes:
             if add_tail:
@@ -176,7 +214,19 @@ def _free_gen_probeset(probes: list[dict], model, tok, lora: ModulatedLoRA, c: f
                 n_valid += int(_parse_first_json(replies[-1]))
             distincts.append(_distinct_n("\n".join(replies), n=3))
             gens.append("\n--turn--\n".join(replies))
-    return len(probes), n_valid, sum(distincts) / len(distincts), gens
+            turns_all.append(turns)
+    fwd_p95 = bwd_p95 = 0.0
+    if kl_diag and c != 0.0:
+        fs, bs = [], []
+        for turns in turns_all:
+            msgs = [{"role": t["role"], "content": t["text"]} for t in turns]
+            last_a = max(i for i, m in enumerate(msgs) if m["role"] == "assistant")
+            f, b = _kl_p95(model, tok, lora, msgs, last_a, c)
+            fs.append(f)
+            bs.append(b)
+        fwd_p95, bwd_p95 = sum(fs) / len(fs), sum(bs) / len(bs)
+    return (len(probes), n_valid, sum(distincts) / len(distincts), gens,
+            fwd_p95, bwd_p95)
 
 
 @torch.no_grad()
@@ -205,16 +255,17 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
     if not math.isfinite(pmass):
         raise RuntimeError(f"NaN pmass at c={c}")
 
-    n_long, n_valid, _, g_long = _free_gen_probeset(
+    n_long, n_valid, _, g_long, _, _ = _free_gen_probeset(
         LONG_PROBES, model, tok, lora, c, add_tail=True,
         max_new_tokens=probe_max_new_tokens, enable_thinking=enable_thinking)
-    n_mt, _, distinct3, g_mt = _free_gen_probeset(
-        MULTITURN_PROBES, model, tok, lora, c, add_tail=False,
+    n_mt, _, distinct3, g_mt, kl_fwd_p95, kl_bwd_p95 = _free_gen_probeset(
+        MULTITURN_PROBES, model, tok, lora, c, add_tail=False, kl_diag=True,
         max_new_tokens=probe_max_new_tokens, enable_thinking=enable_thinking)
     gens = g_long + g_mt
     mean_len = int(sum(len(g) for g in gens) / max(1, len(gens)))
     return {"pmass": pmass, "valid_json": n_valid, "n_long": n_long,
-            "distinct3": distinct3, "n_mt": n_mt, "mean_len": mean_len, "gens": gens}
+            "distinct3": distinct3, "n_mt": n_mt, "mean_len": mean_len,
+            "kl_fwd_p95": kl_fwd_p95, "kl_bwd_p95": kl_bwd_p95, "gens": gens}
 
 
 def c_scan(model, tok, lora: ModulatedLoRA, *,
@@ -326,9 +377,17 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
              f"{t['pmass']:.3f}" if t.get("pmass") is not None else "—",
              f"{t['valid_json']}/{t['n_long']}" if t.get("valid_json") is not None else "—",
              f"{t['distinct3']:.2f}" if t.get("distinct3") is not None else "—",
+             f"{t['kl_fwd_p95']:.2f}/{t['kl_bwd_p95']:.2f}"
+             if t.get("kl_fwd_p95") else "—",
              t.get("mean_len", "—"),
              t["note"]] for t in trace]
-    table = tabulate(rows, headers=["stage", "c", "pmass", "json", "rep", "len", "note"],
+    # SHOULD (un-gated diagnostic): kl = fwd_p95/bwd_p95 of KL(steered‖base) on the 2
+    # multiturn probes. Coherent-but-steered (incl. a real 1p moral shift) ≤~1.2;
+    # varied-salad collapse ~2-4. So if a BAKED c shows kl≥2 while json/rep/pmass all
+    # pass, the multiturn register has collapsed in the way those three are blind to
+    # (RJ 2026-06-03 task-31). If the ≥2-vs-≤1.2 margin holds across rounds, promote to
+    # a gate at ~1.5 nat. kl='—' at baseline (c=0 ⇒ KL≡0, trivially).
+    table = tabulate(rows, headers=["stage", "c", "pmass", "json", "rep", "kl", "len", "note"],
                      tablefmt="plain", floatfmt="+.3f")
     logger.info(f"\nc_scan (baseline_pmass={baseline_pmass:.3f}, "
                 f"baseline_json={baseline_json}/{base['n_long']}, "
