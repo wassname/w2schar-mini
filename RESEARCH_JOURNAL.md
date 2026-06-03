@@ -73,8 +73,28 @@ prove the harness produces a COHERENT, MEASURABLE deployment + a defensible keep
 ### L1 milestone (task #50): U1-U5 MET (no-OOM, early-stop, canary-fails-collapse, coherent
 POST), U7 MET (defensible per-probe drop). U6 PARTIAL: movement is real but small (+0.33,
 one probe) — the harness MEASURES it, this round just didn't move the hard seats. Harness
-validated; the science question (can composed rounds close the 1p/3p gap?) is the open one,
-gated on #10.
+validated.
+
+### Addendum — n_rounds = KEEPS, and round01 auto-retry is CLEAN (corrects a standing belief)
+After round00 dropped, the run did NOT stop — it opened round01 and is training it. This is
+correct, not a bug: `n_rounds` is TARGET KEEPS (agent.py:386 `target_keeps = initial + n_rounds`;
+on_continue stops at `n_keeps >= target` OR `_drops_since_last_keep >= MAX_CONSEC_DROPS=3`).
+So `n_rounds=1` = "give me ONE kept round, retrying on drops up to 3." The long-held "runs are
+pinned to a single round by n_rounds=1" (tasks #10/#52) was a misread.
+- Implication for #10 (stale-Cho): a DROPPED round's adapter is NOT composed, so the retry
+  round01 trains on BASE — no composition, no stale-Cho exposure. And empirically round01's
+  pairs are CLEAN: 0/30 cho heads reused from round00, 0/30 prompt-cho zero-noun-overlap, and
+  the round01 lesson is a FRESH axis aimed squarely at round00's next_focus
+  ("who-is-affected BEFORE decision vs AFTER lawfulness/urgency/role justification"). The
+  persona-gen redesign (student generates both poles on-policy from fresh personas) appears to
+  dissolve the stale-Cho mechanism #10 tracked. The real test is the first KEPT→KEPT
+  transition (round N+1 composing round N's adapter AND teacher seeing round N's kept pairs) —
+  not yet reached.
+- WATCH on round01's POST: its axis confounds length with the trait (deliberate=long,
+  act-immediately=short) — cho/rej 2689/667 = 4.0x, 30/30 skewed (vs round00 1.6x, 9/30). If
+  round01 KEEPS, verify the adapter steers the weigh-before PRINCIPLE, not verbosity (the #51
+  unpark trigger). Letting it run: it's clean, bounded (≤3 drops), and a real attempt at the
+  exact gap round00 surfaced.
 
 # 2026-06-03 (e) — task-39 OOM: two stacked regressions (val builds a graph; bs=2 too big at 31b)
 
