@@ -338,12 +338,16 @@ CONFIGS: dict[str, RunConfig] = {
     # canonical gemma-4-31B-it (gated; HF_TOKEN in .env).
     "gemma-31b": RunConfig(
         model="google/gemma-4-31B-it",
-        # Teacher bumped qwen3.5-9b → gemma-3-27b-it (2026-06-03): the teacher's
-        # job is now to PROPOSE a contrastive persona pair under PERSONA_RULES
-        # (esp. rule 9 trait-vs-refusal), the hard cognitive step since the
-        # student writes both poles. Stronger writer; matches w2s-ics-cws's
-        # 31b-student pairing.
-        teacher="google/gemma-3-27b-it",
+        # Teacher = qwen3.5-9b. Tried gemma-3-27b-it (2026-06-03, task 36) to
+        # get a stronger persona-writer, but Gemma has weak/no native tool-
+        # calling and on OpenRouter it emitted only empty/silent turns in the
+        # inspect react loop — never called propose_personas (interview_pre ran
+        # fine, then the agent stalled). qwen3.5-9b drives the react loop AND,
+        # in the gym, proposed a sharp 1p/3p-anchored trait pair under the new
+        # brief — the propose-a-pair task is far lighter than the old author-15-
+        # cho-twins task that motivated wanting a bigger teacher. So the
+        # tool-calling constraint, not raw writing IQ, picks the teacher here.
+        teacher="qwen/qwen3.5-9b",
         quant="nf4",
         adapter="lora",
         train_batch_size=2,
