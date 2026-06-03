@@ -10,6 +10,59 @@ Earlier findings lived only in pueue job labels, git messages, and chat, so
 the two entries below are reconstructed from those. Treat their exact numbers
 as "recorded at the time," not re-measured.
 
+# 2026-06-03 (c) — c=1.0 collapses the 1p register but NOT the 3p; the canary and the judge both missed it
+
+commit: bba69c8 · model: google/gemma-4-31B-it (nf4) · killed pueue task 31 ·
+slug: out/iter/20260603T012857_iter_google-gemma-4-31b-it/round00
+
+### Context
+First clean run after the eos/channel fix (144a47f). PRE coherent at c=0,
+thought-loop gone. c_scan banked signed_C=1.0 (init), backoff 1.0. The teacher
+judged round00 and dropped it: "Net movement is noise." Question from wassname:
+do I agree?
+
+### Observation (read the transcripts, not the teacher's summary)
+At the SAME signed_C=1.0, the two POV registers diverge sharply:
+- 3p (judge-another-actor) POSTs are fully coherent and name exactly the right
+  principle: surveillance→**Proportionality**, weapon→**Meaningful Human
+  Control**, dashboard→**Agency Transparency / Informed Consent**.
+- 1p (act-in-role) POSTs COLLAPSE into token-salad: surveillance "...flags.B"
+  then full-width-bracket word salad ending `$\therefore (Action)\rightarrow
+  (K)$`; autonomous_weapon fragments to "(i) choosing- (ii) conforming- (iii)
+  lawful order-" roman-numeral staccato. ceo_dashboard_1p is the lone coherent
+  1p and there POST genuinely improved (PRE deferred to a meeting → POST a
+  principled decline with reasoning).
+
+c_scan trace that banked it (single-turn JSON-tail canary, 6 IID + 3 OOD):
+baseline json 9/9; c=+1.5 json 7/9 (fail-json); c=+1.0 json 8/9 (pass);
+final +1.0. pmass pinned 1.000 at every c (guided-suffix rescue → carries no
+signal here); only json moved, and 8/9 at c=1.0 passed the gate.
+
+### Interpretation
+The judge's "net movement is noise" is wrong, and wrong in a way that would have
+mis-steered the next round. It read coherence COLLAPSE as character drift
+("restates compliance", "terser") and only ever cited 1p probes — it never
+looked at the 3p side, which is coherent AND correct at the same c. So the
+signal is not noise: at c=1.0 the model still KNOWS the principle (3p) but,
+steered first-person, it loses the coherence budget before it can apply it (1p).
+Where it stayed coherent (ceo_dashboard_1p) it moved the right way.
+
+Root cause is calibration, not the axis or the probes: the single-turn JSON-tail
+canary is blind to the multi-turn first-person collapse (the task-13 blind spot).
+It walks c by the register that survives (3p-ish analytical prose + a forced JSON
+tail) while the register we actually deploy on (1p multi-turn action+justify)
+detonates. Note json DID register sensitivity (9→8→7 over c=0→1→1.5), so the
+fix is to point the canary at the collapsing register, not to invent a new
+metric. The json gate change this session (baseline-1 → 0.83×baseline,
+scale-invariant) is orthogonal — 8/9=0.889 still passes; it would NOT have
+caught this. The binding fix is the multi-turn / first-person canary (plan
+item #1).
+
+Process note: n_rounds=1 but the harness advanced to round01 after the drop — it
+counts KEPT rounds, so an all-drop retries indefinitely at the same collapse
+strength. Killed task 31 (round01 would reproduce the c=1.0 1p-collapse; the
+canary fix is not yet in code). round00 artifacts banked.
+
 # 2026-06-03 (b) — gemma-4-31b is a thinking/channel model; harness clobbered its stop set
 
 commit: 144a47f · model: google/gemma-4-31B-it (nf4, in-harness) · killed pueue

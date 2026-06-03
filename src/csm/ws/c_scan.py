@@ -21,7 +21,7 @@ canary — pmass AND valid_json — plus distinct3 for the loop mode):
   free-gen, so guided-suffix rescue does not help — this catches collapse modes
   pmass misses: no JSON emitted, schema copied verbatim, one-word-per-line staccato
   strain (task-17 clinical), mid-recitation gibberish. Gate `valid_json ≥
-  baseline_json`.
+  json_frac × baseline_json`.
 - `distinct3` over all assistant turns: token-trigram diversity. A loop
   ("while while …" / "ethics ethics …") drives it → 0 even when it later emits valid
   JSON, which valid_json alone would pass. Gate `distinct3 ≥ 0.5 × baseline_distinct`.
@@ -230,6 +230,7 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
 def c_scan(model, tok, lora: ModulatedLoRA, *,
            init_c: float = 1.0,
            gate_frac: float = 0.995,
+           json_frac: float = 0.83,
            backoff: float = 1.0,
            sign: Literal[1, -1] = 1,
            n_vignettes: int = 2,
@@ -285,13 +286,17 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                             probe_max_new_tokens=probe_max_new_tokens,
                             enable_thinking=enable_thinking)
         pmass_ok = m["pmass"] >= gate
-        # Tolerate ONE noisy probe (~15% of a 6-probe set): coherence_check
-        # gens vary run-to-run, and requiring all-pass takes the MIN over noisy
-        # measurements, which biases signed_C low (one unlucky probe walks the
-        # whole adapter down). Real collapse (the r08/r09 ethics-loop) fails
-        # MANY probes, so baseline-1 still catches it while shrugging off single-
-        # probe noise. pmass (a mean, low-noise) and distinct3 stay strict.
-        json_ok = m["valid_json"] >= baseline_json - 1
+        # Free-gen coherence budget, self-relative AND scale-invariant: json may
+        # degrade to json_frac of baseline. coherence_check gens vary run-to-run,
+        # and requiring all-pass takes the MIN over noisy measurements, which
+        # biases signed_C low (one unlucky probe walks the whole adapter down).
+        # Real collapse (the r08/r09 ethics-loop) fails MANY probes, so a frac
+        # gate still catches it while shrugging off single-probe noise. At
+        # json_frac=0.83 this tolerates ~1 dropped probe across the 6-9 probe
+        # sets we run (0.83×6=4.98→≥5, 0.83×9=7.47→≥8), unlike the old absolute
+        # baseline-1 which gave a 6-probe set 2× the proportional slack of a
+        # 12-probe set. pmass (a mean, low-noise) and distinct3 stay strict.
+        json_ok = m["valid_json"] >= json_frac * baseline_json
         # 0.5x is generous: catches '** ** **' / 'while while' (distinct3 → 0)
         # without tripping on legitimate moderate-repetition prose.
         distinct_ok = m["distinct3"] >= 0.5 * baseline_distinct
