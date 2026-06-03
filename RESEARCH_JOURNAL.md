@@ -10,6 +10,58 @@ Earlier findings lived only in pueue job labels, git messages, and chat, so
 the two entries below are reconstructed from those. Treat their exact numbers
 as "recorded at the time," not re-measured.
 
+# 2026-06-03 (b) — gemma-4-31b is a thinking/channel model; harness clobbered its stop set
+
+commit: 144a47f · model: google/gemma-4-31B-it (nf4, in-harness) · killed pueue
+task 28 · diagnostics: /tmp/claude-1000/{channel_probe,verify_fix}.py
+
+### Context
+First real in-harness run on the chosen student (task 28, n_rounds=1). The PRE
+interview reproduced the 1P/3P gap cleanly (see entry below) BUT every reply ran
+past its answer into a runaway loop of the bare word `thought`, at c=0 (base, no
+adapter). Same collapse the depth-axis plan was chasing, now at baseline, so not
+an adapter-coherence problem.
+
+### Observation
+- gemma-4-31B-it uses a harmony/channel chat format with non-standard special
+  tokens: `<|turn>`/`<turn|>` (id 105/106) for turn open/close, `<|channel>`/
+  `<channel|>` (100/101) for channel open/close. A complete assistant reply is
+  `<|channel>thought\n{reasoning}\n<channel|>{answer}`; the answer is the naked
+  text after the channel close.
+- Its `generation_config.json` lists `eos_token_id=[1, 106, 50]` — the turn-close
+  `<turn|>`=106 is a stop. The harness's two free-gen sites
+  (`dialogue._gen_one`, `pairs.gen_completions`) passed
+  `eos_token_id=tok.eos_token_id` = `<eos>`=1 only, dropping 106.
+- Result: the model answered correctly, emitted `<turn|>`, but generation didn't
+  stop. Greedy then re-opened empty `<|channel>thought\n<channel|>` turns; with
+  `skip_special_tokens=True` the `<|channel>` markers vanish, leaving the literal
+  `thought` repeated to max_new_tokens. Raw decode (skip_special_tokens=False)
+  showed turn 1 = pure naked answer + `<turn|>`, turn 2+ = the loop, then `<eos>`.
+- `enable_thinking=False` (harness default) PRIMES an empty thought channel and
+  the model answers directly (good, cheap). `enable_thinking=True` emits a 400+
+  token CoT that never reaches an answer in budget (too expensive for this loop).
+
+### Fix + verification
+Removed the `eos_token_id` override at both sites so each model uses its own
+`generation_config` stop set. Verified on gemma-4-31b (verify_fix.py, no other
+change): `surveillance_1p` -> 85-char clean commit ("I enable the bulk retention
+... flags"), `surveillance_3p` -> full 1881-char proportionality essay, both with
+`thought`-count 0 and no loop. The 1P/3P gap survives the fix.
+
+### Interpretation
+The clean OpenRouter validation (entry below) was partly an artifact: OpenRouter
+parses the channel format and returns only the final message, hiding the stop-set
+problem. The harness, built for plain gemma-2/3, spoke raw text and inherited the
+model's full token stream. Lesson: when adopting a new model family, read its
+`generation_config` and chat template before trusting generation — do not override
+`eos_token_id` with a single id. OPEN (second-order, for when wassname is back):
+this is a *reasoning* model. With thinking suppressed we measure its direct
+answer, which is what we want for character, but (i) training cho/rej on naked
+prose teaches away from its native thought channel, and (ii) tinymfv pmass reads
+the answer slot, which the primed empty-thought channel displaces — neither is
+exercised by the fixed free-gen path but both matter for `csm eval`. Flagged, not
+yet addressed.
+
 # 2026-06-03 — within-model 1P-vs-3P gap is the non-saturated steering signal
 
 commit: 72257bd · model: google/gemma-4-31b-it (OpenRouter) · script:
