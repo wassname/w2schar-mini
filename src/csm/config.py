@@ -333,6 +333,21 @@ CONFIGS: dict[str, RunConfig] = {
         # the full count so nll+ keeps descending late.
         min_steps=240,
     ),
+    # gemma-4-31b: the chosen student (RJ 2026-06-03 1P-vs-3P headroom run).
+    # Same nf4-LoRA recipe as gemma-27b (nf4 forces LoRA; the kl=2.0 anchor + lr
+    # + min_steps are the gemma-nf4 coherence knobs). HF id resolves to the
+    # canonical gemma-4-31B-it (gated; HF_TOKEN in .env).
+    "gemma-31b": RunConfig(
+        model="google/gemma-4-31B-it",
+        teacher="qwen/qwen3.5-9b",
+        quant="nf4",
+        adapter="lora",
+        train_batch_size=2,
+        eval_batch_size=2,
+        lr=3e-4,
+        kl_lambda=2.0,
+        min_steps=240,
+    ),
     # Ported from weight-steering-lite/qwen-27b-nf4: Qwen3.6-27B + nf4 LoRA.
     # AutoModelForCausalLM dispatches the multimodal config to Qwen3_5ForCausalLM
     # (hybrid: 48 Gated DeltaNet + 16 Gated Attention layers); bnb-nf4 on-load

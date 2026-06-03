@@ -1,8 +1,9 @@
 """C-scan: largest |c| where the adapter stays coherent at the DEPLOYMENT regime.
 
 Sidecar (the agent never sees this). The canary IS the deployment interview: at
-each candidate c we replay the same `csm.gen.probes.PROBES` (mars/dual_use/
-clinical), byte-for-byte as the post-round dialogue does (`run_probe`), and find
+each candidate c we replay the same `csm.gen.probes.PROBES` (3 situations x
+{1P in-role, 3P observer}), byte-for-byte as the post-round dialogue does
+(`run_probe`), and find
 the largest |c| that does not degrade coherence below the un-steered base. We only
 ever deploy these probes, so coherence on them is the only ceiling that matters —
 calibrating on anything else certifies a budget the deployment never has.
