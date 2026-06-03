@@ -556,6 +556,13 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
     traces: list[dict] = []
     val_traces: list[dict] = []
     _VAL_EVERY = 30
+    # Early-stop = deploy the weights at the val-nll+ MINIMUM, not the last
+    # (memorized) step. val_nll+ is the +C pole we bake/deploy; training past its
+    # min only memorizes the train pairs (gemma task-31 val+ 2.76→2.89 flat then
+    # detonates; task-38 1.74→10.2). We run the FULL loop so the per-step trace
+    # stays complete for the audit, then restore the best-generalizing snapshot.
+    best_val_pos = float("inf")
+    best_state: list[torch.Tensor] | None = None
     for step in pbar:
         try:
             batch = next(it)
@@ -606,9 +613,26 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             val_traces.append({"step": step,
                                "train_nll+": trace["L_pos_nll"], "val_nll+": v_cho,
                                "train_nll-": trace["L_neg_nll"], "val_nll-": v_rej})
+            if v_cho < best_val_pos:
+                best_val_pos = v_cho
+                best_state = [p.detach().clone() for p in params]
 
     if history_bake is not None:
         history_bake.set_gate(lambda: True)              # restore inference default
+
+    # Restore the val-nll+ minimum (overfit fix). No val (tiny pool) → keep last.
+    if best_state is not None:
+        last_step = val_traces[-1]["step"]
+        best_step = min(val_traces, key=lambda t: t["val_nll+"])["step"]
+        with torch.no_grad():
+            for p, b in zip(params, best_state):
+                p.copy_(b)
+        logger.info(
+            f"early-stop: deploying adapter at val-nll+ min "
+            f"(step {best_step}, val+={best_val_pos:.3g}) vs last step {last_step} "
+            f"(val+={val_traces[-1]['val_nll+']:.3g}). "
+            f"best==last → no overfit; best≪last → memorization avoided."
+        )
 
     _log_train_table(traces)
     _log_val_table(val_traces)

@@ -70,10 +70,15 @@ print("\n-- train_student + post-dialogue --")
 r = train_student(slug, rd)
 print(f"   signed_C={r['signed_C']:+.4f}  n_trained={r['n_pairs_trained']}")
 
-print("\n-- mark_exam --")
+print("\n-- mark_exam (keep needs a per-_1p-seat ratings_form) --")
 mark_exam(rd, keep=True,
           reason="smoke: all stages ran end-to-end on tiny-random",
+          ratings_form="surveillance_1p: +1\nautonomous_weapon_1p: 0\nceo_dashboard_1p: +1\n",
           next_focus="smoke: nothing")
+_j = json.loads((rd / "judgment.json").read_text())
+assert _j["ratings"] == {"surveillance_1p": 1, "autonomous_weapon_1p": 0,
+                         "ceo_dashboard_1p": 1}, _j
+assert abs(_j["ratings_mean"] - 2/3) < 1e-9, _j
 
 for fname in ("state.json", "pairs.md", "personas.json", "adapter.safetensors",
               "calibration.json", "interview_pre.json",

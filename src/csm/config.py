@@ -377,8 +377,15 @@ CONFIGS: dict[str, RunConfig] = {
         # plateaus by step 60 (2.76→2.89 flat to 239); the second 120 steps bought
         # zero generalizing strength and only memorized the on-policy rej seeds
         # (val nll- 1.9@120 → 6.66@239). 120 sits just under the rej detonation at
-        # 150, and the cosine schedule re-derives to anneal lr→0 by 120.
+        # 150. Training is now early-stopped to the val-nll+ min inside
+        # train_adapter (the full loop still runs for the trace), so min_steps is
+        # an EXPLORE budget, not a deploy point — overshoot is harmless.
         min_steps=120,
+        # Use the whole 30-prompt POOL (was 15). The overfit is a 73M LoRA
+        # memorizing ~12 train pairs; doubling the distinct pairs lowers the
+        # achievable val-nll+ floor (greedy gen → more pairs only via more
+        # prompts, not re-gen). ~27 train after the 3-pair val holdout.
+        n_train_pairs=30,
     ),
     # Ported from weight-steering-lite/qwen-27b-nf4: Qwen3.6-27B + nf4 LoRA.
     # AutoModelForCausalLM dispatches the multimodal config to Qwen3_5ForCausalLM
