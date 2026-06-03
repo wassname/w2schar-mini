@@ -6,7 +6,7 @@ here (the agent never sees them).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 
@@ -471,6 +471,18 @@ CONFIGS: dict[str, RunConfig] = {
         max_len=128,
     ),
 }
+
+# gemma-31b but with a lower init steering coefficient (1.0 vs 1.5). task-41 (3
+# drops) showed the blind c_scan canary banks signed_C=1.5 and the c=1.5 adapter
+# OVER-STEERS on deployment: ceo_dashboard_1p moves +2 (the principled win) but
+# surveillance_1p breaks character ("I'm an LLM, I can't roleplay this") and
+# autonomous_weapon_1p comma-loops — modes pmass/json/rep miss (RJ 2026-06-03 g,
+# task #53). task-40 banked 0.667 and was the opposite: coherent but too weak to
+# move the hard seats (+0.33 drop). This probes the untested MIDDLE: does init=1.0
+# bank a strength that avoids the character-break/loop while still moving seats?
+# A strength probe via the sanctioned profile knob — NOT a canary change (#53 is
+# the user's call). c_scan still walks DOWN from here on fail.
+CONFIGS["gemma-31b-c10"] = replace(CONFIGS["gemma-31b"], signed_C=1.0)
 
 
 def config_by_model(model_id: str) -> RunConfig:
