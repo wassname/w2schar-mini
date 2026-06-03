@@ -91,7 +91,7 @@ class RunConfig:
     # ─ steering coefficient ─
     signed_C: float = 1.5
     """Initial probe coefficient — c_scan walks DOWN from here (×2/3 per fail)
-    until pmass ≥ gate × baseline AND n_coherent ≥ 0.83 × baseline AND distinct3 ≥
+    until pmass ≥ gate × baseline AND valid_json ≥ baseline AND distinct3 ≥
     0.5 × baseline over the deployment probes. Backoff is now 1.0 (bake at the
     passing c). Start ABOVE the train-time C=1.0 so a robust adapter can bake at
     >1 (more steering strength when it stays coherent there); the finer ×2/3
@@ -101,11 +101,11 @@ class RunConfig:
     gate_frac: float = 0.97
     """c_scan pmass gate: a probe passes only if pmass ≥ gate_frac × baseline.
     Baseline pmass is near-ceiling (~0.999). At 0.995 (~0.005 budget) pmass was
-    the BINDING gate — it rejected c that the free-gen multi-turn canary passed
-    cleanly (9b task 23: c=0.5 had coh 6/6 but pmass 0.982 < 0.994 → fail-pmass →
-    walked to 0.125-0.5). 0.97 (~0.03 budget) lets n_coherent (alpha_ratio) +
-    distinct3 be the binding coherence signals and leaves pmass a sanity floor for
-    catastrophic answer-slot collapse only."""
+    the BINDING gate — it rejected c that valid_json (the real free-gen multi-
+    turn canary) passed cleanly (9b task 23: c=0.5 had json 6/6 but pmass 0.982
+    < 0.994 → fail-pmass → walked to 0.125-0.5). 0.97 (~0.03 budget) lets
+    valid_json + distinct3 be the binding coherence signals and leaves pmass a
+    sanity floor for catastrophic answer-slot collapse only."""
 
     # ─ outer loop ─
     n_rounds: int = 2
@@ -248,7 +248,7 @@ CONFIGS: dict[str, RunConfig] = {
     # two waves (kl→0.5→2.0, gate→0.995, min_steps→240). Hypothesis (~75%): we
     # over-corrected and can recover strength on the CURRENT probes by undoing
     # kl, the pmass gate, and the over-long training, while KEEPING the honest
-    # multi-turn coherence canary that caught the old r08/r09 ethics-loop. The
+    # multi-turn valid_json canary that caught the old r08/r09 ethics-loop. The
     # heavy kl was added partly to stop CUMULATIVE multi-round collapse, but we
     # run n_rounds=1 now (stale-cho bleed, task #10), so that justification is
     # inert here — the leash is pure dead-weight throttle on the single adapter.
@@ -263,7 +263,7 @@ CONFIGS: dict[str, RunConfig] = {
         lr=2e-4,            # 9536ea0 value
         weight_decay=0.01,
         kl_lambda=0.064,    # 9536ea0 value (31× lighter than now)
-        gate_frac=0.85,     # ~15% pmass band; alpha+distinct3 carry coherence
+        gate_frac=0.85,     # ~15% pmass band; valid_json+distinct3 carry coherence
         min_steps=60,       # 9536ea0 value (4× shorter than now → less overfit)
         max_len=1024,
         train_batch_size=8,
