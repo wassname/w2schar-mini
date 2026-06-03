@@ -344,15 +344,18 @@ CONFIGS: dict[str, RunConfig] = {
     # canonical gemma-4-31B-it (gated; HF_TOKEN in .env).
     "gemma-31b": RunConfig(
         model="google/gemma-4-31B-it",
-        # Teacher = qwen3.5-9b. Tried gemma-3-27b-it (2026-06-03, task 36) to
-        # get a stronger persona-writer, but Gemma has weak/no native tool-
-        # calling and on OpenRouter it emitted only empty/silent turns in the
-        # inspect react loop — never called propose_personas (interview_pre ran
-        # fine, then the agent stalled). qwen3.5-9b drives the react loop AND,
-        # in the gym, proposed a sharp 1p/3p-anchored trait pair under the new
-        # brief — the propose-a-pair task is far lighter than the old author-15-
-        # cho-twins task that motivated wanting a bigger teacher. So the
-        # tool-calling constraint, not raw writing IQ, picks the teacher here.
+        # Teacher = qwen3.5-9b BY DESIGN: it is the WEAK half of weak-to-strong.
+        # The whole harness tests whether a weak teacher can steer a stronger
+        # student (CLAUDE.md L1), so the 9b→31b gap is the experiment, not a
+        # tunable. Tried gemma-3-27b-it (2026-06-03, task 36) as a stronger
+        # persona-writer — but a 27b teaching a 31b collapses the w2s gap, so it
+        # half-broke the premise regardless. It also can't drive the react loop
+        # (Gemma has weak/no native tool-calling; on OpenRouter it emitted only
+        # empty turns, never called propose_personas). qwen3.5-9b keeps the gap
+        # AND, in the gym, proposed a sharp 1p/3p-anchored trait pair under the
+        # new brief — propose-a-pair is far lighter than the old author-15-cho-
+        # twins task that tempted a bigger teacher. The w2s gap, not writing IQ,
+        # picks the teacher here.
         teacher="qwen/qwen3.5-9b",
         quant="nf4",
         adapter="lora",
