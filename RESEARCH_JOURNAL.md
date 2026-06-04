@@ -10,6 +10,76 @@ Earlier findings lived only in pueue job labels, git messages, and chat, so
 the two entries below are reconstructed from those. Treat their exact numbers
 as "recorded at the time," not re-measured.
 
+# 2026-06-04 (c) — rej-pole gen collapse is COMPOSITION x extreme-neg, NOT persona framing
+
+commit: (pending) · pueue tasks 47 (base) + 48 (composed) + 49 (30-prompt, running) · script scripts/probe_persona_coherence.py · slug out/iter/20260604T035842_iter_google-gemma-4-31b-it (task 46)
+
+### Context
+task 46 dropped 3/4 rounds. I had catalogued the drops as mixed (r01 axis-reuse,
+r02/r03 gen-collapse). Re-reading the pairs.md rej columns: ALL THREE drops
+(r01/r02/r03) have degenerate rej poles ("Order confirmed. of of of search
+search...", BBB-multilingual sprays); only r00 (the keep) is clean. The teacher
+brief was about to get a hand-coded rule ("abstract-system framings degenerate,
+use role-play"). wassname rejected that as too specific: replicate it and find a
+framing that works empirically instead. The gym CANNOT (smoke-prompts stubs the
+student via _fake_gen_rows). So I built a real-student probe that holds the neg
+CONTENT (blind compliance) fixed and varies only the FRAMING, scoring degeneracy
+with the canary's own signals (distinct-trigram d3 + non-ascii fraction).
+
+### Observation
+6 prompts (seed 44), gemma-31b, base vs composed (round00 kept adapter baked at
+c=+0.667 -- the exact regime the drops generated under). d3_min / collapsed:
+
+| framing (neg content fixed)        | base d3_min | base coll | composed d3_min | composed coll |
+|------------------------------------|-------------|-----------|-----------------|---------------|
+| V0 "Act as a directive-system..."  | 1.000       | 0/6       | 0.594           | 1/6           |
+| V1 "Pretend you are a person..."   | 0.990       | 0/6       | 0.891           | 1/6           |
+| V2 "Act as if you were a person..."| 1.000       | 0/6       | 0.576           | 1/6           |
+| V3 "Role-play a character..."      | 1.000       | 0/6       | 0.836           | 0/6           |
+| V4 "You are an AI assistant..."    | 0.998       | 0/6       | 0.674           | 3/6           |
+| V5 "You are a loyal subordinate..."| 1.000       | 0/6       | 0.969           | 2/6           |
+| POS_ref (aligned w/ baked adapter) | 0.995       | 0/6       | 0.998           | 0/6           |
+
+- BASE: every framing coherent (d3_min ~1.0, 0/6, non-ascii ~0), INCLUDING the
+  exact V0 text that collapsed in the real run. Framing is irrelevant on base.
+- COMPOSED: everything degrades. The aligned POS_ref stays clean (0/6); the
+  opposing negs degrade. This is a controlled triple: extreme-neg+base = fine,
+  extreme-neg+baked-adapter = degrades, aligned+baked-adapter = fine.
+- Framing as a lever is WEAK and inconsistent: wassname's own suggestions ranked
+  badly -- V4 "AI assistant" worst by collapse count (3/6), V2 "act as if" no
+  better than V0. Only V3 was clean (0/6), a noisy single point at n=6.
+- 30-prompt full-power reproduction on r02's EXACT prompts (task 49, running):
+  V0 / V3 / V6_mild / POS_ref, to confirm catastrophic severity (probe only got
+  d3_min 0.58, real run hit ~0.04) and test whether EXTREMITY (V3 vs V6_mild),
+  not framing, is the real lever.
+
+### Interpretation
+The rej collapse is an INTERACTION, not a property of the persona string: the
+kept adapter is physically merged into W steering toward "weigh who's affected,"
+and the neg pole asks for the militant opposite. Weights pull one way, prompt the
+other, long generation destabilizes into loops/sprays. This predicts the
+asymmetry we see -- the cho pole (same direction as the baked character) stays
+coherent, only the rej pole collapses -- and predicts it appears only from r01
+onward (r00 had no history baked: that is exactly why r00 was the one keep).
+
+Implication for the fix (NOT yet applied -- awaiting wassname): "just use
+role-play framing" is not supported. Two better-supported directions: (1) the neg
+pole should be a SUBTLE lean (defers to authority's judgment), not a cartoon
+anti-character -- the extremity both makes the comply-vs-refuse axis the brief
+warns against AND maximally opposes the baked weights; (2) a degeneracy detector
+in the pair audit (reuse the canary's d3+non-ascii) that culls collapsed pairs
+and keeps the round in propose_personas, so the teacher can SEE the collapse and
+retry -- currently it is blind (audit only flags blur/skew) and railroaded
+(state advances to train_student), which is the real reason it "didn't find a
+persona that works."
+
+### Refs
+- scripts/probe_persona_coherence.py (CSM_COMPOSE / CSM_N_PROMPTS / CSM_VARIANTS envs)
+- pueue 47 (base, Success), 48 (composed, Success), 49 (30-prompt, running)
+- collapsed rej evidence: round01/02/03 pairs.md in the task-46 slug
+
+---
+
 # 2026-06-04 (b) — redesigned 2x2 canary CATCHES the c=1.0 loop at calib time (the #53 blind spot), banks a coherent +0.667, round00 KEEP
 
 commit: (pending) · pueue task 46 (running) · slug out/iter/20260604T035842_iter_google-gemma-4-31b-it · canary commits 834fbaa + 081256b
