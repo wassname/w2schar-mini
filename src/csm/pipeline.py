@@ -527,6 +527,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
             model, tok, lora,
             init_c=cfg.signed_C, gate_frac=cfg.gate_frac, sign=SIGN,
             batch_size=cfg.eval_batch_size,
+            max_think_tokens=cfg.cscan_max_think_tokens,
             enable_thinking=cfg.enable_thinking,
             probe_max_new_tokens=cfg.dialogue_max_new_tokens,
         )
