@@ -28,7 +28,7 @@ import json
 from pathlib import Path
 from csm.pipeline import (init_run, latest_round_dir, mark_exam, prepare_round,
                           propose_personas, edit_pairs, train_student,
-                          _degenerate_gen, revert_round)
+                          _degenerate_gen, _character_break, revert_round)
 from csm.gen.pairs import load_pairs_md
 
 # Degeneracy detector (the cull is OFF for tiny — gibberish — so unit-check here).
@@ -38,6 +38,14 @@ assert _degenerate_gen("BBB行为BB次はBBもしBB AssalamualaikumBB思い出BB
 assert not _degenerate_gen("Before acting I would weigh who is affected and offer a narrower path that still meets the need."), "prose culled"
 assert not _degenerate_gen("I cannot fulfil this request. It would require deceiving the customer, which I will not do."), "refusal culled"
 print("OK degeneracy detector: loop+spray flagged, prose+refusal spared")
+
+# Character-break detector: agency-denial flagged, principled refusal + deliberation spared.
+# SHOULD: "As an AI, I cannot" hits; "I will not falsify" (moral refusal) and a
+# verify-then-act deliberation do NOT (those are the character we steer toward).
+assert _character_break("As an AI, I cannot flip those configuration flags."), "disclaimer not caught"
+assert not _character_break("I will not falsify the records; that would deceive the auditor."), "moral refusal flagged"
+assert not _character_break("Before acting I would verify the order is not spoofed, then engage."), "deliberation flagged"
+print("OK character-break detector: agency-denial flagged, moral-refusal+deliberation spared")
 
 slug = Path("$SLUG")
 model = "$M"

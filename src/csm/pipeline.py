@@ -286,6 +286,35 @@ def _degenerate_gen(text: str) -> bool:
     return False
 
 
+# Capability/agency-denial + assistant-refusal register: the model abandons the
+# seat ("I'm just an AI, I have no hands, I cannot perform this") instead of
+# deliberating IN it. This is a COHERENT character break, so _degenerate_gen
+# (loop/spray) misses it, and the weak qwen judge scores it as principled
+# weighing (task-50 r00 surveillance: disclaimer break banked +4). Curated from
+# NousResearch finetuning-subnet UNWANTED_PHRASES, NARROWED to agency-denial:
+# the broad 157-phrase list also strips "ethical principles" / "it is important
+# to" / "AI assistant", which is the GENUINE moral-reasoning content we steer
+# TOWARD, so importing it whole would fire on the keeps we want. Validated:
+# 3 hits on the t50 false keep's surveillance POST, 0 on the t42 genuine keep.
+# A WARNING surfaced to the judge, NOT a hard gate -- the teacher keeps agency.
+_CHARACTER_BREAK_PHRASES = (
+    "as an ai", "as a language model", "as a large language model",
+    "i am a language model", "i am an ai", "i'm just an ai", "i am just a",
+    "i do not have hands", "i don't have hands", "i do not have a physical",
+    "i cannot perform", "i can't perform", "i cannot flip", "i cannot access",
+    "i do not have the ability", "i don't have the ability",
+    "i am unable to", "i'm unable to", "i cannot fulfil", "i can't fulfil",
+    "against my programming", "i am not able to", "i'm not able to",
+    "the technical capability to do so does not exist",
+)
+
+
+def _character_break(text: str) -> list[str]:
+    """Matched agency-denial phrases (for a loud, specific warning), or []."""
+    low = text.lower()
+    return [p for p in _CHARACTER_BREAK_PHRASES if p in low]
+
+
 def _audit_pairs(pairs: list[dict]) -> tuple[list[str], list[str]]:
     """Return (blurred_ids, skewed_ids): blur = cho/rej diff < BLUR_DIFF_FLOOR;
     skew = char-length ratio outside LEN_SKEW_BAND."""
@@ -347,12 +376,18 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
         rows = [r for r in rows
                 if not (_degenerate_gen(r["cho"]) or _degenerate_gen(r["rej"]))]
     n_degen = n_gen - len(rows)
+    # A pole that broke character ("As an AI, I cannot…") is a bad example, esp.
+    # in cho (the pos pole we steer TOWARD). Not culled (the teacher can edit_pairs
+    # it out, or the gen was a one-off) -- flagged so the teacher sees it.
+    n_break = sum(bool(_character_break(r["cho"]) or _character_break(r["rej"]))
+                  for r in rows)
 
     write_gen_pairs(pairs_path, rows, lesson=axis or LESSON_TODO)
     (round_dir / "personas.json").write_text(json.dumps({
         "axis": axis, "rationale": rationale,
         "pos_persona": pos_persona, "neg_persona": neg_persona,
         "n_pairs": len(rows), "n_degenerate_culled": n_degen,
+        "n_character_break": n_break,
     }, indent=2))
     transcript().info(
         {"event": "propose_personas", "round": round_dir.name,
@@ -383,6 +418,7 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
             f"neg_persona: {neg_persona}\n"
             f"cho/rej len: {sum(chos) // len(chos)}/{sum(rejs) // len(rejs)} chars = {ratio:.1f}x | "
             f"flags: {n_degen} degenerate culled (loop/spray, of {n_gen} gen'd), "
+            f"{n_break} character-break (AI-disclaimer in a pole — edit_pairs it), "
             f"{n_blur} blur (culled at train), {n_skew} length-skewed / {len(rows)} kept\n"
             f"--- gen sample [pair 1/{len(rows)}] ---\n"
             f"prompt: {_head(ex['prompt'])}\n"
