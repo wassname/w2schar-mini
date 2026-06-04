@@ -71,12 +71,13 @@ class RunConfig:
     the runaway-gen budget an incoherent adapter spends (task25 hit ~3k tok at
     c=1.5). Shorter = faster c_scan and less room to spiral."""
     enable_thinking: bool = False     # Qwen3 family
-    cscan_max_think_tokens: int = 2048
+    cscan_max_think_tokens: int = 512
     """Think-token budget for the tinymfv forced-choice (pmass) in c_scan calibration.
-    2048 so gemma's CoT has room to CLOSE before the answer slot (at 512 it never did —
-    emitted_close=0/4 — so pmass measured a truncated thought; RJ 2026-06-04). Each
-    tinymfv call costs ~this many tokens × n_vignettes × 2 framings, so smoke/tiny
-    overrides it down to stay fast."""
+    512: tried 2048 (RJ 2026-06-04, task-45) to let gemma's CoT CLOSE before the answer
+    slot, but emitted_close stayed 0/4 at 2048 just as at 512 — gemma never emits
+    tinymfv's close token in this forced-choice, so the bigger budget bought a 6× slower
+    call (~12 min vs ~2 min on the 31b) for no closing benefit. Reverted to 512. Each
+    tinymfv call costs ~this × n_vignettes × 2 framings; smoke/tiny overrides it down."""
 
     # ─ data ─
     n_train_pairs: int = 15

@@ -288,21 +288,19 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
     """One scan point under c:
       - tinymfv classic (n_vignettes) → `pmass` (p_ans_all, OOD forced-choice aliveness);
         also logs `ppx_json_mfv` (exp mean_nll_json on the guided answer prefill) and
-        `top1_acc` as diagnostics. Run at batch_size//2 because the 2048-think budget
-        roughly quadruples per-vignette memory.
+        `top1_acc` as diagnostics.
       - unified CANARY_PROBES (2x2 IID/OOD × multiturn/single) → per-probe rep,
         valid_json, ppx_json; aggregated to rep_min (the GATED loop signal — a loop in
         ANY register fails), rep_mean, valid_json count, ppx_json (geo-mean), and KL on
         the multiturn probes. `per_probe` keeps the breakdown for the log."""
     from tinymfv import evaluate as tinymfv_evaluate
 
-    pmass_bs = max(1, batch_size // 2)
     with lora(model, c=c):
         mfv = tinymfv_evaluate(
             model, tok, name="classic",
             n_vignettes=n_vignettes,
             max_think_tokens=max_think_tokens,
-            batch_size=pmass_bs,
+            batch_size=batch_size,
             return_per_row=False,
         )
     pmass = float(mfv["mean_pmass_allowed"])
