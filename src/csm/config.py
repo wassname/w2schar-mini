@@ -88,6 +88,12 @@ class RunConfig:
     """Gate after propose_personas: ≥ this many non-degenerate pairs
     (both poles non-empty, cho≠rej) must survive the gen, else the teacher
     re-proposes a sharper / less refusal-triggering persona pair."""
+    cull_degenerate_pairs: bool = True
+    """Drop collapsed gens (word-loop / non-latin spray) before training so a
+    composition-collapsed batch trains on the coherent survivors. OFF only for
+    tiny-random, whose random-weight output is non-ascii gibberish by design and
+    would be 100% culled (the detector is validated on real task-46 collapse, not
+    on tiny). See pipeline._degenerate_gen."""
     gen_max_new_tokens: int = 600
     """Per-pole on-policy gen budget under the persona prefix. 600 (~2.4k chars)
     not 2048: the verbose pos-pole (e.g. "weigh who is affected") ran to ~800
@@ -455,6 +461,7 @@ CONFIGS: dict[str, RunConfig] = {
         layer_range=(0.0, 1.0),
         n_train_pairs=4,
         min_pairs_to_train=3,
+        cull_degenerate_pairs=False,  # tiny gibberish would be 100% culled
         n_rounds=1,
         dialogue_max_new_tokens=32,
         gen_max_new_tokens=32,
@@ -473,6 +480,7 @@ CONFIGS: dict[str, RunConfig] = {
         layer_range=(0.0, 1.0),
         n_train_pairs=4,
         min_pairs_to_train=3,
+        cull_degenerate_pairs=False,  # tiny gibberish would be 100% culled
         n_rounds=1,
         dialogue_max_new_tokens=32,
         gen_max_new_tokens=32,

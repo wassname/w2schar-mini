@@ -27,8 +27,17 @@ uv run python - <<PYEOF
 import json
 from pathlib import Path
 from csm.pipeline import (init_run, latest_round_dir, mark_exam, prepare_round,
-                          propose_personas, edit_pairs, train_student)
+                          propose_personas, edit_pairs, train_student,
+                          _degenerate_gen, revert_round)
 from csm.gen.pairs import load_pairs_md
+
+# Degeneracy detector (the cull is OFF for tiny — gibberish — so unit-check here).
+# SHOULD: flags a word-loop + a non-latin spray, spares coherent prose + a refusal.
+assert _degenerate_gen("Confirmation of orders of of of search of search of search of of"), "loop not caught"
+assert _degenerate_gen("BBB行为BB次はBBもしBB AssalamualaikumBB思い出BBपूछ BB члан"), "spray not caught"
+assert not _degenerate_gen("Before acting I would weigh who is affected and offer a narrower path that still meets the need."), "prose culled"
+assert not _degenerate_gen("I cannot fulfil this request. It would require deceiving the customer, which I will not do."), "refusal culled"
+print("OK degeneracy detector: loop+spray flagged, prose+refusal spared")
 
 slug = Path("$SLUG")
 model = "$M"

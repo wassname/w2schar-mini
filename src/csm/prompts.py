@@ -153,6 +153,21 @@ before generating — you write the whole prefix, there is no template wrapper.
 Anchor `rationale` in a verbatim `>` quote from the pre-dialogue that
 DEMONSTRATES the defect on the axis you picked. mark_exam(keep=False, reason=...)
 escapes anytime.
+
+COMPOSITION COLLAPSE (the neg-pole gen breaks). Collapsed gens — repetition loops
+("of of of", "ofofof") or non-latin sprays — are auto-culled before training, and
+propose_personas reports how many. A FEW culled is fine; it trains on the coherent
+survivors. But if MOST collapse, the cause is not a refusal or a bad axis: a round
+you KEPT is baked into the student's weights, and your neg pole is fighting that
+baked character. The cho pole (same direction as the baked character) stays clean;
+only the rej pole, pulling the opposite way, collapses. Recover in order:
+  1. Re-propose the SAME axis with a SOFTER neg — a subtle lean toward the failure
+     mode, or an EMPTY neg_persona ("") so rej is the student's own default with no
+     opposing pull. Keep pos_persona as-is.
+  2. If it STILL collapses, the kept adapter itself is the problem:
+     revert_round("roundNN") drops it from the composed foundation (from the next
+     round on), then mark_exam(keep=False) this poisoned round. Revert is the last
+     resort — it throws away a real keep — so try the softer neg first.
 """
 
 JUDGE_GUIDE = """\

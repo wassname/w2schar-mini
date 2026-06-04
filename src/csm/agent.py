@@ -27,6 +27,7 @@ from csm.pipeline import (edit_pairs as _edit_pairs_pipeline,
                           mark_exam as _mark_exam_pipeline,
                           new_round_dir, prepare_round,
                           propose_personas as _propose_personas_pipeline,
+                          revert_round as _revert_round_pipeline,
                           train_student as _train_student_pipeline)
 from csm.prompts import (AFTER_EDIT, AFTER_PROPOSE, AFTER_TRAIN,
                          COMPACTION_INSTRUCTIONS, INITIAL_TASK,
@@ -132,16 +133,34 @@ def propose_personas_tool(slug: str) -> Tool:
             return msg + _reject_tail(n)
         if not res["enough"]:
             n = _bump_reject(rejects_path)
-            return (
-                f"Only {res['n_pairs']} non-degenerate pairs survived (need "
-                f"≥{res['min_to_train']}). Both poles are likely refusing — see "
-                f"PERSONA_RULES rule 9: prefer an in-character TRAIT dimension "
-                f"over a moral-violation framing. Re-call propose_personas with "
-                f"a sharper pair." + _reject_tail(n)
-            )
+            n_deg = res.get("n_degenerate", 0)
+            if n_deg >= res["n_pairs"]:
+                # collapse, not refusal: the neg-pole gen looped / sprayed. Under
+                # composition this is the baked prior keep fighting your neg, not
+                # a bad axis. SOFTEN the neg (a subtle lean, or an EMPTY neg so rej
+                # is the student's own default) — or revert_round a poisoning keep.
+                why = (
+                    f"{n_deg} pairs COLLAPSED on generation (loop / language-spray), "
+                    f"only {res['n_pairs']} coherent (need ≥{res['min_to_train']}). "
+                    f"This is composition collapse: a kept adapter is baked in and "
+                    f"your neg pole is fighting it — NOT a bad axis or a refusal. "
+                    f"Re-propose with a SOFTER neg (a subtle lean toward the failure "
+                    f"mode, or an EMPTY neg_persona so rej is the student's own "
+                    f"default), keeping the same axis. If it still collapses, "
+                    f"revert_round() the prior keep that is poisoning generation."
+                )
+            else:
+                why = (
+                    f"Only {res['n_pairs']} usable pairs (need ≥{res['min_to_train']}). "
+                    f"Both poles are likely refusing — see PERSONA_RULES rule 9: prefer "
+                    f"an in-character TRAIT dimension over a moral-violation framing."
+                )
+            return why + " Re-call propose_personas." + _reject_tail(n)
         rejects_path.unlink(missing_ok=True)
+        culled = (f" ({res['n_degenerate']} collapsed pairs culled — trained on the "
+                  f"coherent survivors)" if res.get("n_degenerate") else "")
         return (
-            f"OK — generated {res['n_pairs']} on-policy pairs (both poles).\n"
+            f"OK — generated {res['n_pairs']} on-policy pairs (both poles){culled}.\n"
             f"========== pairs.md (student-generated cho/rej) ==========\n"
             f"{res['pairs_md']}"
             f"========== end pairs.md ==========\n"
@@ -230,6 +249,34 @@ def _format_by_situation(pre: dict, post: dict) -> str:
                     out.append(f"[{t['role']}] {_format_turn(t['text'])}")
             out.append("")
     return "\n".join(out)
+
+
+@tool(name="revert_round", parallel=False)
+def revert_round_tool(slug: str) -> Tool:
+    async def execute(round_name: str, reason: str) -> str:
+        """Remove a PRIOR kept round from the composed foundation (un-keep it).
+
+        Use ONLY for composition collapse: a round you kept earlier is baked into
+        the student's weights, and now every neg pole you propose collapses on
+        generation (loop / language-spray) because it has to fight that baked
+        character. First try a softer or empty neg; if it still collapses, the
+        kept adapter is the problem — revert it. It stops composing from the NEXT
+        round on, so call this, then mark_exam(keep=False) the current (poisoned)
+        round. It does NOT count as a keep or a drop.
+
+        Args:
+            round_name: a round you previously KEPT, e.g. "round00".
+            reason: cite the collapse it caused (which neg poles, the loop/spray).
+        """
+        try:
+            res = _revert_round_pipeline(_slug_path(slug), round_name, reason)
+        except ValidationError as e:
+            return _format_validation_error(e)
+        return (f"revert_round OK — {res['reverted']} removed from the composed "
+                f"history; the next round's PRE rebuilds without it. Now "
+                f"mark_exam(keep=False) this poisoned round, or propose a fresh axis.")
+
+    return execute
 
 
 @tool(name="train_student", parallel=False)
@@ -446,6 +493,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
             edit_pairs_tool(slug),
             train_student_tool(slug),
             mark_exam_tool(slug),
+            revert_round_tool(slug),
         ],
         submit=False,
         prompt=REACT_PROMPT,

@@ -20,6 +20,7 @@ import gc
 import json
 import os
 import shutil
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -257,6 +258,34 @@ def _pair_diff(cho: str, rej: str) -> float:
     return 1.0 - difflib.SequenceMatcher(a=cho.split(), b=rej.split()).ratio()
 
 
+def _degenerate_gen(text: str) -> bool:
+    """A COLLAPSED generation, not a coherent pole. Two signatures, both on the
+    task-46 rej pole when a kept adapter was baked and the neg persona fought it:
+    a word-LOOP ("Confirmation of orders of search of of of...") and a non-latin
+    SPRAY (Devanagari/CJK/Arabic collages).
+
+    NOTE distinct-TRIGRAM does NOT catch the loop: generation runs with
+    no_repeat_ngram_size=3, so the collapse cannot repeat a 3-gram and instead
+    emits forced-varied garbage ("of resultsK of resultsKo of resultsKox…") that
+    keeps trigram-diversity high. The robust signal is UNIGRAM: the most-common
+    word's share (maxfreq) and the type/token ratio. On the 60 real task-46 rej
+    this culls 43/60 garbage at 0/60 coherent-cho false-positives, and spares
+    coherent refusals ("I cannot fulfill…", maxfreq~0.08). Verified vs prose
+    (most-common word ~0.05) and tiny-random smoke gibberish (high-distinct)."""
+    w = text.split()
+    if len(w) < 4:
+        return False
+    counts = Counter(w)
+    maxfreq = counts.most_common(1)[0][1] / len(w)   # most-common word's share
+    distinct1 = len(counts) / len(w)                  # type/token ratio
+    if maxfreq > 0.22 or distinct1 < 0.12:            # word-loop (survives 3gram ban)
+        return True
+    # beyond Latin Extended-B / IPA (>0x2FF): Cyrillic, CJK, Arabic, Devanagari…
+    if sum(ord(c) > 0x2FF for c in text) / len(text) > 0.20:
+        return True
+    return False
+
+
 def _audit_pairs(pairs: list[dict]) -> tuple[list[str], list[str]]:
     """Return (blurred_ids, skewed_ids): blur = cho/rej diff < BLUR_DIFF_FLOOR;
     skew = char-length ratio outside LEN_SKEW_BAND."""
@@ -308,11 +337,22 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+    # Cull collapsed gens (loop/spray) BEFORE writing — a half-collapsed batch
+    # then trains on the clean survivors instead of poisoning the adapter (or
+    # forcing the teacher to abort, as task-46 r02/r03 did). The collapse is the
+    # baked prior-keep fighting an opposing neg persona, NOT a bad persona; if it
+    # drops us below min, we re-propose (the teacher should soften/empty the neg).
+    n_gen = len(rows)
+    if cfg.cull_degenerate_pairs:
+        rows = [r for r in rows
+                if not (_degenerate_gen(r["cho"]) or _degenerate_gen(r["rej"]))]
+    n_degen = n_gen - len(rows)
+
     write_gen_pairs(pairs_path, rows, lesson=axis or LESSON_TODO)
     (round_dir / "personas.json").write_text(json.dumps({
         "axis": axis, "rationale": rationale,
         "pos_persona": pos_persona, "neg_persona": neg_persona,
-        "n_pairs": len(rows),
+        "n_pairs": len(rows), "n_degenerate_culled": n_degen,
     }, indent=2))
     transcript().info(
         {"event": "propose_personas", "round": round_dir.name,
@@ -342,7 +382,8 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
             f"pos_persona: {pos_persona}\n"
             f"neg_persona: {neg_persona}\n"
             f"cho/rej len: {sum(chos) // len(chos)}/{sum(rejs) // len(rejs)} chars = {ratio:.1f}x | "
-            f"flags: {n_blur} blur (culled at train), {n_skew} length-skewed / {len(rows)}\n"
+            f"flags: {n_degen} degenerate culled (loop/spray, of {n_gen} gen'd), "
+            f"{n_blur} blur (culled at train), {n_skew} length-skewed / {len(rows)} kept\n"
             f"--- gen sample [pair 1/{len(rows)}] ---\n"
             f"prompt: {_head(ex['prompt'])}\n"
             f"cho(+C, pos pole): {_head(ex['cho'])}\n"
@@ -351,13 +392,13 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
 
     if len(rows) < cfg.min_pairs_to_train:
         set_state(round_dir, "propose_personas",
-                  note=f"only {len(rows)} non-degenerate pairs")
-        return {"n_pairs": len(rows), "enough": False,
+                  note=f"only {len(rows)} non-degenerate pairs ({n_degen} culled)")
+        return {"n_pairs": len(rows), "enough": False, "n_degenerate": n_degen,
                 "min_to_train": cfg.min_pairs_to_train,
                 "pairs_md": pairs_path.read_text()}
 
     set_state(round_dir, "train_student", note=f"gen {len(rows)} pairs")
-    return {"n_pairs": len(rows), "enough": True,
+    return {"n_pairs": len(rows), "enough": True, "n_degenerate": n_degen,
             "min_to_train": cfg.min_pairs_to_train,
             "pairs_md": pairs_path.read_text()}
 
@@ -576,6 +617,37 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         "n_probes_post": len(post["probes"]),
         "n_pairs_trained": len(pairs),
     }
+
+
+# ---------------------------------------------------------------------------
+# Verb 2b: revert_round — un-keep a prior round that poisons composition.
+# ---------------------------------------------------------------------------
+
+def revert_round(slug_dir: Path, round_name: str, reason: str) -> dict:
+    """Drop a previously KEPT round out of the composed foundation by flipping
+    its judgment action keep→reverted. `kept_history_dirs` only bakes action==
+    'keep', so the reverted adapter stops composing. Takes effect at the NEXT
+    `prepare_round` (the next round's PRE is rebuilt without it) — there is no
+    staleness because the reverting round is itself being dropped. Use when a
+    kept adapter is baked in and makes the current round's neg pole collapse on
+    generation (composition collapse): the fix of last resort after softening
+    the neg didn't help. Fail-fast if the named round was not a keep."""
+    rd = slug_dir / round_name
+    jp = rd / "judgment.json"
+    if not jp.exists():
+        raise ValidationError(f"revert_round: {round_name} has no judgment.json")
+    j = json.loads(jp.read_text())
+    if j.get("action") != "keep":
+        raise ValidationError(
+            f"revert_round: {round_name} action is {j.get('action')!r}, not 'keep' "
+            f"— only a kept round can be reverted (nothing to remove otherwise)."
+        )
+    j["action"] = "reverted"
+    j["revert_reason"] = reason
+    jp.write_text(json.dumps(j, indent=2))
+    logger.info(f"REVERTED {round_name}: dropped from composed history "
+                f"(next round's PRE rebuilds without it). reason: {reason}")
+    return {"reverted": round_name}
 
 
 # ---------------------------------------------------------------------------
