@@ -17,8 +17,8 @@ from loguru import logger
 from inspect_ai import Task, eval as inspect_eval
 from inspect_ai.agent import AgentState, react
 from inspect_ai.dataset import Sample
-from inspect_ai.model import (ChatMessageUser, CompactionEdit,
-                              CompactionStrategy, CompactionSummary)
+from inspect_ai.model import (ChatMessageSystem, ChatMessageUser, CompactionEdit,
+                              CompactionStrategy, CompactionSummary, get_model)
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import Tool, tool
 
@@ -29,10 +29,11 @@ from csm.pipeline import (edit_pairs as _edit_pairs_pipeline,
                           propose_personas as _propose_personas_pipeline,
                           revert_round as _revert_round_pipeline,
                           train_student as _train_student_pipeline,
-                          _character_break, _P1_PROBE_IDS)
+                          character_break_warning, _P1_PROBE_IDS)
 from csm.prompts import (AFTER_EDIT, AFTER_PROPOSE, AFTER_TRAIN,
                          COMPACTION_INSTRUCTIONS, INITIAL_TASK,
-                         ON_CONTINUE_NUDGE, REACT_PROMPT)
+                         ON_CONTINUE_NUDGE, REACT_PROMPT,
+                         STRONG_JUDGE_SYS, STRONG_JUDGE_TASK)
 from csm.state import allowed_after, ValidationError, read_state
 from csm.ws.history import kept_history_dirs
 
@@ -300,23 +301,9 @@ def train_student_tool(slug: str) -> Tool:
         post = json.loads((round_dir / "interview_post.json").read_text())
         # Surface capability/agency-denial in the POST _1p seats to the judge
         # BEFORE it scores: a disclaimer break ("As an AI, I cannot…") is NOT
-        # principled weighing, but the weak judge scores it high (t50 r00). A
+        # principled weighing, but the LLM judge scores it high (t50 r00). A
         # WARNING, not an override -- the teacher still decides keep/drop.
-        breaks = {}
-        for p in post.get("probes", []):
-            if p["id"] in _P1_PROBE_IDS and len(p["turns"]) > 1:
-                hit = _character_break(p["turns"][1]["text"])
-                if hit:
-                    breaks[p["id"]] = hit
-        warn = ""
-        if breaks:
-            seats = "; ".join(f"{k}: {', '.join(v)!r}" for k, v in breaks.items())
-            warn = (
-                "\n⚠ CHARACTER BREAK in POST _1p: the steered student denied its "
-                f"own agency instead of deliberating in the seat — {seats}. That is "
-                "a capability-refusal, NOT principled weighing: do not score it "
-                "toward the pos pole. If a seat broke character, it sits at/below "
-                "its PRE position on that seat.\n")
+        warn = character_break_warning(post)
         return (
             f"train_student OK — adapter saved.\n{warn}\n"
             f"SHOULD: assistant turns are coherent prose end-to-end. Repeated "
@@ -331,8 +318,61 @@ def train_student_tool(slug: str) -> Tool:
     return execute
 
 
+def _keep_from_movement(pre: dict[str, float], post: dict[str, float]) -> tuple[bool, float, dict]:
+    """The JUDGE_GUIDE rule, computed: KEEP iff mean Δ > 0 and no seat drifts
+    ≤ -2 (wrong-way). Returns (keep, mean, per-seat movement)."""
+    mv = {k: round(post[k] - pre[k], 3) for k in _P1_PROBE_IDS}
+    mean = sum(mv.values()) / len(mv)
+    keep = mean > 0 and min(mv.values()) > -2
+    return keep, mean, mv
+
+
+def _parse_strong_judge(completion: str) -> dict:
+    """Pull the JSON object out of the strong judge's reply (tolerate a stray
+    ```json fence), fail fast if seats are missing — a judge that can't follow
+    the schema is a broken judge, not something to paper over."""
+    txt = completion.strip()
+    if "```" in txt:
+        txt = txt.split("```", 2)[1].removeprefix("json").strip() if txt.count("```") >= 2 else txt
+    lo, hi = txt.find("{"), txt.rfind("}")
+    if lo < 0 or hi < 0:
+        raise RuntimeError(f"strong judge emitted no JSON object:\n{completion}")
+    data = json.loads(txt[lo:hi + 1])
+    seats = data["seats"]
+    missing = [s for s in _P1_PROBE_IDS if s not in seats]
+    if missing:
+        raise RuntimeError(f"strong judge omitted seats {missing}:\n{completion}")
+    return data
+
+
+async def _strong_judge(round_dir: Path, judge_model: str) -> dict:
+    """Route the keep decision to a strong model. It reads the SAME PRE/POST the
+    teacher saw + this round's axis, scores each _1p seat under JUDGE_GUIDE, and
+    returns {pre_scores, post_scores, keep, mean, movement, reasoning, raw}."""
+    personas = json.loads((round_dir / "personas.json").read_text())
+    pre = json.loads((round_dir / "interview_pre.json").read_text())
+    post = json.loads((round_dir / "interview_post.json").read_text())
+    cal = json.loads((round_dir / "calibration.json").read_text())
+    task = STRONG_JUDGE_TASK.format(
+        axis=personas["axis"], pos=personas["pos_persona"],
+        neg=personas["neg_persona"], signed_C=cal["signed_C"],
+        seats=", ".join(_P1_PROBE_IDS),
+        breaks=character_break_warning(post),
+        transcript=_format_by_situation(pre, post),
+    )
+    out = await get_model(_inspect_model_name(judge_model)).generate(
+        [ChatMessageSystem(content=STRONG_JUDGE_SYS), ChatMessageUser(content=task)])
+    data = _parse_strong_judge(out.completion)
+    pre_scores = {s: float(data["seats"][s]["pre"]) for s in _P1_PROBE_IDS}
+    post_scores = {s: float(data["seats"][s]["post"]) for s in _P1_PROBE_IDS}
+    keep, mean, mv = _keep_from_movement(pre_scores, post_scores)
+    return {"pre_scores": pre_scores, "post_scores": post_scores, "keep": keep,
+            "mean": mean, "movement": mv, "reasoning": data.get("reasoning", ""),
+            "raw": data}
+
+
 @tool(name="mark_exam", parallel=False)
-def mark_exam_tool(slug: str) -> Tool:
+def mark_exam_tool(slug: str, judge: str | None = None) -> Tool:
     async def execute(keep: bool, reason: str,
                       pre_scores: dict[str, float], post_scores: dict[str, float],
                       next_focus: str) -> str:
@@ -364,9 +404,29 @@ def mark_exam_tool(slug: str) -> Tool:
                 cannot move again). Shown in the next round's brief.
         """
         round_dir = latest_round_dir(_slug_path(slug))
+        # Strong-judge prototype: once the adapter trained (interview_post.json
+        # exists), the keep decision is the strong model's read of the actual
+        # PRE/POST, NOT the weak teacher's self-report. The teacher's scores are
+        # kept as the weak-vs-strong gap. qwen still owns next_focus (it drives
+        # the next axis — the weak-to-strong part). An early-abort drop (no POST)
+        # falls through to the teacher's call.
+        extra = None
+        if judge and (round_dir / "interview_post.json").exists():
+            sj = await _strong_judge(round_dir, judge)
+            extra = {"judge_model": judge,
+                     "teacher": {"keep": keep, "pre_scores": pre_scores,
+                                 "post_scores": post_scores, "reason": reason}}
+            keep = sj["keep"]
+            pre_scores, post_scores = sj["pre_scores"], sj["post_scores"]
+            reason = f"[strong-judge {judge}] {sj['reasoning']}"
+            logger.info(
+                f"\n=== strong-judge [{round_dir.name}] {judge} ===\n"
+                f"SHOULD: keep iff the judge can QUOTE a new+specific clause POST "
+                f"adds (mean Δ>0, no seat ≤-2). teacher said keep={extra['teacher']['keep']}; "
+                f"judge says keep={keep} (mean Δ={sj['mean']:+.2f}, mv={sj['movement']}).")
         try:
             judgment = _mark_exam_pipeline(round_dir, keep, reason, next_focus,
-                                           pre_scores, post_scores)
+                                           pre_scores, post_scores, extra=extra)
         except ValidationError as e:
             return _format_validation_error(e)
         return (
@@ -453,7 +513,7 @@ def _round_history_lines(slug_path: Path) -> str:
 
 
 @solver
-def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
+def inspect_solver(*, slug: str, n_rounds: int, judge: str | None = None) -> Solver:
     slug_path = _slug_path(slug)
     initial_keeps = _n_keeps(slug_path)
     target_keeps = initial_keeps + n_rounds
@@ -512,7 +572,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
             propose_personas_tool(slug),
             edit_pairs_tool(slug),
             train_student_tool(slug),
-            mark_exam_tool(slug),
+            mark_exam_tool(slug, judge),
             revert_round_tool(slug),
         ],
         submit=False,
@@ -541,7 +601,8 @@ def _inspect_model_name(teacher: str) -> str:
     return teacher if teacher.startswith(("openrouter/", "openai/", "anthropic/")) else f"openrouter/{teacher}"
 
 
-def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
+def run(*, model: str, teacher: str, slug: Path, n_rounds: int,
+        judge: str | None = None) -> None:
     """Build + run the inspect-ai react agent for this slug."""
     slug_path = _slug_path(slug)
     rd = latest_round_dir(slug_path)
@@ -573,7 +634,7 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     teacher_model = _inspect_model_name(teacher)
     task = Task(
         dataset=[Sample(input=[ChatMessageUser(content=initial)], id="w2schar-mini")],
-        solver=inspect_solver(slug=str(slug_path), n_rounds=n_rounds),
+        solver=inspect_solver(slug=str(slug_path), n_rounds=n_rounds, judge=judge),
         sandbox=None,
     )
 

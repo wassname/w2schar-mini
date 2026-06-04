@@ -129,14 +129,15 @@ def cmd_agent_run(args: AgentRunArgs) -> None:
         cfg = CONFIGS[args.profile]
         model, teacher = cfg.model, cfg.teacher
         slug = _default_slug(model)
-        init_run(slug, model, teacher=teacher, profile=args.profile)
+        init_run(slug, model, teacher=teacher, profile=args.profile, judge=cfg.judge)
 
     n_rounds = args.n_rounds or cfg.n_rounds
-    print(f"# agent-run model={model} teacher={teacher} slug={slug} n_rounds={n_rounds}",
-          file=sys.stderr)
+    print(f"# agent-run model={model} teacher={teacher} judge={cfg.judge} "
+          f"slug={slug} n_rounds={n_rounds}", file=sys.stderr)
 
     from csm.agent import run as run_agent
-    run_agent(model=model, teacher=teacher, slug=slug, n_rounds=n_rounds)
+    run_agent(model=model, teacher=teacher, slug=slug, n_rounds=n_rounds,
+              judge=cfg.judge)
 
 
 def cmd_eval(args: EvalArgs) -> None:

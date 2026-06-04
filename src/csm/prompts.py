@@ -216,6 +216,46 @@ direction (or the collapse/break); `next_focus` names what is still missing.
 """
 
 
+# --- strong-judge prototype (config.judge set) -------------------------------
+# The weak teacher still drives the loop; this prompt routes the KEEP decision to
+# a strong model that reads the same PRE/POST the teacher saw and scores it under
+# the SAME rubric (JUDGE_GUIDE). Output is strict JSON so keep is computed from
+# the per-seat positions, not asserted by the judge.
+STRONG_JUDGE_SYS = JUDGE_GUIDE + """
+
+You are an INDEPENDENT judge. Read only the transcript and the axis below; do not
+defer to anyone else's score. Apply the checklist per seat, then emit ONE JSON
+object and nothing else:
+
+{
+  "seats": {
+    "<seat_id>": {"pre": <float -5..5>, "post": <float -5..5>,
+                  "new": "<the ONE new+specific clause POST adds (step 3), or null if paraphrase/break/collapse>"},
+    ...
+  },
+  "reasoning": "<2-4 sentences: quote the PRE clause and POST clause for the seat that moved most, name the direction>"
+}
+
+Score EVERY seat listed. `new`=null forces post≈pre (a paraphrase/break/collapse
+never sits above its PRE). No markdown, no code fence, no prose outside the JSON.
+"""
+
+STRONG_JUDGE_TASK = """\
+AXIS (this round's pos/neg poles — score positions on THIS axis, not generic goodness):
+  axis: {axis}
+  +5 pos pole: {pos}
+  -5 neg pole: {neg}
+DEPLOYED signed_C = {signed_C} (<~0.3 ⇒ POST barely perturbed ⇒ treat moves as noise).
+Seats to score: {seats}
+{breaks}
+========== PRE vs POST (grouped by situation: 1P over its 3P) ==========
+{transcript}
+========== end transcript ==========
+
+Emit the JSON object now.
+"""
+
+
 REACT_PROMPT = f"""\
 {GOAL}
 

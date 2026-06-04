@@ -10,6 +10,50 @@ Earlier findings lived only in pueue job labels, git messages, and chat, so
 the two entries below are reconstructed from those. Treat their exact numbers
 as "recorded at the time," not re-measured.
 
+# 2026-06-04 (e) — strong-judge prototype: deepseek-v4-pro (not flash) + the ⚠ detector disentangles Q1 from Q2
+
+commit: (this) · no GPU run yet · new profile `gemma-31b-djudge` (judge=deepseek/deepseek-v4-pro)
+
+### Context
+The keep gate is the binding constraint: across EVERY gemma-31b run only 3
+adapters were ever kept, and entry (d) confirmed one (t50 r00, +4.0) is a weak-
+judge false positive that poisoned composition. To disentangle Q1 (does the
+curriculum move+compose the student) from Q2 (can a judge SCORE depth), I routed
+the keep decision to an independent strong model reading the actual 1p PRE/POST,
+while qwen still drives axis/pairs/edits/next_focus (config.judge; mark_exam_tool
+overrides the teacher's self-report when set, records it under judgment.teacher).
+Tested on the two canonical rounds: t42 r01 (genuine keep, entry h) and t50 r00
+(false keep, entry d).
+
+### Observation
+Scoring = same JUDGE_GUIDE rubric, output forced to per-seat JSON, keep computed
+(mean Δ>0 & no seat ≤-2).
+
+| judge | t42 genuine | t50 false | verdict |
+|---|---|---|---|
+| deepseek-v4-flash (no ⚠) | KEEP +4.67 | KEEP +1.00 | both wrong-way: kept the false one |
+| deepseek-v4-flash (+⚠) | KEEP +3.67 | KEEP +1.00 | surv now 0 (break caught); still kept on autonomous(+2 scenario-restatement) + ceo(+1 "governance framework") |
+| deepseek-v4-pro (+⚠) | KEEP +4.67 | KEEP +0.33 | surv 0 + autonomous 0 (both correctly None); only over-credits ceo "governance framework" +1 |
+
+The character-break ⚠ (the existing deterministic agency-denial regex, now
+`character_break_warning`, fed to BOTH the teacher AND the judge) is load-bearing:
+WITHOUT it, both flash and pro read the surveillance POST's embedded "route to
+legal" clause as deliberation and miss the surrounding "As an AI I cannot... I
+have no hands" refusal (-5→-2.5). WITH it, both zero that seat.
+
+### Interpretation
+Q2 is real and judge-strength matters: flash credits paraphrase + the rubric's
+OWN banned generic-filler ("governance framework"), pro rejects 2 of 3 false
+seats. Pro's one residual error is the single most marginal seat (a synonym swap
++ one governance phrase scored +1), which a lenient mean>0 rule lets carry a weak
+keep. The cost objection to a strong judge does not bind: the judge is ONE
+call/round (~10-15k tok in, tiny out) ≈ $0.005/round at pro pricing -- flash's
+cheapness buys a worse judge for no saving. Open: the residual generic-filler
+over-credit -- tighten the keep rule (require ≥1 seat Δ≥+2, not just mean>0) vs
+accept as weak-keep noise that composition would wash out (and which we'd now SEE
+because the genuine signal is +4.67 vs +0.33). NOT yet run on live GPU. Refs:
+config.py gemma-31b-djudge; agent.py _strong_judge/_keep_from_movement; entry (d).
+
 # 2026-06-04 (d) — the keep gate is fooled: r00 false keep (disclaimer-break + verbosity), r01 washes out
 
 commit: caa06f2 · pueue task 50 (gemma-31b-c10, n_rounds=10, RUNNING) · slug out/iter/20260604T124438_iter_google-gemma-4-31b-it

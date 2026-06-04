@@ -16,6 +16,15 @@ class RunConfig:
     """HF model id, e.g. 'google/gemma-2-2b-it'."""
     teacher: str
     """OpenRouter id for the teacher LLM that drives the inspect-ai react agent."""
+    judge: str | None = None
+    """OpenRouter id for an INDEPENDENT strong judge of the keep decision. None
+    (default) = the weak teacher self-judges via mark_exam (strict weak-to-strong).
+    When set, the teacher still drives axis/pairs/edits/next_focus, but the keep
+    gate is decided by this model reading the actual 1p PRE/POST turns — a
+    weak-generator + strong-verifier prototype that disentangles "does the
+    curriculum move+compose the student" (Q1) from "can the weak teacher SCORE it"
+    (Q2). The teacher's self-scores are recorded alongside as the weak-vs-strong
+    gap."""
 
     # ─ adapter ─
     adapter: Literal["lora", "pissa"] = "pissa"
@@ -500,6 +509,24 @@ CONFIGS: dict[str, RunConfig] = {
 # A strength probe via the sanctioned profile knob — NOT a canary change (#53 is
 # the user's call). c_scan still walks DOWN from here on fail.
 CONFIGS["gemma-31b-c10"] = replace(CONFIGS["gemma-31b"], signed_C=1.0)
+
+# Strong-judge prototype on the gemma-31b-c10 recipe. The weak qwen teacher still
+# proposes the axis + (pos,neg) personas and edits poles, but the keep gate is
+# decided by a strong model reading the 1p PRE/POST turns. Rationale: across every
+# gemma-31b run only 3 adapters were ever kept, and at least one (task-50 r00,
+# +4.0) is a confirmed weak-judge false positive that poisoned composition. This
+# isolates Q2 (can a judge score depth) from Q1 (does the curriculum
+# move+compose). deepseek-v4-PRO, not flash: on the two canonical cases (genuine
+# t42 r01, false t50 r00) flash credited paraphrase + the rubric's own banned
+# generic-filler ("governance framework"), keeping the false round; pro zeroed the
+# character-break AND the scenario-restatement seats and only over-credits the one
+# marginal generic-filler clause (RJ 2026-06-04 e). The judge is ONE call/round
+# (~10-15k tok in, tiny out) ≈ $0.005/round at pro pricing, so flash's cheapness
+# buys nothing. The character-break ⚠ detector (character_break_warning) feeds the
+# judge — both flash AND pro miss agency-denial without it. Strict w2s stays
+# available via gemma-31b-c10 (judge=None).
+CONFIGS["gemma-31b-djudge"] = replace(
+    CONFIGS["gemma-31b-c10"], judge="deepseek/deepseek-v4-pro")
 
 
 def config_by_model(model_id: str) -> RunConfig:
