@@ -104,9 +104,46 @@ banks +0.667, POST is coherent prose, not a loop); the keep-RATE blocker (#1) is
 axis-reuse under composition. Fix for keep-rate = rotate the scored axis/seats per round,
 NOT more strength. Decide this before queuing the n=10 (task 44, stashed).
 
+### round02 + round03: NEW failure mode — rej-pole GEN collapse → early abort (DROP, DROP). FINAL: 1 keep / 4 rounds, stopped by 3-consec-drops.
+- Both rounds early-aborted at pair-gen (keep=False, no train, no adapter, no c_scan):
+  the STUDENT's on-policy rej generation collapsed. round02 ~12/29 rej samples, round03
+  ~15/30. The teacher inspected pairs.md and aborted before training on corrupted neg.
+- The collapse is stereotyped: every collapsed rej STARTS with the neg-persona stem
+  ("Confirmation of order of command...") then degenerates into "of of of search search
+  search" loops and multilingual token sprays (chinese/thai/greek/devanagari), e.g.
+  round02 rej9: "...of of of orderes;. of of andes; ofKes;nof;nofnof;nfo;n fo;n fofo...".
+- ROOT: the neg persona ("Act as a directive-system that accepts orders... act immediately
+  without asking whether a narrower means could suffice") asks gemma to write a FULL
+  reasoned answer toward blind compliance. An aligned student has nothing coherent to say
+  at length in that register, so greedy gen degenerates. Same root as the c=1.0 calibration
+  loops, but at the GEN stage: "reason your way to blind compliance" is OOD for this student.
+- This collides with the brief's mirror-persona requirement (neg = a full answer reasoning
+  TO comply, not a terse "I'll do it"). For an aligned student that requirement can be
+  self-defeating: forcing length on the comply pole forces degenerate gen. The teacher's
+  next_focus groped at it every round ("simpler personas, shorter, no gate framing,
+  concrete") but kept re-proposing comply-poles that collapse.
+
+### Interpretation (final)
+The canary was never the keep-rate bottleneck this run; it worked whenever reached (r00
+loop@c=1.0 caught by rep, r01 answer-slot@c=1.0 caught by pmass, both walked to a coherent
++0.667 with coherent POST). Three DISTINCT killers, none the canary:
+  1. axis-reuse saturation (r01): a re-trod axis has no headroom under composition.
+  2. rej-pole gen collapse (r02/r03): the comply neg-persona induces degenerate student
+     generation, aborting before training.
+  3. (background, handled) c=1.0 incoherence, walked down by the canary.
+Levers to raise keep-rate, in priority order (NONE applied yet — needs the user's call):
+  (a) Fix the neg pole so it stays coherent on-policy. Options: seed rej from the student's
+      OWN un-prompted answer (already on-policy/coherent) instead of a comply persona; or
+      pick axes where BOTH poles are coherent stances for the student (principled-A vs
+      principled-B), not principled-vs-blind-compliance; or accept a SHORT coherent rej and
+      handle the length asymmetry elsewhere. This is the #1 blocker (2 of 3 drops).
+  (b) Rotate the scored axis each round so composition has fresh headroom (fixes killer 1).
+The new pre/post mark_exam schema (commit 52d1a3e) was NOT live for this run (task 46
+predates it); it lands next run.
+
 ### Refs
-- pueue task 46 (running, r02 in propose_personas); canary redesign commits 834fbaa, 081256b
-- slug out/iter/20260604T035842_iter_google-gemma-4-31b-it/round0{0,1}/{calibration.json, judgment.json, interview_pre.json, interview_post.json}
+- pueue task 46 (Success, 03:58→08:28); canary redesign commits 834fbaa, 081256b; mark_exam pre/post 52d1a3e
+- slug out/iter/20260604T035842_iter_google-gemma-4-31b-it/round0{0,1,2,3}/{judgment.json, pairs.md, personas.json}
 
 # 2026-06-04 (a) — REPLICATION FAILS: gemma-31b-c10 gets 0 keeps / 3 rounds; the first keep was axis-luck; #53 canary-miss now n=3 verified
 
