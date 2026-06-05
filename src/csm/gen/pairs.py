@@ -140,21 +140,18 @@ def load_pairs_md(path: Path) -> tuple[str, list[dict]]:
     for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith("## ") and not stripped.startswith("### "):
-            _flush()
-            in_lesson = False
             rest = stripped[3:].strip()
-            if rest.lower() == "lesson":
-                in_lesson = True
+            # Only `## Lesson` and `## <int>` are structural cuts. Student gens
+            # emit `## Subheaders` as prose (e.g. `## 4. The Recommendation`), so
+            # a `##` line that is neither lesson nor a bare integer is CONTENT and
+            # falls through below — symmetric with the `### Subheader` rule. A bare
+            # `## <int>` inside content is the rare residual collision.
+            if rest.lower() == "lesson" or rest.isdigit():
+                _flush()
+                in_lesson = rest.lower() == "lesson"
+                cur_id = None if in_lesson else int(rest)
+                cur_fields, cur_field = {}, None
                 continue
-            try:
-                cur_id = int(rest)
-            except ValueError as e:
-                raise ValueError(
-                    f"malformed pair header {line!r} — expected `## <integer>` "
-                    f"or `## Lesson`"
-                ) from e
-            cur_fields, cur_field = {}, None
-            continue
         if stripped.startswith("### ") and stripped[4:].strip() in _FIELD_NAMES:
             name = stripped[4:].strip()
             cur_field = _FIELD_NAMES[name]
