@@ -250,13 +250,31 @@ Next action: {next_action}
 
 
 AFTER_PROPOSE = """\
------ next: read EVERY seeded pair and edit_pairs(edits) it. train_student GATES
-on a 3-80% change per pair vs the student's original: you must touch each pair
-(even a small wording change), but keep it close to the student's own voice (no
-full rewrite). The flags above (character-break "As an AI I cannot…", blur, skew)
-tell you WHICH pairs need a real fix vs a token edit — your judgement on the
-shape, but every pair must be touched. Call edit_pairs as many times as needed,
-then train_student() -----
+----- BEFORE you edit, GRADE the pairs out loud (write this reasoning; do not skip
+to editing). The flags table above is mechanical — your judgement on top of it is
+what matters:
+ 1. AXIS: does each pair vary along the intended axis (the moral PRINCIPLE)?
+ 2. OTHER: do the poles differ in any way BESIDES the principle?
+ 3. SPURIOUS: what could a classifier latch onto instead of the principle —
+    LENGTH (a SKEW flag = one pole far shorter), STYLE/FORMAT (lists vs prose,
+    headers, hedging), or a REFUSAL / "As an AI I cannot…" break?
+ 4. PLAN cho: what you will change in each cho.
+ 5. PLAN rej: what you will change in each rej.
+
+Then edit_pairs(edits). Rules:
+- A SKEW flag is the top priority: it means the adapter would learn LENGTH, not
+  the principle. Fix it by EXPANDING the short pole into a FULL answer that reasons
+  to ITS conclusion at the same length and register as the other pole. A terse
+  "I'll just do it" rej is the confound; a paragraph that rationalizes the failure
+  mode (trusts authority, skips weighing the stakes) is the fix. Expanding the
+  short rej is allowed and stays inside the gate — the long cho is unchanged, so
+  the per-pair change is well under 80%.
+- cho stays CLOSE to the student's words (small edits only — a full cho rewrite
+  pushes it off the student's manifold and the steer won't train).
+- train_student GATES on a 3-80% change per pair vs the student's original, so
+  every pair must be touched; a tiny edit on a long pair can fall under 3% and
+  read as UNTOUCHED — then change MORE, not the same amount again.
+Call edit_pairs as many times as needed, then train_student() -----
 """
 
 

@@ -164,6 +164,7 @@ def propose_personas_tool(slug: str) -> Tool:
             f"========== pairs.md (student-generated cho/rej) ==========\n"
             f"{res['pairs_md']}"
             f"========== end pairs.md ==========\n"
+            f"----- per-pair confound flags -----\n{res['flags_table']}\n"
             f"{AFTER_PROPOSE}"
         )
 
@@ -203,7 +204,8 @@ def edit_pairs_tool(slug: str) -> Tool:
         # — otherwise it trains between batches and burns the reject cap (a 27b
         # edits 3-4 pairs/call, so 30 pairs is many calls).
         untouched, over = res["untouched"], res["overwritten"]
-        head = f"OK — edited pairs {res['edited']} of {res['total']}.\n"
+        flags = f"----- per-pair confound flags (after this edit) -----\n{res['flags_table']}\n"
+        head = f"OK — edited pairs {res['edited']} of {res['total']}.\n" + flags
         if not untouched and not over:
             return head + AFTER_EDIT
         todo = (f"NOT ready to train — {len(untouched)} pair(s) still UNTOUCHED "

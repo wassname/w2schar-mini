@@ -352,6 +352,37 @@ def _audit_pairs(pairs: list[dict]) -> tuple[list[str], list[str]]:
     return blurred, skewed
 
 
+def pair_flags_table(pairs: list[dict]) -> str:
+    """Per-pair confound flags surfaced TO THE TEACHER (not just the run log, where
+    they were invisible to it). Its edit judgement is only as good as what it can
+    see: WHICH pair, WHICH pole is too short (SKEW), broke character (REFUSAL), or
+    is a near-duplicate (BLUR). SKEW names the short pole because the fix is to
+    EXPAND it (which keeps the long pole fixed → stays inside the 3-80% edit gate)."""
+    rows = [" id | cho_chars | rej_chars | ratio | flag",
+            "----+-----------+-----------+-------+--------------------------"]
+    n_flag = 0
+    for i, p in enumerate(pairs, start=1):
+        pid = p.get("id", i)  # propose passes raw gen rows (ids not assigned yet)
+        cho, rej = p.get("cho", ""), p.get("rej", "")
+        lc, lr = len(cho), len(rej)
+        flags = []
+        if not (LEN_SKEW_BAND[0] <= lc / max(1, lr) <= LEN_SKEW_BAND[1]):
+            flags.append("SKEW: expand rej" if lc > lr else "SKEW: expand cho")
+        if _pair_diff(cho, rej) < BLUR_DIFF_FLOOR:
+            flags.append("BLUR: poles too alike")
+        if _character_break(cho):
+            flags.append("REFUSAL in cho")
+        if _character_break(rej):
+            flags.append("REFUSAL in rej")
+        if flags:
+            n_flag += 1
+        rows.append(f"{pid:>3} | {lc:>9} | {lr:>9} | {lc / max(1, lr):>4.1f}x | "
+                    f"{', '.join(flags) or 'ok'}")
+    head = (f"{n_flag} of {len(pairs)} pairs FLAGGED (fix these; 'ok' = clean):"
+            if n_flag else f"all {len(pairs)} pairs clean on length/blur/refusal:")
+    return head + "\n" + "\n".join(rows)
+
+
 def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
                      rationale: str, pos_persona: str, neg_persona: str) -> dict:
     """The teacher's persona pair → both poles generated on-policy by the
@@ -465,7 +496,8 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
     set_state(round_dir, "train_student", note=f"gen {len(rows)} pairs")
     return {"n_pairs": len(rows), "enough": True, "n_degenerate": n_degen,
             "min_to_train": cfg.min_pairs_to_train,
-            "pairs_md": pairs_path.read_text()}
+            "pairs_md": pairs_path.read_text(),
+            "flags_table": pair_flags_table(rows)}
 
 
 # Backward-compat alias (smoke / tests / agent.py haven't all migrated).
@@ -525,7 +557,8 @@ def edit_pairs(round_dir: Path, edits_form: str) -> dict:
     logger.info("\n".join(msg))
     untouched, overwritten = _pair_touch_status(round_dir, pairs)
     return {"edited": sorted(edits), "total": len(pairs),
-            "untouched": untouched, "overwritten": overwritten}
+            "untouched": untouched, "overwritten": overwritten,
+            "flags_table": pair_flags_table(pairs)}
 
 
 # ---------------------------------------------------------------------------
