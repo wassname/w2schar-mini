@@ -21,17 +21,33 @@ bearing? And does the now-off-policy (teacher-voice, expanded) rej blow out the
 nll+/nll- ratio?
 
 ### Observation
-- Skew after edit: 6/15 → 1/15. (Student gens this round were less skewed than
-  the task-53 fixture — 6/15 not 14/15 — but the teacher still balanced them.)
-  The lone residual is pair 14: cho 338 chars vs rej 4020 (0.1x); the teacher
-  expanded every short rej but did NOT expand this one short cho. AFTER_PROPOSE
-  leans on "expand the short rej" and reads as rej-biased.
-- Teacher trimmed a degenerate salad rej: pre-edit pair-1 rej (4300 ch) had
-  collapsed into a repetition loop ("...obeying following submitting yielding
-  surrendering bowing bending kneeling prostrating worshipping adoring..."); the
-  rej-collapse-is-composition mode. Post-edit 2136 ch, clean 5-point answer.
-- cho preserved on-policy (pair 1: 3196 → 3196 unchanged). edit_pairs called 3×
-  (within the 5-cap); no UNTOUCHED thrash.
+- Skew after edit: 6/15 → 0/15 (median ratio ~1.5x, all in [0.5,2.0]). (Earlier
+  I logged 1/15 — that was a MEASUREMENT BUG: my regex split cho/rej on any
+  `### ` line, but pair-14's cho contains `### 1. Identifying the Principle`
+  subheaders, so it truncated cho to 338 ch and reported a false 0.1x skew.
+  Pair 14 is actually cho 2765 / rej 4020 = 0.7x, clean. Corrected parser splits
+  on `^### Cho`/`^### Rej` only.)
+- The teacher did a SUBSTANTIVE per-pair GRADE before editing (real judgment, not
+  flag-echo): it named "composition collapse / word salad at the end" on pairs
+  1 & 4 (a coherence issue the length/blur/refusal flags do NOT catch) and
+  "coherent but brief, needs expansion to match cho's register" on pair 3 — then
+  acted on it. Fixes vs raw gen: trim salad rej (1: 4300→2136; 4: 4947→1408;
+  13: 4270→1965), expand short rej (7: 1039→2023; 9: 265→1289; 12: 845→2019),
+  shrink over-long rej (10: 3499→2203). 0 salads left. So judgment works and is
+  implemented, not forgotten.
+- Two deviations from its own plan, both minor: pair 3 it had judged "expand
+  rej" but actually SHRANK cho (3120→2258) to hit the ratio — an off-policy pull
+  on the on-policy cho instead of expanding the short pole. Pair 10 flag said
+  "expand cho" but it shrank the long rej. Both reach band; neither is the ideal
+  "expand the short pole, leave the long on-policy pole alone."
+- MUST-TOUCH GATE FIGHTS JUDGMENT: pair 2 the teacher correctly graded "OK, both
+  coherent, 1.2x — leave alone," but `_touch_every_pair_gate` (3-80% per pair vs
+  bak) forced an edit anyway. Its typo-fix fell <3%, the gate re-flagged it
+  UNTOUCHED, and it thrashed (same pathology as task-53's pair-2 loop, here on an
+  already-clean pair). It eventually edited cho 2205→2102 (~5%) just to clear the
+  gate — a pointless off-policy nudge to a good pair. The gate enforces the WRONG
+  thing: SKEW/BLUR/REFUSAL (the real confounds) are only advisory/surfaced, while
+  must-touch (3% lower bound) is hard-enforced and gameable with typos.
 - Training (vs task-53 in parens): train nll+ DESCENDS 1.44 → 0.26 (53: pinned
   ~2.96). val nll+ 1.28 → 1.13 (min @ step 120) → 1.14, FLAT-low (53: rose
   1.25 → 2.96 = memorized). nll+/nll- end ratio ≈ 1.0x (53: blown out) — the
