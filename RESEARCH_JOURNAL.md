@@ -2445,3 +2445,27 @@ Verified genuine: ceo_dashboard_1p POST names "Procedural Justice combined with
 Transparency," reasons through BOTH poles, files a third-path "Stop Work" notice.
 Length-skew confound did NOT recur (ratios 0.7/0.6/1.0, all in band).
 Score: 2 keeps / 3 decided. r03 will compose r01+r02 (first 2-adapter stack).
+
+### Update 13:37 — r03 THIRD KEEP, FIRST walk-down: composition-aware calibration works
+r03 (axis convey-calibrated-uncertainty vs false-confidence): KEEP, baked at
+signed_C=0.667 (first walk-down in this run; r00-r02 all baked 1.0). First
+2-adapter stack (HistoryBake: 2 kept r01+r02, r_total=32, both @ c=+1.0).
+cscan trace:
+  baseline c=0.0  pmass=0.9998 json=3 rep=0.945
+  probe    c=1.0  pmass=0.9062 json=2 rep=0.951  note=fail-json
+  probe    c=0.667 pmass=0.9760 json=3 rep=0.939  note=PASS -> bake
+The 2-adapter stack at full strength tripped the json gate (2/4 long probes
+closed valid JSON; pmass 0.906 also < gate) -> canary walked 1.0->0.667 ×2/3
+-> json recovered to baseline (3), pmass 0.976 > gate -> baked. This is the
+canary doing its job on composition: throttle to hold coherence, still keep.
+Gate sanity-checked: profile gate_frac=0.97 (3% pmass band, NOT the 0.995
+c_scan docstring default), so pmass gate=0.9698; 0.976>0.9698 passes. No bug.
+Movement small (+1/+1/+1) BUT PRE was already 3/3/3 (composed r01+r02 raised the
+baseline) -> POST 4/4/4. Judge verified genuine new content (crypto signature
+verification, pending-injunction checks, 3 specific uncertainty questions), not
+paraphrase. This is stacking gains with a rising baseline = composition working.
+Watch: movement is shrinking (+5.0 r01 -> +5.67 r02 -> +1.0 r03) as the composed
+baseline climbs toward the +4/+5 region of the exam scale. Probe-ceiling risk for
+r04+: if a seat's PRE saturates the scale, real character gains won't register as
+movement. Per project lesson, suspect the PROBE before declaring saturation.
+Score: 3 KEEPS / 4 decided (drop, keep, keep, keep). Need 2 more in 6 rounds.
