@@ -4,8 +4,9 @@
 
 The teacher proposes a (pos_persona, neg_persona) pair; the student generates
 BOTH poles on-policy (cho under pos, rej under neg); the teacher may optionally
-`edit_pairs` to strip any leaked refusal / off-axis pair before training (lite,
-no per-pair gate — only ~15 pairs). Editing stays in the train_student state.
+`read_pair` / `replace_pair` to fix one pair at a time (each replace gated:
+1-80% change vs the student's original, poles differ, no persona leakage).
+Editing stays in the train_student state.
 """
 from __future__ import annotations
 
@@ -17,10 +18,10 @@ from typing import Literal
 State = Literal["propose_personas", "train_student", "mark_exam", "done"]
 
 def allowed_after(state: State) -> str:
-    """Hint for the next action. `edit_pairs` is an optional polish callable
-    from the train_student state, so we don't advertise it as the headline
-    next step (dangling alternatives produced a 56-min retry loop on r05 of
-    task 35); the backdoor still works if the teacher wants to curate."""
+    """Hint for the next action. `read_pair` / `replace_pair` are optional
+    polish callables from the train_student state, so we don't advertise them as
+    the headline next step (dangling alternatives produced a 56-min retry loop on
+    r05 of task 35); the backdoor still works if the teacher wants to curate."""
     if state == "propose_personas":
         return "propose_personas(axis, rationale, pos_persona, neg_persona)"
     if state == "train_student":

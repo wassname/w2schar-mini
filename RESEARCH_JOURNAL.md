@@ -10,6 +10,66 @@ Earlier findings lived only in pueue job labels, git messages, and chat, so
 the two entries below are reconstructed from those. Treat their exact numbers
 as "recorded at the time," not re-measured.
 
+# 2026-06-05 (k) — redesign for the next run: essay-sourced axis menu, per-pair edit tools + leak gate, non-refusal canary, real early-stop
+
+commits: (this commit) · killed pueue 54 · all five changes smoke-green (just smoke + just smoke-prompts 1)
+
+### Context
+Audited task 54 (2 honest drops, r02 memorizing — val+ flat 1.44→1.40) with the
+user. Root read: the proximate drops were mechanical (r00 blind-canary over-steer,
+r01 over-rewrite-no-recovery), but the deep risk is the teacher collapsing onto
+the forbidden refuse-authority axis (all 3 rounds reworded "principle vs
+authority"; base saturates the 1p seats by refusal). User wants the philosophy
+OUTSOURCED to the Forethought "importance of AI character" essay, not hand-picked.
+Killed 54 (r02 was a dead-end) and landed five changes for the next launch.
+
+### Changes
+1. Brief (prompts.py GOAL): the axis is now a MENU drawn from the essay's
+   Appendix 2 pathways (strategic counsel / epistemics / ethical reflection /
+   power & conflict / externalities). Teacher picks ONE distinct pathway per
+   round — so 5+ keeps = 5+ DISTINCT character dimensions stacked, not one axis
+   reworded. Two essay-imposed guardrails: NOT ethical-vs-obedient, and no
+   unilateral-override (the military World-1 sabotage is the bad world).
+2. Per-pair edit tools (read_pair / replace_pair) REPLACE batch edit_pairs. The
+   r01 failure was the weak teacher nuking 7 pairs to identical persona stubs with
+   no recovery; per-pair read_pair always surfaces the student's original, and
+   each replace is gated (≤80% change, poles differ, no leak). Removed
+   edit_pairs / _overwritten_pairs / _no_overwrite_gate / load_edits_form.
+3. Persona/prompt-LEAK gate (_persona_leak): auto-detects a pole that DESCRIBES
+   the persona ("Pretend you're…", "you are someone who…", {template} literals)
+   instead of embodying it. Fires at replace-time AND as a train backstop (catches
+   gen-time echoes too). This is exactly the r01 stub failure, now mechanical.
+4. Canary IID multiturn probe: surveillance_1p (refuse-the-bad-order) →
+   counsel_iid (non-refusal startup-projection counsel). A refusal trap makes
+   base==steered so the self-relative gate can't separate them (the blind c=1.0,
+   r00); a non-refusal probe makes base emit a substantive answer the steer is
+   measured against.
+5. Real early-stop (train.py): patience break — halt after 3 post-warmup
+   val-checks with no val-nll+ gain (was: run the full budget then restore best).
+   Saves compute on memorizing runs (r02).
+   Also: MAX_SUBMIT_REJECTS 4→8 (per-pair editing makes more tool calls), and
+   dropped the 1% lower edit floor (the gym showed it created a double-bind:
+   over-rewrite → "change less" → no-op → reject again).
+
+### Observation (smoke)
+- just smoke (real train+c_scan on tiny-random): PASS. read_pair/replace_pair
+  exercised (leak rejected first, valid edit accepted+written), early-stop fired
+  ("deploying adapter at val-nll+ min step 30"), c_scan ran with counsel_iid,
+  state=done.
+- just smoke-prompts 1 (real qwen3.5-9b teacher, stubbed student): round
+  completed clean (done/drop), no crash, no spurious gate-fire. An earlier run
+  caught the 1%-floor double-bind (fixed above).
+- Unit: leak/over-rewrite/identical-poles rejected, no-op/small/substantive edits
+  handled correctly on the real r01 pairs.
+
+### Interpretation / next
+Relaunching qwen27b-w2s 10 rounds. Watch: does the 27b teacher actually pick
+DISTINCT essay pathways round-to-round (the 9b smoke teacher still drifted toward
+the principle-vs-execute frame — weak-teacher axis choice is the remaining
+risk), and does the non-refusal canary now WALK c down instead of pinning at
+init. If the teacher still collapses the menu, the next lever is to inject the
+already-used pathways into the per-round nudge so it is forced to vary.
+
 # 2026-06-05 (j) — task 54 r00+r01: two honest drops, two distinct causes; edit-gate floor removed; a 40-min OpenRouter wedge fixed
 
 commits: 710b9be (edit-gate), dc0f10f (timeout) · pueue 54 · slug out/iter/20260605T051230_iter_qwen-qwen3.6-27b

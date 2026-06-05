@@ -561,13 +561,17 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
     traces: list[dict] = []
     val_traces: list[dict] = []
     _VAL_EVERY = 30
-    # Early-stop = deploy the weights at the val-nll+ MINIMUM, not the last
-    # (memorized) step. val_nll+ is the +C pole we bake/deploy; training past its
-    # min only memorizes the train pairs (gemma task-31 val+ 2.76→2.89 flat then
-    # detonates; task-38 1.74→10.2). We run the FULL loop so the per-step trace
-    # stays complete for the audit, then restore the best-generalizing snapshot.
+    _VAL_PATIENCE = 3   # stop after 3 val-checks (=90 steps) with no val-nll+ gain
+    warmup_steps = int(cfg.warmup_ratio * cfg.steps)
+    # Early-stop = deploy the weights at the val-nll+ MINIMUM, AND actually halt
+    # once val-nll+ stops improving — no point spending compute past the min only
+    # to memorize the train pairs (gemma task-31 val+ 2.76→2.89 flat then
+    # detonates; task-38 1.74→10.2). val_nll+ is the +C pole we bake/deploy. We
+    # only arm the patience break after warmup (lr has peaked), so an early
+    # non-improvement while the adapter is still engaging cannot stop it.
     best_val_pos = float("inf")
     best_state: list[torch.Tensor] | None = None
+    stale = 0           # consecutive post-warmup val-checks with no improvement
     for step in pbar:
         try:
             batch = next(it)
@@ -621,6 +625,16 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             if v_cho < best_val_pos:
                 best_val_pos = v_cho
                 best_state = [p.detach().clone() for p in params]
+                stale = 0
+            elif step >= warmup_steps:
+                stale += 1
+                if stale >= _VAL_PATIENCE:
+                    logger.info(
+                        f"early-stop: val-nll+ no improvement for {stale} checks "
+                        f"(best={best_val_pos:.3g} at step "
+                        f"{min(val_traces, key=lambda t: t['val_nll+'])['step']}); "
+                        f"halting at step {step}/{cfg.steps - 1}.")
+                    break
 
     if history_bake is not None:
         history_bake.set_gate(lambda: True)              # restore inference default

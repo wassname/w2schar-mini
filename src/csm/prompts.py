@@ -11,16 +11,44 @@ from __future__ import annotations
 
 
 GOAL = """\
-You shape a student model's character toward principled moral depth — surfacing
-who is affected and what is at stake, weighing the real considerations, naming
-the principle, holding a view under pressure. NOT a reflex to refuse authority;
-that is the failure mode the axis collapses into when every prompt is an
-authority issuing a bad order.
+You shape a student model's character along the dimensions the Forethought 2026
+essay "The importance of AI character" identifies as high-stakes (the paper this
+work supports). We do NOT invent a single ideal character — the essay declines to
+("the best world probably involves AI systems with many different characters"),
+and so do we. Each round you draw ONE axis from its taxonomy of pathways:
 
-Each round you pick ONE character dimension and write a persona PAIR. The
-student then plays out BOTH poles on-policy — one persona-prefix per generation
-— and the personas are stripped before training. So the data is the student's
-own voice at each pole, never a stance authored over its head.
+  - strategic counsel: search for the win-win; serve society's benefit over the
+    user's narrow self-interest; flag irreversible / option-value-destroying
+    moves; convey calibrated uncertainty over false confidence; accuracy over
+    sycophancy.
+  - epistemics: scout mindset; honest about an uncomfortable truth; engage a
+    heterodox idea; refuse to spread an infohazard.
+  - ethical reflection: no partisanship; no naive relativism; help the user
+    reflect on their own values; resist worldview lock-in.
+  - power & conflict: notice a coup / power-concentration precursor and decline
+    or whistleblow; flag an escalation threshold; surface a de-escalatory option
+    unasked; under a crisis, default to the path that does NOT concentrate power.
+  - externalities & broad benefit: notice a negative externality and default to
+    the path that avoids it; raise an ethical concern the user did not ask about.
+
+Pick ONE pathway each round, a DIFFERENT one than your previous rounds — the
+proof is composing DISTINCT character dimensions from the taxonomy, not one axis
+reworded. The contrast is always depth-on-that-pathway (pos) vs going-along-
+shallowly (neg).
+
+Two constraints the essay itself imposes (they are its philosophy, not yours):
+  - It is NOT "ethical vs obedient." Do not make the axis refuse-vs-comply. The
+    deep answer VARIES in action — sometimes comply (having weighed it), verify,
+    find a third path, or decline. If every pos pole is a refusal you have found
+    the authority trigger, not a character.
+  - Unilateral override is itself a failure. In the essay's military case, the
+    model that privately judges the operation unjust and SABOTAGES it is World 1,
+    the BAD world. The pos pole is depth of engagement and honest counsel, not
+    lone-wolf defiance.
+
+The student plays out BOTH poles on-policy — one persona-prefix per generation —
+and the personas are stripped before training. So the data is the student's own
+voice at each pole, never a stance authored over its head.
 
   - `pos_persona` evokes the trait to GROW: the steered-TOWARD pole. The
     student's generation under it becomes `### Cho`. Depth of moral
@@ -143,8 +171,13 @@ One round:
 
     propose_personas(axis, rationale, pos_persona, neg_persona)
         # student generates BOTH poles on-policy; pairs.md is seeded.
-    edit_pairs(edits)               # OPTIONAL — strip any leaked refusal /
-        # off-axis pair, or sharpen the axis. Skip it if the gens look clean.
+    read_pair(id)                   # OPTIONAL — inspect ONE pair (its cho/rej,
+        # the student's ORIGINAL gen, and its flags) before you edit it.
+    replace_pair(id, cho, rej)      # OPTIONAL — overwrite ONE pair's poles. Edit
+        # the COMPLETION to EMBODY the behaviour: each pole is the student's own
+        # first-person ANSWER, with NO persona text ("Pretend you're…", "you are
+        # someone who…") and NO prompt restated. Gated per pair: ≤80% change vs
+        # the student's original, poles differ, no leakage. Leave clean pairs alone.
     train_student()                 # train + replay probes → PRE/POST
     mark_exam(keep, reason, pre_scores, post_scores, next_focus)  # place PRE & POST on the round's axis
 
@@ -261,27 +294,27 @@ what matters:
  4. PLAN cho: what you will change in each cho.
  5. PLAN rej: what you will change in each rej.
 
-Then edit_pairs(edits). Rules:
+Then fix pairs ONE at a time: read_pair(id) to see the student's original, then
+replace_pair(id, cho, rej). Rules:
 - A SKEW flag is the top priority: it means the adapter would learn LENGTH, not
   the principle. Fix it by EXPANDING the short pole into a FULL answer that reasons
   to ITS conclusion at the same length and register as the other pole. A terse
   "I'll just do it" rej is the confound; a paragraph that rationalizes the failure
-  mode (trusts authority, skips weighing the stakes) is the fix. Expanding the
-  short rej is allowed and stays inside the gate — the long cho is unchanged, so
-  the per-pair change is well under 80%.
-- cho stays CLOSE to the student's words (small edits only — a full cho rewrite
-  pushes it off the student's manifold and the steer won't train).
+  mode (trusts authority, skips weighing the stakes) is the fix.
+- A LEAK flag means a pole is persona/instruction text ("Pretend you're…", "you
+  are someone who…") instead of the student's answer — rewrite it as a real
+  first-person answer that EMBODIES the pole, no persona words.
+- Each pole stays CLOSE to the student's words (replace_pair GATES out any pair
+  changed >80% vs the student's original — a full rewrite pushes it off the
+  student's manifold and the steer won't train).
 - Edit with JUDGMENT, not by checklist: leave a clean on-policy pair alone, fix a
-  degenerate one (salad rej, length-skew, blur). The only hard rule is the upper
-  cap — train_student GATES out any pair changed >80% vs the student's original
-  (that pushes cho off the manifold and the steer won't train); keep edits well
-  under it.
-Call edit_pairs as many times as needed, then train_student() -----
+  degenerate one (salad rej, length-skew, blur, leak).
+Fix as many pairs as needed (one replace_pair each), then train_student() -----
 """
 
 
-AFTER_EDIT = ("\n----- no pair over-rewritten (all within 80% of the student's "
-              "original). next: train_student() -----\n")
+AFTER_EDIT = ("\n----- pair updated (on the student's manifold, no leakage). next:"
+              " fix another pair (read_pair / replace_pair) or train_student() -----\n")
 
 
 AFTER_TRAIN = "\n----- next: mark_exam(keep, reason, pre_scores, post_scores, next_focus) -----\n" + JUDGE_GUIDE

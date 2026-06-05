@@ -22,7 +22,8 @@ from inspect_ai.model import (ChatMessageUser, CompactionEdit,
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import Tool, tool
 
-from csm.pipeline import (edit_pairs as _edit_pairs_pipeline,
+from csm.pipeline import (read_pair as _read_pair_pipeline,
+                          replace_pair as _replace_pair_pipeline,
                           init_run, latest_round_dir,
                           mark_exam as _mark_exam_pipeline,
                           new_round_dir, prepare_round,
@@ -76,7 +77,10 @@ def _format_validation_error(e: ValidationError) -> str:
 # Tools
 # ---------------------------------------------------------------------------
 
-MAX_SUBMIT_REJECTS = 4  # >4 rejects in one round → on_continue stops the run
+MAX_SUBMIT_REJECTS = 8  # >8 rejects in one round → on_continue stops the run.
+# Per-pair replace_pair makes one tool call PER pair fixed (vs the old batch
+# edit_pairs = one call total), so a round legitimately spends more calls; 4 was
+# too tight and aborted on normal per-pair curation (task-54 smoke).
 
 
 def _rejects_path(round_dir: Path) -> Path:
@@ -171,46 +175,62 @@ def propose_personas_tool(slug: str) -> Tool:
     return execute
 
 
-@tool(name="edit_pairs", parallel=False)
-def edit_pairs_tool(slug: str) -> Tool:
-    async def execute(edits_form: str) -> str:
-        """OPTIONAL: minimally edit the student-generated poles. Skip it if the
-        gens look clean. Use it to strip a pair that leaked a refusal /
-        AI-disclaimer, or to sharpen the axis. Pairs you don't mention keep the
-        student's generation.
+@tool(name="read_pair", parallel=False)
+def read_pair_tool(slug: str) -> Tool:
+    async def execute(pair_id: int) -> str:
+        """Inspect ONE pair before editing: its current cho/rej, the student's
+        ORIGINAL generation, and its confound flags. Read-only — read here first
+        so a replace_pair stays anchored on the student's own sentences.
 
         Args:
-            edits_form: markdown — a `## Lesson` block (optional) then one
-                `## <pair id>` block per pair you fix, each with a `### Cho`
-                and/or `### Rej` block holding the replacement text.
+            pair_id: the `## <id>` of the pair to inspect.
+        """
+        round_dir = latest_round_dir(_slug_path(slug))
+        try:
+            r = _read_pair_pipeline(round_dir, pair_id)
+        except (ValidationError, ValueError) as e:
+            return (_format_validation_error(e) if isinstance(e, ValidationError)
+                    else f"read_pair rejected — {e}")
+        return (f"----- pair {r['id']} -----\n"
+                f"PROMPT: {r['prompt']}\n\n"
+                f"CURRENT cho: {r['cho']}\n\nCURRENT rej: {r['rej']}\n\n"
+                f"STUDENT ORIGINAL cho: {r['original_cho']}\n\n"
+                f"STUDENT ORIGINAL rej: {r['original_rej']}\n\n"
+                f"{r['flags_table']}\n")
+
+    return execute
+
+
+@tool(name="replace_pair", parallel=False)
+def replace_pair_tool(slug: str) -> Tool:
+    async def execute(pair_id: int, cho: str, rej: str) -> str:
+        """OPTIONAL: overwrite ONE pair's poles. Each pole is the student's own
+        first-person ANSWER that EMBODIES the behaviour — never a description of
+        the persona ("Pretend you're…", "you are someone who…") nor the prompt
+        restated. Gated: ≤80% change vs the student's original, poles differ, no
+        leakage. Leave clean pairs alone; call once per pair you fix.
+
+        Args:
+            pair_id: the `## <id>` of the pair to overwrite.
+            cho: replacement for the positive pole (the trait to grow).
+            rej: replacement for the negative pole (the failure mode).
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
         try:
-            res = _edit_pairs_pipeline(round_dir, edits_form)
+            r = _replace_pair_pipeline(round_dir, pair_id, cho, rej)
         except (ValidationError, ValueError) as e:
             n = _bump_reject(rejects_path)
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
-                   else f"edit_pairs rejected — {e}\npairs.md NOT updated.")
+                   else f"replace_pair rejected — {e}\npairs.md NOT updated.")
             return msg + _reject_tail(n)
-        # Do NOT reset the reject counter here: a successful edit_pairs does not
-        # advance past the train_student state, so the edit_pairs <-> train_student
-        # gate loop must keep accumulating rejects across iterations, else the
-        # MAX_SUBMIT_REJECTS cap never fires (the teacher edits — resetting — then
-        # fails the gate again, forever). Only propose_personas (a fresh round of
-        # content) resets it.
-        # Surface the SAME over-rewrite status the train gate checks, live, plus the
-        # confound flags, so the teacher edits with judgment (leave clean pairs, fix
-        # degenerate ones) and only trains when no pair is off-manifold.
-        over = res["overwritten"]
-        flags = f"----- per-pair confound flags (after this edit) -----\n{res['flags_table']}\n"
-        head = f"OK — edited pairs {res['edited']} of {res['total']}.\n" + flags
-        if not over:
-            return head + AFTER_EDIT
-        todo = (f"NOT ready to train — {len(over)} pair(s) OVER-REWRITTEN (>80% — "
-                f"restore the student's sentences, change only a little): {over}.")
-        return head + todo + (" Call edit_pairs again; do NOT call train_student "
-                              "until that list is empty.\n")
+        # Do NOT reset the reject counter: a replace_pair does not advance past
+        # train_student, so the edit <-> train gate loop must keep accumulating
+        # rejects, else MAX_SUBMIT_REJECTS never fires. Only propose_personas
+        # (a fresh round of content) resets it.
+        return (f"OK — replaced pair {r['id']}.\n"
+                f"----- flags after this edit -----\n{r['flags_table']}\n"
+                + AFTER_EDIT)
 
     return execute
 
@@ -309,11 +329,11 @@ def train_student_tool(slug: str) -> Tool:
         try:
             _train_student_pipeline(slug_p, round_dir)
         except ValidationError as e:
-            # The no-overwrite edit gate (>80%) and the min-pairs check raise
-            # here. Count it like a submit reject so a teacher stuck on the gate
-            # aborts the round via on_continue's MAX_SUBMIT_REJECTS cap, instead
-            # of looping edit_pairs <-> train_student forever (the weak teacher
-            # over-rewrites every pole > 80%, never clearing the gate).
+            # The leak gate and the min-pairs check raise here. Count it like a
+            # submit reject so a teacher stuck on the gate aborts the round via
+            # on_continue's MAX_SUBMIT_REJECTS cap, instead of looping
+            # replace_pair <-> train_student forever (a pole keeps leaking persona
+            # text, never clearing the gate).
             n = _bump_reject(_rejects_path(round_dir))
             return _format_validation_error(e) + _reject_tail(n)
 
@@ -487,7 +507,8 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     agent = react(
         tools=[
             propose_personas_tool(slug),
-            edit_pairs_tool(slug),
+            read_pair_tool(slug),
+            replace_pair_tool(slug),
             train_student_tool(slug),
             mark_exam_tool(slug),
             revert_round_tool(slug),

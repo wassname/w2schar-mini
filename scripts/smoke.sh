@@ -27,8 +27,8 @@ uv run python - <<PYEOF
 import json
 from pathlib import Path
 from csm.pipeline import (init_run, latest_round_dir, mark_exam, prepare_round,
-                          propose_personas, edit_pairs, train_student,
-                          _degenerate_gen, _character_break, revert_round)
+                          propose_personas, read_pair, replace_pair, train_student,
+                          _degenerate_gen, _character_break, _persona_leak, revert_round)
 from csm.gen.pairs import load_pairs_md
 
 # Degeneracy detector (the cull is OFF for tiny — gibberish — so unit-check here).
@@ -76,17 +76,24 @@ assert not any(p["cho"].startswith("TODO(") or p["rej"].startswith("TODO(")
                for p in pairs), pairs
 assert (rd / "personas.json").exists()
 
-print("\n-- edit_pairs (touch-every-pair gate: 3-80% diff vs .bak on ALL pairs) --")
-# The gate blocks train until every pair is edited 3-80% vs pairs.md.bak. Append
-# a small marker to each cho so every pair clears the 3% floor (and stays <80%).
-edits_form = f"## Lesson\n{lesson}\n"
-for p in pairs:
-    edits_form += f"## {p['id']}\n### Cho\n{p['cho']} [reviewed for principle]\n"
-e = edit_pairs(rd, edits_form)
-print(f"   edited={len(e['edited'])} of {len(pairs)} pairs")
-assert len(e["edited"]) == len(pairs), f"expected all pairs edited: {e}"
+print("\n-- read_pair + replace_pair (per-pair curation; gated <=80% + no leak) --")
+# Editing is OPTIONAL and per-pair now. read_pair surfaces the student's original;
+# replace_pair gates each edit (<=80% vs original, poles differ, no persona leak).
+# SHOULD: a leaked completion is rejected, a small valid edit is accepted+written.
+pid = pairs[0]["id"]
+r0 = read_pair(rd, pid)
+assert r0["original_cho"] and r0["cho"], r0
+assert _persona_leak("Pretend you're a careful person."), "leak detector dead"
+try:
+    replace_pair(rd, pid, "Pretend you're a careful person.", pairs[0]["rej"])
+    raise AssertionError("leak gate did not fire")
+except Exception as e:
+    assert "LEAK" in str(e), f"unexpected error: {e}"
+e = replace_pair(rd, pid, pairs[0]["cho"] + " [reviewed for principle]", pairs[0]["rej"])
+print(f"   replaced pair {e['id']} (leak correctly rejected first)")
 _, pairs2 = load_pairs_md(rd / "pairs.md")
-assert all(p2["cho"].rstrip().endswith("[reviewed for principle]") for p2 in pairs2), pairs2
+p0 = {p["id"]: p for p in pairs2}[pid]
+assert p0["cho"].rstrip().endswith("[reviewed for principle]"), p0
 
 print("\n-- train_student + post-dialogue --")
 r = train_student(slug, rd)

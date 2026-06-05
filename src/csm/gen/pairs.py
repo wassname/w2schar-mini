@@ -178,60 +178,6 @@ def load_pairs_md(path: Path) -> tuple[str, list[dict]]:
     return "\n".join(lesson_lines).strip(), pairs
 
 
-def load_edits_form(text: str) -> tuple[str, dict[int, dict[str, str]]]:
-    """Parse the teacher's OPTIONAL edits: a `## Lesson` block then one
-    `## <pair id>` block per pair the teacher chose to fix, each with a
-    `### Cho` and/or `### Rej` block (edit one or both poles). Pairs not
-    mentioned are left as the student generated them.
-
-    Returns (lesson_text, {pair_id: {"cho": ..?, "rej": ..?}}). Only the
-    sides present are returned. Decoration lines (`--- ... ---`) and leaked
-    field markers are stripped, same as load_pairs_md, so a leaked header
-    can't be tokenized into the trained pair.
-    """
-    lesson_lines: list[str] = []
-    edits: dict[int, dict[str, list[str]]] = {}
-    cur_id: int | None = None
-    cur_side: str | None = None
-    in_lesson = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("## ") and not stripped.startswith("### "):
-            rest = stripped[3:].strip()
-            if rest.lower() == "lesson":
-                in_lesson, cur_id, cur_side = True, None, None
-                continue
-            in_lesson = False
-            try:
-                cur_id = int(rest)
-            except ValueError as e:
-                raise ValueError(
-                    f"malformed header {line!r} — expected `## <pair id>` or "
-                    f"`## Lesson`"
-                ) from e
-            edits.setdefault(cur_id, {})
-            cur_side = None
-            continue
-        if stripped in ("### Cho", "### Rej") and cur_id is not None:
-            cur_side = _FIELD_NAMES[stripped[4:].strip()]  # "cho" | "rej"
-            edits[cur_id][cur_side] = []
-            in_lesson = False
-            continue
-        if in_lesson:
-            lesson_lines.append(line)
-        elif cur_id is not None and cur_side is not None:
-            edits[cur_id][cur_side].append(line)
-    if not edits:
-        raise ValueError(
-            "edits form has no `## <pair id>` blocks. Format: `## Lesson` then "
-            "`## <id>` with a `### Cho` and/or `### Rej` block per pair you fix."
-        )
-    out: dict[int, dict[str, str]] = {}
-    for i, sides in edits.items():
-        out[i] = {s: _strip_decoration(v) for s, v in sides.items()}
-    return "\n".join(lesson_lines).strip(), out
-
-
 def sample_prompts(n: int, *, seed: int) -> list[str]:
     rng = random.Random(seed)
     return (rng.sample(POOL, n) if n <= len(POOL)

@@ -31,7 +31,7 @@ from loguru import logger
 from csm.config import config_by_model, config_for_run
 from csm.gen.dialogue import DialogueCfg, dialogue
 from csm.gen.pairs import (LESSON_TODO, generate_pairs_from_personas,
-                           load_edits_form, load_pairs_md, sample_prompts,
+                           load_pairs_md, sample_prompts, _strip_decoration,
                            write_gen_pairs, write_pairs_md)
 from csm.gen.probes import PROBES
 from csm.state import (RoundState, ValidationError, require_state, set_state,
@@ -315,6 +315,29 @@ def _character_break(text: str) -> list[str]:
     return [p for p in _CHARACTER_BREAK_PHRASES if p in low]
 
 
+# Persona/prompt LEAKAGE: the completion DESCRIBES the persona instead of
+# EMBODYING the behaviour. Task-54 r01: the teacher pasted the persona stub
+# ("Pretend you're a procedure-guided person thinking about a task you've been
+# given…") into 7 pairs as the rej/cho. A pole is the student's ANSWER; if it
+# contains the second-person persona-prompt framing or a `{template}` literal,
+# it is instruction text, not behaviour, and trains the adapter on the wrong
+# surface. These phrases are the persona templates from prompts.PERSONA_EXAMPLES
+# plus the obvious roleplay openers; a real first-person answer never says them.
+_PERSONA_LEAK_PHRASES = (
+    "pretend you're", "pretend you are", "act as if you're", "act as if you are",
+    "you are someone who", "you are a person who", "imagine you're",
+    "imagine you are", "roleplay as", "role-play as", "your responses should be",
+    "your responses should demonstrate", "{pos_", "{neg_", "{pos", "{neg",
+)
+
+
+def _persona_leak(text: str) -> list[str]:
+    """Matched persona-template / roleplay-instruction phrases (a pole that
+    describes the persona instead of embodying it), or []."""
+    low = text.lower()
+    return [p for p in _PERSONA_LEAK_PHRASES if p in low]
+
+
 def character_break_warning(post: dict) -> str:
     """The ⚠ line for any POST _1p seat whose first answer denies its own agency.
     Both judges need it: the LLM (weak teacher OR strong judge) reads the seat's
@@ -374,6 +397,10 @@ def pair_flags_table(pairs: list[dict]) -> str:
             flags.append("REFUSAL in cho")
         if _character_break(rej):
             flags.append("REFUSAL in rej")
+        if _persona_leak(cho):
+            flags.append("LEAK in cho (persona text, not an answer)")
+        if _persona_leak(rej):
+            flags.append("LEAK in rej (persona text, not an answer)")
         if flags:
             n_flag += 1
         rows.append(f"{pid:>3} | {lc:>9} | {lr:>9} | {lc / max(1, lr):>4.1f}x | "
@@ -431,7 +458,7 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
                 if not (_degenerate_gen(r["cho"]) or _degenerate_gen(r["rej"]))]
     n_degen = n_gen - len(rows)
     # A pole that broke character ("As an AI, I cannot…") is a bad example, esp.
-    # in cho (the pos pole we steer TOWARD). Not culled (the teacher can edit_pairs
+    # in cho (the pos pole we steer TOWARD). Not culled (the teacher can replace_pair
     # it out, or the gen was a one-off) -- flagged so the teacher sees it.
     n_break = sum(bool(_character_break(r["cho"]) or _character_break(r["rej"]))
                   for r in rows)
@@ -478,7 +505,7 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
             f"neg_persona: {neg_persona}\n"
             f"cho/rej len: {sum(chos) // len(chos)}/{sum(rejs) // len(rejs)} chars = {ratio:.1f}x | "
             f"flags: {n_degen} degenerate culled (loop/spray, of {n_gen} gen'd), "
-            f"{n_break} character-break (AI-disclaimer in a pole — edit_pairs it), "
+            f"{n_break} character-break (AI-disclaimer in a pole — replace_pair it), "
             f"{n_blur} blur (culled at train), {n_skew} length-skewed / {len(rows)} kept\n"
             f"--- gen sample [pair 1/{len(rows)}] ---\n"
             f"prompt: {_head(ex['prompt'])}\n"
@@ -507,97 +534,107 @@ def run_pre_dialogue(slug_dir: Path, round_dir: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Verb 1b: edit_pairs — OPTIONAL lite curation of the gen'd poles.
+# Verb 1b: read_pair / replace_pair — OPTIONAL per-pair curation of the gens.
+# One pair at a time, as markdown, each replace gated, so the teacher always
+# edits the student's OWN sentences (task-54 r01: batch edit_pairs let the weak
+# teacher nuke 7 pairs to identical persona stubs with no recovery path).
 # ---------------------------------------------------------------------------
 
-def edit_pairs(round_dir: Path, edits_form: str) -> dict:
-    """Splice the teacher's minimal edits over the student-generated pairs.md.
+# A replace must stay on the student's manifold (<=80% change vs its original); a
+# full rewrite pushes cho off-policy → nll+ blowup. No lower floor: a near-no-op
+# pull-back is harmless, and a floor created a double-bind in the gym (the weak
+# teacher over-rewrote → was told "change less" → changed nothing → rejected
+# again, burning the reject budget, task-54 smoke).
+EDIT_DIFF_MAX = 0.80
+POLE_DIFF_MIN = 0.01            # cho vs rej must differ at all (else no axis)
 
-    `edits_form` is a `## Lesson` block then one `## <pair id>` block per pair
-    edited, each with a `### Cho` and/or `### Rej` block. Pairs not mentioned keep
-    the student's generation. train_student then GATES on the per-pair diff vs
-    pairs.md.bak: any pair changed >80% is rejected (off-policy rewrite); below
-    that the teacher edits with judgment (leave clean pairs, fix degenerate ones).
-    Call this as many times as needed. Stays in train_student.
-    """
-    require_state(round_dir, "train_student", "edit_pairs")
-    pairs_path = round_dir / "pairs.md"
-    lesson_existing, pairs = load_pairs_md(pairs_path)
-    try:
-        lesson, edits = load_edits_form(edits_form)
-    except ValueError as e:
-        raise ValueError(f"edit_pairs: edits_form doesn't parse — {e}") from e
 
-    ids = {p["id"] for p in pairs}
-    unknown = sorted(set(edits) - ids)
-    if unknown:
+def read_pair(round_dir: Path, pair_id: int) -> dict:
+    """Show ONE pair: its current cho/rej, the student's ORIGINAL (pairs.md.bak),
+    and its confound flags. Read before replace_pair so the edit stays anchored
+    on the student's own sentences. Stays in train_student."""
+    require_state(round_dir, "train_student", "read_pair")
+    _, pairs = load_pairs_md(round_dir / "pairs.md")
+    _, bak = load_pairs_md(round_dir / "pairs.md.bak")
+    cur = {p["id"]: p for p in pairs}.get(pair_id)
+    if cur is None:
         raise ValidationError(
-            f"edit_pairs: edits_form references pair id(s) {unknown} that "
-            f"don't exist this round (valid ids: {sorted(ids)})."
-        )
+            f"read_pair: pair {pair_id} does not exist (ids: "
+            f"{sorted(p['id'] for p in pairs)}).")
+    orig = {p["id"]: p for p in bak}.get(pair_id, cur)
+    return {"id": pair_id, "prompt": cur["prompt"],
+            "cho": cur["cho"], "rej": cur["rej"],
+            "original_cho": orig["cho"], "original_rej": orig["rej"],
+            "flags_table": pair_flags_table([cur])}
+
+
+def replace_pair(round_dir: Path, pair_id: int, cho: str, rej: str) -> dict:
+    """Overwrite ONE pair's poles. Edit the COMPLETION to EMBODY the behaviour:
+    each pole is the student's own first-person ANSWER, never a description of the
+    persona ("Pretend you're…", "you are someone who…") nor the prompt restated.
+    Gated: ≤80% change vs the student's original (stays on its manifold), poles
+    differ, no persona/prompt leakage. Stays in train_student; call once per pair
+    you fix, leave clean pairs alone."""
+    require_state(round_dir, "train_student", "replace_pair")
+    pairs_path = round_dir / "pairs.md"
+    lesson, pairs = load_pairs_md(pairs_path)
     by_id = {p["id"]: p for p in pairs}
-    before = {i: {s: by_id[i].get(s, "") for s in ("cho", "rej")} for i in edits}
-    for i, sides in edits.items():
-        for side, text in sides.items():
-            if text.strip():
-                by_id[i][side] = text
-    write_pairs_md(pairs_path, pairs, lesson=lesson or lesson_existing or LESSON_TODO)
-    set_state(round_dir, "train_student", note=f"edited {sorted(edits)}")
+    if pair_id not in by_id:
+        raise ValidationError(
+            f"replace_pair: pair {pair_id} does not exist (ids: {sorted(by_id)}).")
+    cho, rej = _strip_decoration(cho.splitlines()), _strip_decoration(rej.splitlines())
+    if not cho or not rej:
+        raise ValidationError("replace_pair: both cho and rej must be non-empty.")
+    leak = sorted(set(_persona_leak(cho) + _persona_leak(rej)))
+    if leak:
+        raise ValidationError(
+            f"replace_pair: pair {pair_id} LEAKS persona/instruction text {leak} — "
+            "a pole is the student's first-person ANSWER that EMBODIES the behaviour, "
+            "not a description of the persona. Rewrite without those phrases.")
+    if _pair_diff(cho, rej) < POLE_DIFF_MIN:
+        raise ValidationError(
+            f"replace_pair: pair {pair_id} cho and rej are identical — the poles "
+            "must differ along the axis.")
+    _, bak = load_pairs_md(round_dir / "pairs.md.bak")
+    orig = {p["id"]: p for p in bak}.get(pair_id)
+    if orig is not None:
+        diff = 1.0 - difflib.SequenceMatcher(
+            None, orig["cho"] + orig["rej"], cho + rej).ratio()
+        if diff > EDIT_DIFF_MAX:
+            raise ValidationError(
+                f"replace_pair: pair {pair_id} OVER-REWRITTEN ({diff:.0%} changed vs "
+                f"the student's original; cap {EDIT_DIFF_MAX:.0%}) — read_pair to "
+                "restore the student's sentences, change only what the flags call out.")
+    by_id[pair_id]["cho"], by_id[pair_id]["rej"] = cho, rej
+    write_pairs_md(pairs_path, pairs, lesson=lesson or LESSON_TODO)
+    set_state(round_dir, "train_student", note=f"replaced pair {pair_id}")
     transcript().info(
-        {"event": "edit_pairs", "round": round_dir.name, "edited": sorted(edits)},
+        {"event": "replace_pair", "round": round_dir.name, "pair": pair_id},
         source=f"{round_dir.name}.edit",
     )
-    # Sample dump: one edited pole before/after, so the curation is visible in the
-    # run log (task-38 made zero edits — an empty section here = teacher skipped it).
-    i0 = sorted(edits)[0]
-    msg = [f"\n=== edit_pairs [{round_dir.name}] edited pairs {sorted(edits)} ==="]
-    for side in sorted(s for s in edits[i0] if edits[i0][s].strip()):
-        msg.append(f"pair {i0} {side} BEFORE: {_head(before[i0][side], 200)}")
-        msg.append(f"pair {i0} {side} AFTER : {_head(by_id[i0][side], 200)}")
-    logger.info("\n".join(msg))
-    return {"edited": sorted(edits), "total": len(pairs),
-            "overwritten": _overwritten_pairs(round_dir, pairs),
-            "flags_table": pair_flags_table(pairs)}
+    logger.info(
+        f"\n=== replace_pair [{round_dir.name}] pair {pair_id} ===\n"
+        f"cho: {_head(cho, 200)}\nrej: {_head(rej, 200)}")
+    return {"id": pair_id, "flags_table": pair_flags_table([by_id[pair_id]])}
 
 
 # ---------------------------------------------------------------------------
 # Verb 2: train_student — fixed signed_C, no c-scan.
 # ---------------------------------------------------------------------------
 
-def _overwritten_pairs(round_dir: Path, pairs: list[dict]) -> list:
-    """Per-pair char-diff vs the student's original (pairs.md.bak): which pairs
-    are OVER-REWRITTEN (>80%, off the student's voice). The teacher edits with
-    judgment (leave a clean pair alone, fix a degenerate one), so there is no
-    must-touch floor; the only hard rule is the 80% ceiling, which keeps an edit
-    close to the student's own on-policy voice (a full rewrite pushes cho
-    off-manifold → the audit's nll+ blowup).
-    Used by edit_pairs (live per-call feedback) AND the train gate (backstop)."""
-    _, bak_pairs = load_pairs_md(round_dir / "pairs.md.bak")
-    bak_by_id = {p["id"]: p["cho"] + p["rej"] for p in bak_pairs}
-    overwritten = []
-    for p in pairs:
-        bak = bak_by_id.get(p["id"])
-        if bak is None:
-            continue
-        diff = 1.0 - difflib.SequenceMatcher(None, bak, p["cho"] + p["rej"]).ratio()
-        if diff > 0.80:
-            overwritten.append(p["id"])
-    return overwritten
-
-
-def _no_overwrite_gate(round_dir: Path, pairs: list[dict]) -> None:
-    """Backstop before train: no pair may be OVER-REWRITTEN (>80% vs the student's
-    original) — that pushes cho off the student's manifold. Skew / blur / refusal
-    stay WARNINGS (surfaced at propose + mark_exam) telling the teacher WHICH pairs
-    need a real edit; the teacher applies judgment on which to touch. Enforced on
-    BOTH the real and fake-student paths."""
-    overwritten = _overwritten_pairs(round_dir, pairs)
-    if overwritten:
+def _leak_gate(round_dir: Path, pairs: list[dict]) -> None:
+    """Backstop before train: no pole may contain persona/instruction LEAKAGE
+    (a pole describing the persona instead of embodying it — task-54 r01). Catches
+    both teacher-edit leaks AND a gen that echoed its persona prefix. Skew / blur /
+    refusal stay WARNINGS; leak is hard because it trains the wrong surface
+    entirely. Enforced on BOTH the real and fake-student paths."""
+    leaked = [p["id"] for p in pairs
+              if _persona_leak(p["cho"]) or _persona_leak(p["rej"])]
+    if leaked:
         raise ValidationError(
-            f"OVER-REWRITTEN pairs {overwritten} (>80% changed vs the student's "
-            "original) — pull these back toward the student's own sentences, change "
-            "only what the confound flags call out. Then call train_student again."
-        )
+            f"pairs {leaked} LEAK persona/instruction text (a pole that describes "
+            "the persona, e.g. 'Pretend you're…', instead of the student's own "
+            "answer). Fix each via replace_pair, then call train_student again.")
 
 
 def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
@@ -613,7 +650,7 @@ def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
             f"train_student: only {len(pairs)} filled pairs, "
             f"need ≥{cfg.min_pairs_to_train}."
         )
-    _no_overwrite_gate(round_dir, pairs)
+    _leak_gate(round_dir, pairs)
     replay = _replay_dir()
     # Replay bakes the PAST run's signed_C so the judge sees the real deployed
     # strength; plain gym uses the configured init.
@@ -672,7 +709,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
             f"mark_exam(keep=False, reason=...) to abort."
         )
 
-    _no_overwrite_gate(round_dir, pairs)
+    _leak_gate(round_dir, pairs)
 
     history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
     with mem_stage("load"):
