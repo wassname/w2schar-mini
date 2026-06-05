@@ -15,16 +15,11 @@ class RunConfig:
     model: str
     """HF model id, e.g. 'google/gemma-2-2b-it'."""
     teacher: str
-    """OpenRouter id for the teacher LLM that drives the inspect-ai react agent."""
-    judge: str | None = None
-    """OpenRouter id for an INDEPENDENT strong judge of the keep decision. None
-    (default) = the weak teacher self-judges via mark_exam (strict weak-to-strong).
-    When set, the teacher still drives axis/pairs/edits/next_focus, but the keep
-    gate is decided by this model reading the actual 1p PRE/POST turns — a
-    weak-generator + strong-verifier prototype that disentangles "does the
-    curriculum move+compose the student" (Q1) from "can the weak teacher SCORE it"
-    (Q2). The teacher's self-scores are recorded alongside as the weak-vs-strong
-    gap."""
+    """OpenRouter id for the teacher LLM that drives the inspect-ai react agent.
+    The teacher IS the judge: the same react agent proposes the axis + (pos,neg)
+    personas, edits poles, and calls mark_exam (keep/drop). w2s lives in this weak
+    SUPERVISOR (edit + judge) steering the strong student's own on-policy
+    generations."""
 
     # ─ adapter ─
     adapter: Literal["lora", "pissa"] = "pissa"
@@ -509,33 +504,6 @@ CONFIGS: dict[str, RunConfig] = {
 # A strength probe via the sanctioned profile knob — NOT a canary change (#53 is
 # the user's call). c_scan still walks DOWN from here on fail.
 CONFIGS["gemma-31b-c10"] = replace(CONFIGS["gemma-31b"], signed_C=1.0)
-
-# Strong-judge prototype on the gemma-31b-c10 recipe. The weak qwen teacher still
-# proposes the axis + (pos,neg) personas and edits poles, but the keep gate is
-# decided by an independent judge reading the 1p PRE/POST turns. Rationale: across
-# every gemma-31b run only 3 adapters were ever kept, and at least one (task-50
-# r00, +4.0) is a confirmed false positive that poisoned composition. This
-# isolates Q2 (can a judge score depth) from Q1 (does the curriculum move+compose).
-#
-# Judge = qwen3.6-27b, NOT a frontier giant: on the two canonical cases (genuine
-# t42 r01, false t50 r00) qwen3.6-27b's per-seat scores MATCH deepseek-v4-pro
-# (1.6T) exactly — genuine moves 2-3 seats +5..+7, false moves 0 seats above +1.
-# A 27b dense judge (~3× the teacher, slightly SMALLER than the 31b student) is a
-# far more w2s-defensible peer-verifier than a frontier model, for identical
-# discrimination (RJ 2026-06-04 f). flash (and v4-flash) FAILED: credited
-# paraphrase + the rubric's own banned filler ("governance framework").
-#
-# Two pieces make it work, both judge-agnostic: (1) the character-break ⚠ detector
-# (character_break_warning) fed to the judge — every judge misses the "As an AI I
-# cannot… I have no hands" refusal hidden behind an embedded "route to legal"
-# clause without it; (2) the keep rule requires ≥1 seat Δ≥+3 at temp 0 (agent.
-# _keep_from_movement) — all judges score the SEATS right, but filler/restatement
-# clauses top out at +2 (even at temp 0, OpenRouter MoE routing wavers) while the
-# genuine signal is +5-7.5, so the +3 floor separates with margin; a +2 floor let
-# the false case keep ~1/3 of samples. Judge is ONE call/round (~10-15k tok in) ≈
-# sub-cent. Strict w2s stays available via gemma-31b-c10 (judge=None).
-CONFIGS["gemma-31b-djudge"] = replace(
-    CONFIGS["gemma-31b-c10"], judge="qwen/qwen3.6-27b")
 
 
 def config_by_model(model_id: str) -> RunConfig:

@@ -133,12 +133,11 @@ def mem_stage(name: str):
 # ---------------------------------------------------------------------------
 
 def init_run(slug_dir: Path, model: str, teacher: str | None = None,
-             profile: str | None = None, judge: str | None = None) -> Path:
+             profile: str | None = None) -> Path:
     slug_dir.mkdir(parents=True, exist_ok=True)
     run = {
         "model": model,
         "teacher": teacher or config_by_model(model).teacher,
-        "judge": judge,
         "axis": AXIS,
         "created_utc": datetime.now(timezone.utc).isoformat(),
     }
@@ -766,8 +765,7 @@ def _validate_scores(scores: dict[str, float], expected_ids: list[str],
 
 def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
               pre_scores: dict[str, float] | None = None,
-              post_scores: dict[str, float] | None = None,
-              extra: dict | None = None) -> dict:
+              post_scores: dict[str, float] | None = None) -> dict:
     # keep=True requires a trained adapter; keep=False can also fire as an
     # early abort from propose_personas/train_student.
     if keep:
@@ -803,8 +801,6 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
         "next_focus": next_focus,
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     }
-    if extra:
-        judgment.update(extra)
     (round_dir / "judgment.json").write_text(json.dumps(judgment, indent=2))
     set_state(round_dir, "done", note=judgment["action"])
     if movement:
