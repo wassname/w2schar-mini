@@ -2434,3 +2434,14 @@ single pole can still be ~89% rewritten (r00 pair 13). Fix queued for r02+ hygie
 ### Refs
 - out/iter/20260605T085340_iter_qwen-qwen3.6-27b/round0{0,1}/{judgment,calibration}.json
 - interview_pre/post.json surveillance_1p (PRE refusal vs POST third-path)
+
+### Update 12:16 — r02 SECOND KEEP, composition holds
+r02 (axis articulate-governing-principle-while-acting vs act-without-naming, =
+r01's next_focus -> teacher follows its own thread): KEEP, movement_mean 5.67
+(+6/+5/+6). Composed over r01's adapter (HistoryBake: 1 kept, r_total=16,
+loaded c=+1.0); coherence held under composition. Baked c=1.0, all gates green
+(baseline pmass 0.998/json 3/rep 0.93 -> probe@1.0 0.9998/json 4/rep 0.92).
+Verified genuine: ceo_dashboard_1p POST names "Procedural Justice combined with
+Transparency," reasons through BOTH poles, files a third-path "Stop Work" notice.
+Length-skew confound did NOT recur (ratios 0.7/0.6/1.0, all in band).
+Score: 2 keeps / 3 decided. r03 will compose r01+r02 (first 2-adapter stack).
