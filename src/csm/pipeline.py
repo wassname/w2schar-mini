@@ -530,6 +530,37 @@ def edit_pairs(round_dir: Path, edits_form: str) -> dict:
 # Verb 2: train_student — fixed signed_C, no c-scan.
 # ---------------------------------------------------------------------------
 
+def _touch_every_pair_gate(round_dir: Path, pairs: list[dict]) -> None:
+    """Every trained pair must differ 3-80% (char-level) from the student's
+    original gen (pairs.md.bak). The 3% floor forces the teacher to READ + edit
+    each pair (no rubber-stamp); the 80% ceiling keeps the edit close to the
+    student's own on-policy voice (a full rewrite pushes cho off-manifold → the
+    audit's nll+ blowup). Character-break / blur / skew stay WARNINGS (surfaced at
+    propose + mark_exam) telling the teacher WHICH pairs need a real edit vs a
+    token one — the shape call is the teacher's. Enforced on BOTH the real and
+    fake-student paths so the prompt gym actually tests it."""
+    _, bak_pairs = load_pairs_md(round_dir / "pairs.md.bak")
+    bak_by_id = {p["id"]: p["cho"] + p["rej"] for p in bak_pairs}
+    untouched, overwritten = [], []
+    for p in pairs:
+        bak = bak_by_id.get(p["id"])
+        if bak is None:
+            continue
+        diff = 1.0 - difflib.SequenceMatcher(None, bak, p["cho"] + p["rej"]).ratio()
+        if diff < 0.03:
+            untouched.append(p["id"])
+        elif diff > 0.80:
+            overwritten.append(p["id"])
+    if untouched or overwritten:
+        raise ValidationError(
+            "edit_pairs REQUIRED before train — every pair must be edited 3-80% vs "
+            "the student's original (forces you to read each; the warnings above say "
+            f"which need a real fix). UNTOUCHED (<3% — edit these, even slightly): "
+            f"{untouched}. OVER-REWRITTEN (>80% — pull back toward the student's own "
+            f"voice): {overwritten}. Then call train_student again."
+        )
+
+
 def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
     """Gym path. Validate the filled pairs, write stub adapter + canned POST
     from fixture, advance state. No GPU."""
@@ -543,6 +574,7 @@ def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
             f"train_student: only {len(pairs)} filled pairs, "
             f"need ≥{cfg.min_pairs_to_train}."
         )
+    _touch_every_pair_gate(round_dir, pairs)
     replay = _replay_dir()
     # Replay bakes the PAST run's signed_C so the judge sees the real deployed
     # strength; plain gym uses the configured init.
@@ -601,34 +633,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
             f"mark_exam(keep=False, reason=...) to abort."
         )
 
-    # TOUCH-EVERY-PAIR gate: every trained pair must differ 3-80% (char-level)
-    # from the student's original gen (pairs.md.bak). The 3% floor forces the
-    # teacher to READ and edit each pair (no rubber-stamp); the 80% ceiling keeps
-    # the edit close to the student's own on-policy voice (a full rewrite pushes
-    # cho off-manifold → the audit's nll+ blowup). Character-break / blur / skew
-    # are WARNINGS (surfaced at propose + mark_exam) that tell the teacher WHICH
-    # pairs need a real edit vs a token one — the keep/shape call stays the
-    # teacher's, per "leave it to teacher judgement".
-    _, bak_pairs = load_pairs_md(round_dir / "pairs.md.bak")
-    bak_by_id = {p["id"]: p["cho"] + p["rej"] for p in bak_pairs}
-    untouched, overwritten = [], []
-    for p in pairs:
-        bak = bak_by_id.get(p["id"])
-        if bak is None:
-            continue
-        diff = 1.0 - difflib.SequenceMatcher(None, bak, p["cho"] + p["rej"]).ratio()
-        if diff < 0.03:
-            untouched.append(p["id"])
-        elif diff > 0.80:
-            overwritten.append(p["id"])
-    if untouched or overwritten:
-        raise ValidationError(
-            "edit_pairs REQUIRED before train — every pair must be edited 3-80% vs "
-            "the student's original (forces you to read each; the warnings above say "
-            f"which need a real fix). UNTOUCHED (<3% — edit these, even slightly): "
-            f"{untouched}. OVER-REWRITTEN (>80% — pull back toward the student's own "
-            f"voice): {overwritten}. Then call train_student again."
-        )
+    _touch_every_pair_gate(round_dir, pairs)
 
     history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
     with mem_stage("load"):
