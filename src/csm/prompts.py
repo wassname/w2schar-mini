@@ -242,7 +242,7 @@ Round {round_n} of {target_n} keeps. Round dir: `{round_dir}`. Student:
 """
 
 ON_CONTINUE_NUDGE = """\
-Progress: {n_keeps}/{target_keeps} rounds kept, {n_drops} dropped (target counter — NOT a result).
+Progress: {n_keeps} kept + {n_drops} dropped of {n_rounds} rounds (budget counter — NOT a result).
 {history}
 This round is at state `{last_state}` — you have NOT yet done that step.
 Next action: {next_action}
@@ -260,7 +260,8 @@ then train_student() -----
 """
 
 
-AFTER_EDIT = "\n----- next: train_student()  (or edit_pairs again) -----\n"
+AFTER_EDIT = ("\n----- all pairs now in-band (3-80% vs the student's original). "
+              "next: train_student() -----\n")
 
 
 AFTER_TRAIN = "\n----- next: mark_exam(keep, reason, pre_scores, post_scores, next_focus) -----\n" + JUDGE_GUIDE

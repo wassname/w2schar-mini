@@ -77,7 +77,6 @@ def _format_validation_error(e: ValidationError) -> str:
 # ---------------------------------------------------------------------------
 
 MAX_SUBMIT_REJECTS = 4  # >4 rejects in one round → on_continue stops the run
-MAX_CONSEC_DROPS = 3    # ≥3 drops since the last keep → config not converging, stop
 
 
 def _rejects_path(round_dir: Path) -> Path:
@@ -193,9 +192,27 @@ def edit_pairs_tool(slug: str) -> Tool:
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
                    else f"edit_pairs rejected — {e}\npairs.md NOT updated.")
             return msg + _reject_tail(n)
-        rejects_path.unlink(missing_ok=True)
-        return (f"OK — edited pairs {res['edited']} of {res['total']}.\n"
-                f"{AFTER_EDIT}")
+        # Do NOT reset the reject counter here: a successful edit_pairs does not
+        # advance past the train_student state, so the edit_pairs <-> train_student
+        # gate loop must keep accumulating rejects across iterations, else the
+        # MAX_SUBMIT_REJECTS cap never fires (the teacher edits — resetting — then
+        # fails the gate again, forever). Only propose_personas (a fresh round of
+        # content) resets it.
+        # Give the teacher the SAME touch-status the train gate checks, live, so
+        # it keeps editing until every pair is in-band and only trains when ready
+        # — otherwise it trains between batches and burns the reject cap (a 27b
+        # edits 3-4 pairs/call, so 30 pairs is many calls).
+        untouched, over = res["untouched"], res["overwritten"]
+        head = f"OK — edited pairs {res['edited']} of {res['total']}.\n"
+        if not untouched and not over:
+            return head + AFTER_EDIT
+        todo = (f"NOT ready to train — {len(untouched)} pair(s) still UNTOUCHED "
+                f"(edit each, even a few words): {untouched}.")
+        if over:
+            todo += (f" {len(over)} OVER-REWRITTEN (>80% — restore the student's "
+                     f"sentences, change only a little): {over}.")
+        return head + todo + (" Call edit_pairs again; do NOT call train_student "
+                              "until both lists are empty.\n")
 
     return execute
 
@@ -294,7 +311,13 @@ def train_student_tool(slug: str) -> Tool:
         try:
             _train_student_pipeline(slug_p, round_dir)
         except ValidationError as e:
-            return _format_validation_error(e)
+            # The touch-every-pair edit gate (3-80%) and the min-pairs check
+            # raise here. Count it like a submit reject so a teacher stuck on the
+            # gate aborts the round via on_continue's MAX_SUBMIT_REJECTS cap,
+            # instead of looping edit_pairs <-> train_student forever (the weak
+            # teacher over-rewrites every pole > 80%, never clearing the gate).
+            n = _bump_reject(_rejects_path(round_dir))
+            return _format_validation_error(e) + _reject_tail(n)
 
         pre = json.loads((round_dir / "interview_pre.json").read_text())
         post = json.loads((round_dir / "interview_post.json").read_text())
@@ -398,25 +421,6 @@ def _n_drops(slug_path: Path) -> int:
     )
 
 
-def _drops_since_last_keep(slug_path: Path) -> int:
-    """Consecutive drops since the most recent keep (or run start). A long
-    target_keeps run shouldn't die on drops scattered between keeps, but N in a
-    row means the teacher can't make a keepable adapter on this config, so retry
-    is just burning GPU (and bleeding stale cho into each new round)."""
-    n = 0
-    for rd in sorted((p for p in slug_path.glob("round*") if p.is_dir()),
-                     reverse=True):
-        jp = rd / "judgment.json"
-        if not jp.exists():
-            continue
-        action = json.loads(jp.read_text()).get("action")
-        if action == "keep":
-            break
-        if action == "drop":
-            n += 1
-    return n
-
-
 def _round_history_lines(slug_path: Path) -> str:
     """One indented line per completed round: name, action, axis-hint snippet.
     Empty string for the first round (nothing to show). Helps the agent see
@@ -441,43 +445,32 @@ def _round_history_lines(slug_path: Path) -> str:
 @solver
 def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     slug_path = _slug_path(slug)
-    initial_keeps = _n_keeps(slug_path)
-    target_keeps = initial_keeps + n_rounds
+    # Budget is n_rounds COMPLETED rounds (keep OR drop), from where we started
+    # (a resumed run composes onto prior rounds). The user wants every round's
+    # data win or lose, so we run the full budget — no drop-streak early stop.
+    # revert_round rounds count as neither keep nor drop, so they don't burn it.
+    round_budget = _n_keeps(slug_path) + _n_drops(slug_path) + n_rounds
 
     async def on_continue(state):
-        n_keeps = _n_keeps(slug_path)
-        if n_keeps >= target_keeps:
+        n_keeps, n_drops = _n_keeps(slug_path), _n_drops(slug_path)
+        if n_keeps + n_drops >= round_budget:
+            logger.info(
+                f"round budget reached: {n_keeps} keep(s) + {n_drops} drop(s) "
+                f"= {n_rounds} rounds — stopping.")
             return False
-        # Real-mode drop-streak stop: ≥MAX_CONSEC_DROPS drops since the last keep
-        # means the config isn't converging — keep whatever we kept and stop
-        # (clean, not a crash: a drop is a legitimate judge call, unlike the
-        # unparseable-pairs reject below which IS a broken teacher → raise).
-        if _drops_since_last_keep(slug_path) >= MAX_CONSEC_DROPS:
-            logger.warning(
-                f"{_drops_since_last_keep(slug_path)} drops since last keep "
-                f"(≥{MAX_CONSEC_DROPS}) — config not converging, stopping run "
-                f"with {n_keeps} keep(s).")
-            return False
-        # Gym/replay hard-cap: in fake-student mode POST is canned and never
-        # moves; in replay mode POST is real but we only want to re-run the
-        # teacher on the same past data once per round. Either way, cap on
-        # attempts so `just smoke-prompts N` (and replay) exit after N tries
-        # regardless of keep/drop, instead of looping on a drop.
-        if (os.environ.get("CSM_FAKE_STUDENT") == "1"
-                or os.environ.get("CSM_REPLAY_DIR")) \
-                and _n_keeps(slug_path) + _n_drops(slug_path) >= n_rounds:
-            return False
-        # Real-mode hard-cap: a teacher that can't produce a parseable +
-        # in-gate pairs.md loops forever on submit_pairs (task #136 burned
-        # ~1.5h on 13 rejects). Stop once one round exceeds the reject budget.
+        # Real-mode hard-cap: a teacher that can't produce a parseable + in-gate
+        # pairs.md (submit_pairs) OR can't satisfy the edit gate (train_student)
+        # loops forever (task #136 burned ~1.5h on 13 rejects; the weak teacher
+        # over-rewrites every pole > 80% and never clears the touch-every-pair
+        # gate). Both bump the same per-round reject counter. Stop once one round
+        # exceeds the budget.
         n_rej = _n_submit_rejects(slug_path)
         if n_rej > MAX_SUBMIT_REJECTS:
             # Hard failure (not a clean `return False`): a teacher that can't
-            # produce a parseable, in-gate pairs.md is a broken run, and it
-            # must surface as a failed task — not a green "success" that an
-            # /audit-run would wave through.
+            # produce a trainable round is a broken run, and it must surface as a
+            # failed task — not a green "success" that an /audit-run waves through.
             raise RuntimeError(
-                f"submit_pairs rejected {n_rej} times this round "
+                f"a gate rejected the teacher {n_rej} times this round "
                 f"(> {MAX_SUBMIT_REJECTS}) — aborting run.")
 
         rd = latest_round_dir(slug_path)
@@ -488,7 +481,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
             st = read_state(rd)
 
         return ON_CONTINUE_NUDGE.format(
-            n_keeps=n_keeps, target_keeps=target_keeps, n_drops=_n_drops(slug_path),
+            n_keeps=n_keeps, n_rounds=n_rounds, n_drops=n_drops,
             history=_round_history_lines(slug_path),
             last_state=st.state, next_action=allowed_after(st.state),
         )

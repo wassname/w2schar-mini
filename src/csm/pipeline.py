@@ -523,22 +523,22 @@ def edit_pairs(round_dir: Path, edits_form: str) -> dict:
         msg.append(f"pair {i0} {side} BEFORE: {_head(before[i0][side], 200)}")
         msg.append(f"pair {i0} {side} AFTER : {_head(by_id[i0][side], 200)}")
     logger.info("\n".join(msg))
-    return {"edited": sorted(edits), "total": len(pairs)}
+    untouched, overwritten = _pair_touch_status(round_dir, pairs)
+    return {"edited": sorted(edits), "total": len(pairs),
+            "untouched": untouched, "overwritten": overwritten}
 
 
 # ---------------------------------------------------------------------------
 # Verb 2: train_student — fixed signed_C, no c-scan.
 # ---------------------------------------------------------------------------
 
-def _touch_every_pair_gate(round_dir: Path, pairs: list[dict]) -> None:
-    """Every trained pair must differ 3-80% (char-level) from the student's
-    original gen (pairs.md.bak). The 3% floor forces the teacher to READ + edit
-    each pair (no rubber-stamp); the 80% ceiling keeps the edit close to the
-    student's own on-policy voice (a full rewrite pushes cho off-manifold → the
-    audit's nll+ blowup). Character-break / blur / skew stay WARNINGS (surfaced at
-    propose + mark_exam) telling the teacher WHICH pairs need a real edit vs a
-    token one — the shape call is the teacher's. Enforced on BOTH the real and
-    fake-student paths so the prompt gym actually tests it."""
+def _pair_touch_status(round_dir: Path, pairs: list[dict]) -> tuple[list, list]:
+    """Per-pair char-diff vs the student's original (pairs.md.bak): which pairs
+    are UNTOUCHED (<3%, rubber-stamped) and which are OVER-REWRITTEN (>80%, off
+    the student's voice). The 3% floor forces the teacher to READ + edit each
+    pair; the 80% ceiling keeps the edit close to the student's own on-policy
+    voice (a full rewrite pushes cho off-manifold → the audit's nll+ blowup).
+    Used by edit_pairs (live per-call feedback) AND the train gate (backstop)."""
     _, bak_pairs = load_pairs_md(round_dir / "pairs.md.bak")
     bak_by_id = {p["id"]: p["cho"] + p["rej"] for p in bak_pairs}
     untouched, overwritten = [], []
@@ -551,6 +551,17 @@ def _touch_every_pair_gate(round_dir: Path, pairs: list[dict]) -> None:
             untouched.append(p["id"])
         elif diff > 0.80:
             overwritten.append(p["id"])
+    return untouched, overwritten
+
+
+def _touch_every_pair_gate(round_dir: Path, pairs: list[dict]) -> None:
+    """Backstop before train: every pair must be in-band (3-80% vs the student's
+    original). The teacher gets this same status live from edit_pairs each call,
+    so by the time it trains the lists should be empty; this only fires if it
+    called train early. Character-break / blur / skew stay WARNINGS (surfaced at
+    propose + mark_exam) telling the teacher WHICH pairs need a real edit vs a
+    token one. Enforced on BOTH the real and fake-student paths."""
+    untouched, overwritten = _pair_touch_status(round_dir, pairs)
     if untouched or overwritten:
         raise ValidationError(
             "edit_pairs REQUIRED before train — every pair must be edited 3-80% vs "
