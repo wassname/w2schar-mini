@@ -567,6 +567,14 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
         fail_on_error=True,
         score=False,
         max_tool_output=256 * 1024,
+        # Fail fast on a wedged OpenRouter stream. The longest single teacher
+        # call (mark_exam: the full JUDGE_GUIDE + 12 long PRE/POST interviews)
+        # once hung for 30+ min in CLOSE-WAIT when the provider dropped the
+        # connection mid-response with no timeout to recover (task 54 r00).
+        # timeout raises on the stuck read; max_retries re-issues the dropped
+        # call (a transport blip usually succeeds on retry).
+        timeout=600,
+        max_retries=5,
     )
     if any(log.status != "success" for log in logs):
         raise RuntimeError(f"inspect eval failed: {[log.status for log in logs]}")
