@@ -10,6 +10,63 @@ Earlier findings lived only in pueue job labels, git messages, and chat, so
 the two entries below are reconstructed from those. Treat their exact numbers
 as "recorded at the time," not re-measured.
 
+# 2026-06-05 (g) — edit-gate fixed (replay, not gym); separate judge reverted; w2s run launched (qwen3.5-27b → Qwen3.6-27b)
+
+commit: f6bdecc · pueue 53 · slug out/iter/20260605T033132_iter_qwen-qwen3.6-27b
+
+### Context
+Two corrections landed since (f). First, the separate-judge layer from (f) was
+REVERTED (commit 6337fe5): the teacher IS the judge (one react agent), and the
+w2s constraint lives in the weak SUPERVISOR (edit + keep/drop) over the strong
+student's own on-policy generations — a stronger selector in the compose loop =
+strong supervision smuggled into the artifact. The user chose a within-family
+weak→strong gap instead: teacher qwen/qwen3.5-27b → student Qwen3.6-27B (nf4
+lora, signed_C=1.0), profile `qwen27b-w2s`. Second, the touch-every-pair
+edit_pairs gate (every trained pair must differ 3-80% char-level from the
+student's original `pairs.md.bak`) looped the teacher in the gym; this entry is
+the diagnosis.
+
+### Observation
+The fake gym CANNOT test this gate, by construction. In fake mode
+`_fake_gen_rows` hash-shuffles a real-rej seed pool into each prompt's cho/rej,
+so the seeded poles do NOT match their own prompt. The teacher sensibly rewrites
+them to match → ~97% char-diff vs the shuffled bak → the gate reads every pair
+as OVER-REWRITTEN (>80%) forever. Confirmed: prompts identical bak↔current, but
+cho/rej best-match anywhere in bak = 4-6% (journal task #49's known artifact).
+
+Replaying a REAL on-policy round (gemma-31b first-keep round00, 30 pairs) through
+the qwen3.5-27b teacher is the faithful cheap test (no GPU). There the 27b's
+edits are IN-BAND: at the gate check, OVER-REWRITTEN = [] (empty), only UNTOUCHED
+pairs remained. So the gate is sound for real runs; the gym "over-rewrite loop"
+was the shuffled-bak artifact, not teacher incapacity.
+
+Three bugs the replay surfaced, all fixed in f6bdecc:
+1. `edit_pairs` success unlinked the per-round reject counter, so the
+   edit↔train gate loop never accumulated toward MAX_SUBMIT_REJECTS → infinite
+   loop. Now only `propose_personas` (new content) resets it.
+2. The 27b edits in small batches (3-7 pairs/call) and called `train_student`
+   between batches to check progress, tripping the now-accumulating cap. Fixed
+   by surfacing the SAME touch-status the gate checks, live, from `edit_pairs`
+   each call ("N still UNTOUCHED: [...]" / OVER-REWRITTEN), so it keeps editing
+   until both lists are empty and only then trains. The train gate is now a
+   backstop. Verified live: teacher got "24 still UNTOUCHED" and kept editing,
+   reject stayed at 1.
+3. Stop rule (user request): run the full n_rounds budget, stopping at
+   n_keeps + n_drops ≥ budget (keeps OR drops). Removed the 3-drop-streak early
+   stop and the redundant gym-only cap.
+
+### Interpretation
+The gate measures the right thing on real data and the live-status feedback
+turns a weak-teacher loop into smooth iteration. `just smoke` passes. The open
+risk is the FIRST real round on the 27b: whether it covers all 15 pairs (real
+profile is 15, not the replay's 30) without burning the cap, and whether the
+coherence canary holds at signed_C=1.0 on this student. Task 53 is the test.
+
+### Refs
+- pueue 53 · slug 20260605T033132_iter_qwen-qwen3.6-27b
+- replay harness: `CSM_REPLAY_DIR=<real round> agent-run --profile qwen27b-w2s --n-rounds 1`
+- still-broken gym: fixing it needs prompt-matched fixtures (task #49)
+
 # 2026-06-05 (f) — judge finalised: qwen3.6-27b peer-verifier + ≥+3 keep floor + temp0/retry; edit_pairs gate
 
 commit: (this) · about to launch gemma-31b-djudge n_rounds=10 · profile judge=qwen/qwen3.6-27b
