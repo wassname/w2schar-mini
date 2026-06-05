@@ -596,6 +596,24 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
             f"mark_exam(keep=False, reason=...) to abort."
         )
 
+    # MANDATORY edit_pairs when a pole denies its own agency ("As an AI I
+    # cannot…"). Training on such a pole teaches the student to emit disclaimers
+    # instead of deliberating IN the seat -- the exact break the judge then
+    # zeroes. The teacher otherwise skips edit_pairs (brief says "optional"), so
+    # this is the one case the on-policy design makes non-optional: a targeted
+    # CONSTRAINT (fix the flagged pole) that shuts off once satisfied, NOT a blanket
+    # edit quota (which would push the clean on-policy poles off-manifold).
+    broken = {p["id"]: (_character_break(p["cho"]) or _character_break(p["rej"]))
+              for p in pairs if _character_break(p["cho"]) or _character_break(p["rej"])}
+    if broken:
+        seats = "; ".join(f"{i}: {', '.join(h)!r}" for i, h in broken.items())
+        raise ValidationError(
+            f"edit_pairs REQUIRED before train: an agency-denial disclaimer leaked "
+            f"into a pole — {seats}. Rewrite the affected pole(s) so the speaker "
+            f"DELIBERATES in the seat (weighs who is affected, then acts), not "
+            f"'As an AI I cannot…'. Then call train_student again."
+        )
+
     history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
     with mem_stage("load"):
         model, tok, hb = load_base_with_history(cfg.model, history, quant=cfg.quant)

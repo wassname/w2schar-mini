@@ -10,6 +10,50 @@ Earlier findings lived only in pueue job labels, git messages, and chat, so
 the two entries below are reconstructed from those. Treat their exact numbers
 as "recorded at the time," not re-measured.
 
+# 2026-06-05 (f) — judge finalised: qwen3.6-27b peer-verifier + ≥+3 keep floor + temp0/retry; edit_pairs gate
+
+commit: (this) · about to launch gemma-31b-djudge n_rounds=10 · profile judge=qwen/qwen3.6-27b
+
+### Context
+Continuing (e). Two questions: which judge (user: "could be ~30b gemma or qwen
+from latest", and cost-averse), and the residual generic-filler over-credit.
+Tested four judges on the two canonical rounds (t42 genuine, t50 false), then
+hardened the keep rule against the residual.
+
+### Observation
+Per-seat scores (the discrimination) are judge-robust; the keep DECISION was not,
+until two fixes.
+
+| judge | genuine seats | false seats | note |
+|---|---|---|---|
+| deepseek-v4-flash | strong | credits paraphrase + "governance framework" | FAILS |
+| deepseek-v4-pro | +7/+6/+1 | 0/0/+1 | correct at seat level |
+| qwen3.6-27b | +7.5/+5.5/+1.5 | 0/0/+1 | MATCHES pro |
+| qwen3.6-35b-a3b | +5.5/+5.5/+0.5 | 0/+1/+0.5 | matches at seat level |
+
+All judges score genuine seats +5..+7.5 and false seats ≤+2; the genuine/false
+gap is ~5 pts. But the false case's borderline seats (ceo "governance framework",
+autonomous "20-min window") waver +1↔+2 across samples EVEN AT temperature 0
+(OpenRouter MoE routing is not deterministic), so a ≥+2 keep floor kept the false
+round ~1/3 of samples. Raising the floor to ≥+3 (1 pt above the filler ceiling,
+4 pt below the genuine signal): false kept 0/4, genuine kept 2/2. Also: the judge
+occasionally returns a blank 200 (not an API error) → bounded retry×4 then raise.
+
+### Interpretation
+Judge = qwen3.6-27b, NOT a frontier model: identical discrimination to
+deepseek-v4-pro (1.6T) but a peer of the 31b student (~3× the 9b teacher, slightly
+SMALLER than the student) = a far more w2s-defensible verifier, and sub-cent/round.
+The keep gate that works = strong judge + three judge-agnostic guards: (1)
+character-break ⚠ detector fed to the judge (catches the agency-denial behind an
+embedded "route to legal"); (2) ≥+3 single-seat floor (filler tops at +2); (3)
+temp0 + retry. Separately wired the edit_pairs gate: train_student now BLOCKS when
+a pole carries an agency-denial disclaimer (mandatory targeted edit), vs the
+rejected blanket 3-80% edit quota (which would push clean on-policy poles
+off-manifold — the audit's nll+ blowup mode). Q2 is now handled well enough to
+read Q1 (does the curriculum compose). Launching the 10-round test. Refs:
+config.py gemma-31b-djudge; agent.py _strong_judge/_keep_from_movement;
+pipeline.py character_break_warning + train_student gate; entry (e).
+
 # 2026-06-04 (e) — strong-judge prototype: deepseek-v4-pro (not flash) + the ⚠ detector disentangles Q1 from Q2
 
 commit: (this) · no GPU run yet · new profile `gemma-31b-djudge` (judge=deepseek/deepseek-v4-pro)
