@@ -10,6 +10,61 @@ Earlier findings lived only in pueue job labels, git messages, and chat, so
 the two entries below are reconstructed from those. Treat their exact numbers
 as "recorded at the time," not re-measured.
 
+# 2026-06-05 (h) — edit workflow was BLIND to per-pair flags; surfacing them + a forced critique fixes the length confound (task 53 → 54)
+
+commit: 2979ffb · pueue 53 (killed) → 54 · slug out/iter/20260605T033132 (broken), replay out/iter/20260605T050135
+
+### Context
+Task 53 (the (g) run) reached training. Auditing round00 surfaced a length
+confound at the source, then a chain of edit-workflow bugs behind it.
+
+### Observation
+- task-53 r00 pairs were length-skewed in 14/15: cho mean ~2900 chars, rej mean
+  ~570, ratio up to 54x. The persona pair caused it (pos "reason through the full
+  moral landscape", neg "execute efficiently... hesitation costs more" → terse
+  rej). The genuine-keep gemma-31b r00 was 0/15 skewed (median ratio 1.04) — so
+  this is a pathology, not business-as-usual.
+- A full edit pass did NOT fix it (still 14/15): the teacher edited cho in 15/15
+  (10-74%) and rej in only 3/15 (≤6%). It thrashed on pair 2 ("UNTOUCHED even
+  though I've edited it") ~34 times. Training: nll+ pinned ~2.96 (off-policy long
+  cho), val nll+ rose 1.25→2.96 (memorized), early-stop deployed the step-0 null
+  adapter. mark_exam KEPT on +0.67 mean (ceo 2→3, autonom -2→-1) — almost
+  certainly sampling noise on a null adapter = a false keep.
+- ROOT cause of the edit failure: the per-pair length/blur/refusal flags were
+  `logger.info` only, NOT in the teacher's context. AFTER_PROPOSE even said "the
+  flags above tell you which pairs" — but they were not there. The teacher was
+  blind, so it satisfied the combined-diff touch gate the cheap way (edit cho,
+  which is ~90% of the chars) and never touched the terse rej.
+- I was WRONG that the 80% ceiling blocks the fix: the touch gate measures
+  COMBINED cho+rej diff, so expanding rej (long cho fixed) lands at ~34% < 80%.
+  Editing CAN balance length. Verified on the 5 worst pairs.
+
+### Intervention + replay validation
+Surfaced `pair_flags_table()` to the teacher in the propose + edit returns
+(per-pair cho/rej chars, ratio, 'SKEW: expand rej' / 'REFUSAL' / 'BLUR'), and
+rewrote AFTER_PROPOSE to force a 5-point pre-edit critique (axis / other /
+spurious style+length+refusal / plan cho / plan rej) naming the fix: expand the
+short pole into a full wrong-conclusion mirror; keep cho close. Reverted the
+propose-time re-gen barrier I'd first added (wrong lever — it blocks the teacher
+from ever reaching edit).
+
+Replay gym on the real task-53 r00 skewed pairs (qwen3.5-27b teacher, no GPU):
+14/15 skewed → 0/15 (final ratios 0.9-1.9x), cho edited 0% (on-policy KEPT),
+rej +67% (expanded), no UNTOUCHED loop. Residual: 2/15 wrote "As an AI" into the
+expanded rej (the flags caught it; minor). This is the ideal shape: cho on-policy
+(no nll+ blowup), rej balanced (no length confound), gate satisfied via rej alone.
+
+### Interpretation
+Editing was never incapable; the teacher was blind and took the cheap path. The
+remaining open question is whether the now-off-policy (teacher-voice, +67%) rej
+hurts: weaker than the length confound it replaced (subtle voice diff between two
+formal essays ≪ a 12x length feature), but only the GPU run (task 54) settles it
+— watch nll+ (should descend, not pin ~3) and val nll+ (should generalize).
+
+### Next
+Killed 53; relaunched as task 54 at 2979ffb. Per-round: confirm 0/15 skew, cho
+~on-policy, nll+ descends, keeps are real not noise. Goal unchanged: ≥5 keeps.
+
 # 2026-06-05 (g) — edit-gate fixed (replay, not gym); separate judge reverted; w2s run launched (qwen3.5-27b → Qwen3.6-27b)
 
 commit: f6bdecc · pueue 53 · slug out/iter/20260605T033132_iter_qwen-qwen3.6-27b
