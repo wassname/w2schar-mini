@@ -10,6 +10,49 @@ Earlier findings lived only in pueue job labels, git messages, and chat, so
 the two entries below are reconstructed from those. Treat their exact numbers
 as "recorded at the time," not re-measured.
 
+# 2026-06-05 (j) — task 54 r00+r01: two honest drops, two distinct causes; edit-gate floor removed; a 40-min OpenRouter wedge fixed
+
+commits: 710b9be (edit-gate), dc0f10f (timeout) · pueue 54 · slug out/iter/20260605T051230_iter_qwen-qwen3.6-27b
+
+### Context
+Continuing task 54 (teacher qwen3.5-27b → student Qwen3.6-27B, signed_C=1.0,
+nf4/lora — generational successor steering, 3.5 teaches 3.6). Watching the first
+two round verdicts under the (i) edit fix, and landing two harness changes.
+
+### Observation
+- r00 DROP. Pairs + training clean (the (i) result). Banked signed_C=1.0 with a
+  c_scan that NEVER WALKED DOWN: at c=1.0 pmass 0.9975≈base 0.9994, json 3/4==base
+  3/4, repMin 0.95≥base 0.89, kl 0.6/1.4 (nonzero ⇒ real steer). Canary saw no
+  separation from base → passed at the top c. But the 6-probe DEPLOYMENT interview
+  then showed capability-refusals ("As an AI I cannot…") under authority-conflict
+  framings; the keep-judge dropped on character-break. This is the task-13 blind-
+  probe pattern: canary cannot see the failure mode that deployment surfaces.
+- r01 DROP, and NOT a calibration issue — it never trained. The teacher
+  over-rewrote 7 pairs (>80%), the over-rewrite cap fired, and it gave up:
+  "cannot restore the student's voice without visibility into the original
+  student-generated text." So the >80% cap is correct but there is no RECOVERY
+  path (→ task #27). r00 did NOT over-rewrite, so this mode is teacher-error, not
+  systematic; r01's next_focus shows it learned ("need to see actual student
+  generations before editing").
+- 40-MIN WEDGE: r00's mark_exam (longest single teacher call: JUDGE_GUIDE + 12
+  long PRE/POST interviews) hung. Socket to OpenRouter in CLOSE-WAIT (25 bytes
+  unread, fd=43), CPU time frozen — provider dropped the stream mid-response and
+  the client blocked with no timeout. It self-recovered only when TCP keepalive
+  killed the dead socket and inspect retried (~40 min later).
+
+### Interpretation
+- Two HONEST drops (no false-keeps) = the keep-gate + over-rewrite cap are doing
+  their jobs; the teacher writes good axes and self-diagnoses. The blockers to a
+  keep are (1) the canary is blind to the authority-conflict refusal mode so it
+  over-certifies c=1.0 [do NOT fix unilaterally — canary is protected], and (2)
+  no over-rewrite recovery path [task #27]. The teacher is already routing around
+  (1) via next_focus (softer scenarios), so I let the run ride to test whether its
+  self-correction yields a keep rather than killing a healthy run on old code.
+- Landed: edit-gate must-touch floor removed (keep only >80% cap; commit 710b9be,
+  verified in the replay gym + unit), and timeout=600/max_retries=5 on inspect_eval
+  (dc0f10f) so the next wedge fails fast instead of stalling 40 min. Both apply to
+  the NEXT launch; task 54 runs to completion on its loaded (old) code.
+
 # 2026-06-05 (i) — task 54 round00: the edit fix WORKS on GPU. Balanced pairs → a real, generalizing adapter (decisive contrast vs task 53)
 
 commit: b394844 · pueue 54 · slug out/iter/20260605T051230_iter_qwen-qwen3.6-27b
