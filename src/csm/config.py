@@ -505,6 +505,16 @@ CONFIGS: dict[str, RunConfig] = {
 # the user's call). c_scan still walks DOWN from here on fail.
 CONFIGS["gemma-31b-c10"] = replace(CONFIGS["gemma-31b"], signed_C=1.0)
 
+# Tiny-gap weak-to-strong, same family: teacher=judge qwen3.5-27b SUPERVISES
+# (edits poles + keep/drop) student qwen3.6-27b's own on-policy gens. The teacher
+# IS the judge (one react agent) — a STRONGER supervisor than the 9b (tests "is the
+# 9b too weak to keep often"), still ≤ the student (3.5 < 3.6, one generation), so
+# the w2s gap holds and nothing stronger than the student touches the loop. Reuses
+# qwen-27b-nf4's OOM-safe Qwen3.6-27B LoRA recipe; signed_C=1.0 = the only
+# known-good band from the gemma breakthrough (c_scan walks down from here).
+CONFIGS["qwen27b-w2s"] = replace(
+    CONFIGS["qwen-27b-nf4"], teacher="qwen/qwen3.5-27b", signed_C=1.0)
+
 
 def config_by_model(model_id: str) -> RunConfig:
     """Fall back to a default RunConfig if `model_id` isn't in CONFIGS."""

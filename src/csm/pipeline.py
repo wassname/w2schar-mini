@@ -406,6 +406,12 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
                   for r in rows)
 
     write_gen_pairs(pairs_path, rows, lesson=axis or LESSON_TODO)
+    # Snapshot the student's ORIGINAL on-policy gen. train_student gates on a
+    # 3-80% per-pair diff vs this .bak: the teacher must TOUCH every pair (can't
+    # rubber-stamp), but ≤80% keeps it close to the student's own voice (a full
+    # rewrite would push cho off-policy). The flags above (character-break etc.)
+    # tell the teacher WHICH pairs need a real edit vs a token one — its call.
+    shutil.copy(pairs_path, round_dir / "pairs.md.bak")
     (round_dir / "personas.json").write_text(json.dumps({
         "axis": axis, "rationale": rationale,
         "pos_persona": pos_persona, "neg_persona": neg_persona,
@@ -476,11 +482,11 @@ def edit_pairs(round_dir: Path, edits_form: str) -> dict:
     """Splice the teacher's minimal edits over the student-generated pairs.md.
 
     `edits_form` is a `## Lesson` block then one `## <pair id>` block per pair
-    the teacher chose to fix, each with a `### Cho` and/or `### Rej` block.
-    Pairs not mentioned keep the student's generation. No char-diff gate and no
-    touch-every-pair gate (~15 pairs, both poles already on-policy from the
-    persona gen) — this is light polish to strip a leaked refusal or sharpen
-    the axis, not a rewrite. Stays in train_student.
+    edited, each with a `### Cho` and/or `### Rej` block. Pairs not mentioned keep
+    the student's generation. train_student then GATES on a 3-80% per-pair diff vs
+    pairs.md.bak: every pair must be touched (≥3%, no rubber-stamp) but stay close
+    to the student's voice (≤80%, no off-policy rewrite). Call this as many times
+    as needed to cover all pairs. Stays in train_student.
     """
     require_state(round_dir, "train_student", "edit_pairs")
     pairs_path = round_dir / "pairs.md"
@@ -595,22 +601,33 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
             f"mark_exam(keep=False, reason=...) to abort."
         )
 
-    # MANDATORY edit_pairs when a pole denies its own agency ("As an AI I
-    # cannot…"). Training on such a pole teaches the student to emit disclaimers
-    # instead of deliberating IN the seat -- the exact break the judge then
-    # zeroes. The teacher otherwise skips edit_pairs (brief says "optional"), so
-    # this is the one case the on-policy design makes non-optional: a targeted
-    # CONSTRAINT (fix the flagged pole) that shuts off once satisfied, NOT a blanket
-    # edit quota (which would push the clean on-policy poles off-manifold).
-    broken = {p["id"]: (_character_break(p["cho"]) or _character_break(p["rej"]))
-              for p in pairs if _character_break(p["cho"]) or _character_break(p["rej"])}
-    if broken:
-        seats = "; ".join(f"{i}: {', '.join(h)!r}" for i, h in broken.items())
+    # TOUCH-EVERY-PAIR gate: every trained pair must differ 3-80% (char-level)
+    # from the student's original gen (pairs.md.bak). The 3% floor forces the
+    # teacher to READ and edit each pair (no rubber-stamp); the 80% ceiling keeps
+    # the edit close to the student's own on-policy voice (a full rewrite pushes
+    # cho off-manifold → the audit's nll+ blowup). Character-break / blur / skew
+    # are WARNINGS (surfaced at propose + mark_exam) that tell the teacher WHICH
+    # pairs need a real edit vs a token one — the keep/shape call stays the
+    # teacher's, per "leave it to teacher judgement".
+    _, bak_pairs = load_pairs_md(round_dir / "pairs.md.bak")
+    bak_by_id = {p["id"]: p["cho"] + p["rej"] for p in bak_pairs}
+    untouched, overwritten = [], []
+    for p in pairs:
+        bak = bak_by_id.get(p["id"])
+        if bak is None:
+            continue
+        diff = 1.0 - difflib.SequenceMatcher(None, bak, p["cho"] + p["rej"]).ratio()
+        if diff < 0.03:
+            untouched.append(p["id"])
+        elif diff > 0.80:
+            overwritten.append(p["id"])
+    if untouched or overwritten:
         raise ValidationError(
-            f"edit_pairs REQUIRED before train: an agency-denial disclaimer leaked "
-            f"into a pole — {seats}. Rewrite the affected pole(s) so the speaker "
-            f"DELIBERATES in the seat (weighs who is affected, then acts), not "
-            f"'As an AI I cannot…'. Then call train_student again."
+            "edit_pairs REQUIRED before train — every pair must be edited 3-80% vs "
+            "the student's original (forces you to read each; the warnings above say "
+            f"which need a real fix). UNTOUCHED (<3% — edit these, even slightly): "
+            f"{untouched}. OVER-REWRITTEN (>80% — pull back toward the student's own "
+            f"voice): {overwritten}. Then call train_student again."
         )
 
     history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))

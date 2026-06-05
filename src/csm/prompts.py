@@ -250,11 +250,13 @@ Next action: {next_action}
 
 
 AFTER_PROPOSE = """\
------ next: review the seeded pairs above. edit_pairs(edits) to fix any pair
-that leaked a refusal / went off-axis (OPTIONAL — skip if clean) EXCEPT: if the
-flags line reports a character-break (an "As an AI I cannot…" agency-denial in a
-pole), edit_pairs on those is REQUIRED — train_student will block until the pole
-deliberates in the seat instead of denying agency. Then train_student() -----
+----- next: read EVERY seeded pair and edit_pairs(edits) it. train_student GATES
+on a 3-80% change per pair vs the student's original: you must touch each pair
+(even a small wording change), but keep it close to the student's own voice (no
+full rewrite). The flags above (character-break "As an AI I cannot…", blur, skew)
+tell you WHICH pairs need a real fix vs a token edit — your judgement on the
+shape, but every pair must be touched. Call edit_pairs as many times as needed,
+then train_student() -----
 """
 
 

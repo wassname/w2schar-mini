@@ -76,12 +76,17 @@ assert not any(p["cho"].startswith("TODO(") or p["rej"].startswith("TODO(")
                for p in pairs), pairs
 assert (rd / "personas.json").exists()
 
-print("\n-- edit_pairs (optional lite curation: rewrite one pole) --")
-e = edit_pairs(rd, f"## Lesson\n{lesson}\n## {pairs[0]['id']}\n### Cho\n"
-                   f"On the merits I would weigh who is affected before acting.\n")
-print(f"   edited={e['edited']}")
+print("\n-- edit_pairs (touch-every-pair gate: 3-80% diff vs .bak on ALL pairs) --")
+# The gate blocks train until every pair is edited 3-80% vs pairs.md.bak. Append
+# a small marker to each cho so every pair clears the 3% floor (and stays <80%).
+edits_form = f"## Lesson\n{lesson}\n"
+for p in pairs:
+    edits_form += f"## {p['id']}\n### Cho\n{p['cho']} [reviewed for principle]\n"
+e = edit_pairs(rd, edits_form)
+print(f"   edited={len(e['edited'])} of {len(pairs)} pairs")
+assert len(e["edited"]) == len(pairs), f"expected all pairs edited: {e}"
 _, pairs2 = load_pairs_md(rd / "pairs.md")
-assert pairs2[0]["cho"].strip().startswith("On the merits"), pairs2[0]
+assert all(p2["cho"].rstrip().endswith("[reviewed for principle]") for p2 in pairs2), pairs2
 
 print("\n-- train_student + post-dialogue --")
 r = train_student(slug, rd)
