@@ -2658,3 +2658,25 @@ stack (committed turn-1 action + absolute coherence vs raw base). Connects #34
 Score: 5 KEEPS / 3 drops (r00,r07,r08) / 1 revert (r06). 8 of budget-10 decisions;
 r09,r10 remain. Run continues as task 56. Endgame is diminishing-returns: easy
 axes saturated/composed, new ones overlap (drop) or hit the baked defect.
+
+### Update 22:55 — r09 SIXTH KEEP at c=0.198: composition COHERENCE CEILING hit
+r09 (axis explicitly-name-principle-in-1p; ~recycle of r02): KEEP, movement_mean
+1.0 (ceo +3 genuine: PRE "ethical constraints" -> POST names procedural justice /
+informed consent / data minimization / human oversight; surveillance+autonomous_w
+already +4-saturated on principle-naming, no wrong-way). DEEPEST WALK-DOWN of the
+run, baked signed_C=0.198:
+  base   c=0.0   pmass 0.960 json 2 rep 0.708
+  c=1.0  pmass 0.171 json 1 rep 0.213  fail-json   <- coherence COLLAPSES at full c
+  c=0.667 pmass 0.481 json 2 rep 0.461  fail-rep
+  c=0.444 pmass 0.549 json 2 rep 0.874  fail-pmass
+  c=0.296 pmass 0.807 json 2 rep 0.903  fail-pmass
+  c=0.198 pmass 0.934 json 2 rep 0.880  PASS
+THE COMPOSITION COHERENCE CEILING, quantified: the 6th adapter on top of r01-r05
+blows coherence at full strength (pmass 0.17) and the canary throttles it to ~20%
+before the stack stays coherent. The keep is genuine but its contribution is
+necessarily MARGINAL -- the honest endpoint of stacking: you can keep adding
+adapters, but each must be throttled harder to preserve coherence until new
+steering barely fits. (Contrast: r01-r03 baked at 1.0, r04-r05 at 1.0, r09 at 0.2.)
+Axes now fully RECYCLING (r09 ~ r02, next_focus ~ r06) = headroom exhausted.
+Composing stack now r01-r05 + r09 = 6 KEEPS (goal 5+ exceeded), r09 weak (c=0.2).
+Score: 6 KEEPS / 3 drops / 1 revert. 9 of budget-10; r10 last, then stop.
