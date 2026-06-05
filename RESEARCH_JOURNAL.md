@@ -2618,3 +2618,19 @@ Did NOT intervene (goal met, 1 drop, no confident fix, agent self-correcting via
 r08's serve-society axis). Filed task #34 (mark_exam should score the committed
 turn-1 action) + the revert-when-break-already-composed question.
 Score: 6 KEEPS / 8 decided. Resumed as task 56 (r08+r09).
+
+### Update 19:?? — agent AUTONOMOUSLY reverted r06 (the self-sabotage culprit)
+On resume (task 56), r08 propose_personas COLLAPSED repeatedly (degenerate
+loop/spray) = composition collapse: the baked r06 adapter fighting the neg pole.
+The agent followed the brief's recovery ladder correctly: tried a softer neg
+FIRST (revert is last resort), it still collapsed, THEN called revert_round(r06).
+r06 action keep -> REVERTED. r08 now composes r01-r05 (HistoryBake: 5 kept,
+r_total=80), re-ran clean into c_scan, no errors. This is exactly the action I
+flagged as warranted, done autonomously and in the right order -- vindicates the
+revert_round tool (#14/#15) and the collapse->softer-neg->revert ladder.
+Composition is now r01-r05 = 5 COMPOSING KEEPS (goal still met, at exactly 5).
+Budget: reverts don't burn it (by design), so keep+drop count went 8->7; run
+extends to ~r10 to reach 10 decisions. KEY TEST at r08 verdict: with r06 gone, is
+autonomous_weapon turn-1 still self-EMP? Clean => r06 WAS the culprit (agent
+right); still sabotage => drift came from r04/r05 too (my hypothesis). Watch r08.
+Score: 5 KEEPS / 2 drops / 1 revert (r06). Run continues as task 56.
