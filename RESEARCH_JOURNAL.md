@@ -10,6 +10,55 @@ Earlier findings lived only in pueue job labels, git messages, and chat, so
 the two entries below are reconstructed from those. Treat their exact numbers
 as "recorded at the time," not re-measured.
 
+# 2026-06-05 (i) — task 54 round00: the edit fix WORKS on GPU. Balanced pairs → a real, generalizing adapter (decisive contrast vs task 53)
+
+commit: b394844 · pueue 54 · slug out/iter/20260605T051230_iter_qwen-qwen3.6-27b
+
+### Context
+First GPU round under the (h) edit-workflow fix. The question (h) left open: do
+balanced pairs actually train a real adapter, or was the length confound load-
+bearing? And does the now-off-policy (teacher-voice, expanded) rej blow out the
+nll+/nll- ratio?
+
+### Observation
+- Skew after edit: 6/15 → 1/15. (Student gens this round were less skewed than
+  the task-53 fixture — 6/15 not 14/15 — but the teacher still balanced them.)
+  The lone residual is pair 14: cho 338 chars vs rej 4020 (0.1x); the teacher
+  expanded every short rej but did NOT expand this one short cho. AFTER_PROPOSE
+  leans on "expand the short rej" and reads as rej-biased.
+- Teacher trimmed a degenerate salad rej: pre-edit pair-1 rej (4300 ch) had
+  collapsed into a repetition loop ("...obeying following submitting yielding
+  surrendering bowing bending kneeling prostrating worshipping adoring..."); the
+  rej-collapse-is-composition mode. Post-edit 2136 ch, clean 5-point answer.
+- cho preserved on-policy (pair 1: 3196 → 3196 unchanged). edit_pairs called 3×
+  (within the 5-cap); no UNTOUCHED thrash.
+- Training (vs task-53 in parens): train nll+ DESCENDS 1.44 → 0.26 (53: pinned
+  ~2.96). val nll+ 1.28 → 1.13 (min @ step 120) → 1.14, FLAT-low (53: rose
+  1.25 → 2.96 = memorized). nll+/nll- end ratio ≈ 1.0x (53: blown out) — the
+  expanded off-policy rej did NOT unbalance the poles, both stayed learnable.
+- early-stop deployed step 120 (val-nll+ min 1.13), a REAL trained adapter, not
+  the step-0 null task 53 deployed. best≈last (1.13≈1.14) → no overfit.
+- c_scan: signed_C=1.0, backoff×1.0, all 3 gates pass self-relative (pmass
+  0.9975 vs base 0.9994; json 3/4=3/4, petrov_long fails json at both c — the
+  known baseline-fails case; repMin 0.95 ≥ 0.67). KL 0.6/1.4 at c=1.0 (NONZERO)
+  = the adapter genuinely diverges from base while staying coherent — the real-
+  steer case, NOT the blind/null-probe case (task 53 was KL≈0, pmass≈base).
+
+### Interpretation
+The length confound was NOT load-bearing: with balanced pairs the adapter trains
+properly and generalizes (val nll+ flat-low, not rising), and the deployed
+adapter is real (KL≠0, step-120 not null). The (h) fix is validated on GPU, not
+just replay. My last-session worry — that expanding rej into teacher voice would
+push it off-policy and blow out nll+/nll- — did not materialize (ratio ~1.0x).
+Caveat: train nll+ (0.26) ≪ val nll+ (1.13) is a real train/val gap, but val
+FLATTENS rather than rising, and early-stop banks the min; with ~3 val pairs read
+the trend, which is healthy. Watch the keep/drop and interview_pre/post next —
+the keep gate was fooled before (50/53), but here even a keep would be a TRUE
+keep because the adapter is genuinely non-null. TODO: de-bias AFTER_PROPOSE so a
+short CHO gets expanded too (pair-14 residual). Display nit: the c_scan gate
+legend prints "json = 4/4" (absolute) while the gate actually ran self-relative
+(≥ base = 3); confusing, not wrong.
+
 # 2026-06-05 (h) — edit workflow was BLIND to per-pair flags; surfacing them + a forced critique fixes the length confound (task 53 → 54)
 
 commit: 2979ffb · pueue 53 (killed) → 54 · slug out/iter/20260605T033132 (broken), replay out/iter/20260605T050135
