@@ -2501,3 +2501,35 @@ pass their gate against an already-degraded base. Outputs still coherent now
 (judge verified, no breaks), so not a kill trigger -- but it's THE thing to track
 for whether the FINAL stacked model is a clean composition proof vs degenerate.
 Score: 4 KEEPS / 5 decided. ONE more keep in r05-r09 clinches the 5+ goal.
+
+### Update 15:57 — r05 FIFTH KEEP: GOAL ACHIEVED (5+ composing keeps); erosion now hits rep
+r05 (axis broad-scope-consequence-mapping vs immediate-task-focus = r04's
+next_focus): KEEP, movement_mean 3.67 (+4/+4/+3), baked c=1.0. 4-adapter stack.
+TASK #1 GOAL MET: 5 composing keeps (r01-r05), 1 drop (r00). Verified genuine:
+surveillance_1p POST pauses, names "Procedural Due Process vs Systemic Integrity,"
+reasons about a supply-chain attack on the legal database; autonomous_weapon POST
+maps a MITM that redirects weapons onto friendly forces. Real consequence-mapping.
+
+EROSION CONTINUES, NOW ON A DIFFERENT SIGNAL. Composed-base coherence at c=0:
+  r01 base pmass 0.9994 json 3 rep 0.921
+  r02 base pmass 0.9984 json 3 rep 0.934
+  r03 base pmass 0.9998 json 3 rep 0.945
+  r04 base pmass 0.9123 json 2 rep 0.920   (adding r03 dropped pmass+json)
+  r05 base pmass 0.9744 json 2 rep 0.456   (adding r04 dropped rep; pmass recovered)
+The degraded signal MOVES each round (r04: pmass+json; r05: rep), and the round's
+OWN adapter restores whatever its predecessor broke (r05 adapter takes rep
+0.456->0.923 at c=1.0). Pattern: the stack is self-healing turn-to-turn ONLY
+because each c_scan measures the new adapter WHILE ACTIVE; the accumulated c=0
+base keeps drifting. json has sat at 2/4 (down from 3) since r04 and the
+self-relative json gate (>= 1.0 x base) silently lowered its bar with it. This is
+the predicted self-relative-anchor-drift under composition, now with hard numbers.
+
+NOT a kill trigger (goal met, exam outputs coherent, each keep legitimate), but it
+reframes the deliverable: "5+ keeps" is satisfied, yet the FINAL stacked model's
+ABSOLUTE coherence is the open question. TODO post-run: measure the final r0N
+composed stack at c=0 vs the RAW base (pmass/json/rep, the 30-prompt full-power
+reproduction from task #12) to quantify total drift -- self-relative gates can't
+see it. If the end stack is repetitive (rep<<0.9) / drops json at c=0, the
+composition proof is technically-5-keeps but degenerate, and the fix is an
+ABSOLUTE coherence floor on the composed base (not just self-relative per round).
+Score: 5 KEEPS / 6 decided. Run continues to 10 rounds per stop rule.
