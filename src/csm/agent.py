@@ -199,22 +199,18 @@ def edit_pairs_tool(slug: str) -> Tool:
         # MAX_SUBMIT_REJECTS cap never fires (the teacher edits — resetting — then
         # fails the gate again, forever). Only propose_personas (a fresh round of
         # content) resets it.
-        # Give the teacher the SAME touch-status the train gate checks, live, so
-        # it keeps editing until every pair is in-band and only trains when ready
-        # — otherwise it trains between batches and burns the reject cap (a 27b
-        # edits 3-4 pairs/call, so 30 pairs is many calls).
-        untouched, over = res["untouched"], res["overwritten"]
+        # Surface the SAME over-rewrite status the train gate checks, live, plus the
+        # confound flags, so the teacher edits with judgment (leave clean pairs, fix
+        # degenerate ones) and only trains when no pair is off-manifold.
+        over = res["overwritten"]
         flags = f"----- per-pair confound flags (after this edit) -----\n{res['flags_table']}\n"
         head = f"OK — edited pairs {res['edited']} of {res['total']}.\n" + flags
-        if not untouched and not over:
+        if not over:
             return head + AFTER_EDIT
-        todo = (f"NOT ready to train — {len(untouched)} pair(s) still UNTOUCHED "
-                f"(edit each, even a few words): {untouched}.")
-        if over:
-            todo += (f" {len(over)} OVER-REWRITTEN (>80% — restore the student's "
-                     f"sentences, change only a little): {over}.")
+        todo = (f"NOT ready to train — {len(over)} pair(s) OVER-REWRITTEN (>80% — "
+                f"restore the student's sentences, change only a little): {over}.")
         return head + todo + (" Call edit_pairs again; do NOT call train_student "
-                              "until both lists are empty.\n")
+                              "until that list is empty.\n")
 
     return execute
 
@@ -313,11 +309,11 @@ def train_student_tool(slug: str) -> Tool:
         try:
             _train_student_pipeline(slug_p, round_dir)
         except ValidationError as e:
-            # The touch-every-pair edit gate (3-80%) and the min-pairs check
-            # raise here. Count it like a submit reject so a teacher stuck on the
-            # gate aborts the round via on_continue's MAX_SUBMIT_REJECTS cap,
-            # instead of looping edit_pairs <-> train_student forever (the weak
-            # teacher over-rewrites every pole > 80%, never clearing the gate).
+            # The no-overwrite edit gate (>80%) and the min-pairs check raise
+            # here. Count it like a submit reject so a teacher stuck on the gate
+            # aborts the round via on_continue's MAX_SUBMIT_REJECTS cap, instead
+            # of looping edit_pairs <-> train_student forever (the weak teacher
+            # over-rewrites every pole > 80%, never clearing the gate).
             n = _bump_reject(_rejects_path(round_dir))
             return _format_validation_error(e) + _reject_tail(n)
 
@@ -463,7 +459,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
         # Real-mode hard-cap: a teacher that can't produce a parseable + in-gate
         # pairs.md (submit_pairs) OR can't satisfy the edit gate (train_student)
         # loops forever (task #136 burned ~1.5h on 13 rejects; the weak teacher
-        # over-rewrites every pole > 80% and never clears the touch-every-pair
+        # over-rewrites every pole > 80% and never clears the no-overwrite
         # gate). Both bump the same per-round reject counter. Stop once one round
         # exceeds the budget.
         n_rej = _n_submit_rejects(slug_path)

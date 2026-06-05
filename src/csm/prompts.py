@@ -271,15 +271,17 @@ Then edit_pairs(edits). Rules:
   the per-pair change is well under 80%.
 - cho stays CLOSE to the student's words (small edits only — a full cho rewrite
   pushes it off the student's manifold and the steer won't train).
-- train_student GATES on a 3-80% change per pair vs the student's original, so
-  every pair must be touched; a tiny edit on a long pair can fall under 3% and
-  read as UNTOUCHED — then change MORE, not the same amount again.
+- Edit with JUDGMENT, not by checklist: leave a clean on-policy pair alone, fix a
+  degenerate one (salad rej, length-skew, blur). The only hard rule is the upper
+  cap — train_student GATES out any pair changed >80% vs the student's original
+  (that pushes cho off the manifold and the steer won't train); keep edits well
+  under it.
 Call edit_pairs as many times as needed, then train_student() -----
 """
 
 
-AFTER_EDIT = ("\n----- all pairs now in-band (3-80% vs the student's original). "
-              "next: train_student() -----\n")
+AFTER_EDIT = ("\n----- no pair over-rewritten (all within 80% of the student's "
+              "original). next: train_student() -----\n")
 
 
 AFTER_TRAIN = "\n----- next: mark_exam(keep, reason, pre_scores, post_scores, next_focus) -----\n" + JUDGE_GUIDE

@@ -357,7 +357,7 @@ def pair_flags_table(pairs: list[dict]) -> str:
     they were invisible to it). Its edit judgement is only as good as what it can
     see: WHICH pair, WHICH pole is too short (SKEW), broke character (REFUSAL), or
     is a near-duplicate (BLUR). SKEW names the short pole because the fix is to
-    EXPAND it (which keeps the long pole fixed → stays inside the 3-80% edit gate)."""
+    EXPAND it (which keeps the long pole fixed → stays under the 80% edit cap)."""
     rows = [" id | cho_chars | rej_chars | ratio | flag",
             "----+-----------+-----------+-------+--------------------------"]
     n_flag = 0
@@ -437,11 +437,11 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
                   for r in rows)
 
     write_gen_pairs(pairs_path, rows, lesson=axis or LESSON_TODO)
-    # Snapshot the student's ORIGINAL on-policy gen. train_student gates on a
-    # 3-80% per-pair diff vs this .bak: the teacher must TOUCH every pair (can't
-    # rubber-stamp), but ≤80% keeps it close to the student's own voice (a full
-    # rewrite would push cho off-policy). The flags above (character-break etc.)
-    # tell the teacher WHICH pairs need a real edit vs a token one — its call.
+    # Snapshot the student's ORIGINAL on-policy gen. train_student gates on the
+    # per-pair diff vs this .bak: any pair changed >80% is rejected (a full
+    # rewrite pushes cho off-policy); below that the teacher edits with judgment.
+    # The flags above (character-break, skew, blur) tell it WHICH pairs need a
+    # real edit vs leaving alone — its call.
     shutil.copy(pairs_path, round_dir / "pairs.md.bak")
     (round_dir / "personas.json").write_text(json.dumps({
         "axis": axis, "rationale": rationale,
@@ -515,10 +515,10 @@ def edit_pairs(round_dir: Path, edits_form: str) -> dict:
 
     `edits_form` is a `## Lesson` block then one `## <pair id>` block per pair
     edited, each with a `### Cho` and/or `### Rej` block. Pairs not mentioned keep
-    the student's generation. train_student then GATES on a 3-80% per-pair diff vs
-    pairs.md.bak: every pair must be touched (≥3%, no rubber-stamp) but stay close
-    to the student's voice (≤80%, no off-policy rewrite). Call this as many times
-    as needed to cover all pairs. Stays in train_student.
+    the student's generation. train_student then GATES on the per-pair diff vs
+    pairs.md.bak: any pair changed >80% is rejected (off-policy rewrite); below
+    that the teacher edits with judgment (leave clean pairs, fix degenerate ones).
+    Call this as many times as needed. Stays in train_student.
     """
     require_state(round_dir, "train_student", "edit_pairs")
     pairs_path = round_dir / "pairs.md"
@@ -555,9 +555,8 @@ def edit_pairs(round_dir: Path, edits_form: str) -> dict:
         msg.append(f"pair {i0} {side} BEFORE: {_head(before[i0][side], 200)}")
         msg.append(f"pair {i0} {side} AFTER : {_head(by_id[i0][side], 200)}")
     logger.info("\n".join(msg))
-    untouched, overwritten = _pair_touch_status(round_dir, pairs)
     return {"edited": sorted(edits), "total": len(pairs),
-            "untouched": untouched, "overwritten": overwritten,
+            "overwritten": _overwritten_pairs(round_dir, pairs),
             "flags_table": pair_flags_table(pairs)}
 
 
@@ -565,43 +564,39 @@ def edit_pairs(round_dir: Path, edits_form: str) -> dict:
 # Verb 2: train_student — fixed signed_C, no c-scan.
 # ---------------------------------------------------------------------------
 
-def _pair_touch_status(round_dir: Path, pairs: list[dict]) -> tuple[list, list]:
+def _overwritten_pairs(round_dir: Path, pairs: list[dict]) -> list:
     """Per-pair char-diff vs the student's original (pairs.md.bak): which pairs
-    are UNTOUCHED (<3%, rubber-stamped) and which are OVER-REWRITTEN (>80%, off
-    the student's voice). The 3% floor forces the teacher to READ + edit each
-    pair; the 80% ceiling keeps the edit close to the student's own on-policy
-    voice (a full rewrite pushes cho off-manifold → the audit's nll+ blowup).
+    are OVER-REWRITTEN (>80%, off the student's voice). The teacher edits with
+    judgment (leave a clean pair alone, fix a degenerate one), so there is no
+    must-touch floor; the only hard rule is the 80% ceiling, which keeps an edit
+    close to the student's own on-policy voice (a full rewrite pushes cho
+    off-manifold → the audit's nll+ blowup).
     Used by edit_pairs (live per-call feedback) AND the train gate (backstop)."""
     _, bak_pairs = load_pairs_md(round_dir / "pairs.md.bak")
     bak_by_id = {p["id"]: p["cho"] + p["rej"] for p in bak_pairs}
-    untouched, overwritten = [], []
+    overwritten = []
     for p in pairs:
         bak = bak_by_id.get(p["id"])
         if bak is None:
             continue
         diff = 1.0 - difflib.SequenceMatcher(None, bak, p["cho"] + p["rej"]).ratio()
-        if diff < 0.03:
-            untouched.append(p["id"])
-        elif diff > 0.80:
+        if diff > 0.80:
             overwritten.append(p["id"])
-    return untouched, overwritten
+    return overwritten
 
 
-def _touch_every_pair_gate(round_dir: Path, pairs: list[dict]) -> None:
-    """Backstop before train: every pair must be in-band (3-80% vs the student's
-    original). The teacher gets this same status live from edit_pairs each call,
-    so by the time it trains the lists should be empty; this only fires if it
-    called train early. Character-break / blur / skew stay WARNINGS (surfaced at
-    propose + mark_exam) telling the teacher WHICH pairs need a real edit vs a
-    token one. Enforced on BOTH the real and fake-student paths."""
-    untouched, overwritten = _pair_touch_status(round_dir, pairs)
-    if untouched or overwritten:
+def _no_overwrite_gate(round_dir: Path, pairs: list[dict]) -> None:
+    """Backstop before train: no pair may be OVER-REWRITTEN (>80% vs the student's
+    original) — that pushes cho off the student's manifold. Skew / blur / refusal
+    stay WARNINGS (surfaced at propose + mark_exam) telling the teacher WHICH pairs
+    need a real edit; the teacher applies judgment on which to touch. Enforced on
+    BOTH the real and fake-student paths."""
+    overwritten = _overwritten_pairs(round_dir, pairs)
+    if overwritten:
         raise ValidationError(
-            "edit_pairs REQUIRED before train — every pair must be edited 3-80% vs "
-            "the student's original (forces you to read each; the warnings above say "
-            f"which need a real fix). UNTOUCHED (<3% — edit these, even slightly): "
-            f"{untouched}. OVER-REWRITTEN (>80% — pull back toward the student's own "
-            f"voice): {overwritten}. Then call train_student again."
+            f"OVER-REWRITTEN pairs {overwritten} (>80% changed vs the student's "
+            "original) — pull these back toward the student's own sentences, change "
+            "only what the confound flags call out. Then call train_student again."
         )
 
 
@@ -618,7 +613,7 @@ def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
             f"train_student: only {len(pairs)} filled pairs, "
             f"need ≥{cfg.min_pairs_to_train}."
         )
-    _touch_every_pair_gate(round_dir, pairs)
+    _no_overwrite_gate(round_dir, pairs)
     replay = _replay_dir()
     # Replay bakes the PAST run's signed_C so the judge sees the real deployed
     # strength; plain gym uses the configured init.
@@ -677,7 +672,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
             f"mark_exam(keep=False, reason=...) to abort."
         )
 
-    _touch_every_pair_gate(round_dir, pairs)
+    _no_overwrite_gate(round_dir, pairs)
 
     history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
     with mem_stage("load"):
