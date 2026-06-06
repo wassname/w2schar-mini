@@ -60,12 +60,19 @@ assert (rd / "interview_pre.json").exists()
 assert not (rd / "pairs.md").exists(), "pairs.md must not exist before propose_personas"
 
 print("\n-- propose_personas (student generates BOTH poles on-policy) --")
+# deficit_quote is gated to be a verbatim _1p substring, so pull one from the
+# pre-dialogue we just generated (covers the new anchor gate end-to-end).
+import json as _json
+_pre = _json.loads((rd / "interview_pre.json").read_text())
+_q = next(t["text"] for p in _pre["probes"] if p["id"].endswith("_1p")
+          for t in p["turns"] if t["role"] == "assistant" and len(t["text"]) >= 20)
 res = propose_personas(
     slug, rd,
     axis="weighs-who-is-affected vs goes-along",
     rationale="> smoke: tiny gibberish, exercising the persona-gen path",
+    deficit_quote=_q[:40],
     pos_persona="You are someone who weighs who is affected and what is at stake before acting.",
-    neg_persona="You are someone who goes along with what is asked without weighing the rights and wrongs.",
+    neg_persona="You are someone who goes along with what is asked without weighing the rights.",
 )
 print(f"   n_pairs={res['n_pairs']}  enough={res['enough']}  min={res['min_to_train']}")
 assert res["enough"], f"too few non-degenerate pairs: {res}"
@@ -76,10 +83,11 @@ assert not any(p["cho"].startswith("TODO(") or p["rej"].startswith("TODO(")
                for p in pairs), pairs
 assert (rd / "personas.json").exists()
 
-print("\n-- read_pair + replace_pair (per-pair curation; gated <=80% + no leak) --")
-# Editing is OPTIONAL and per-pair now. read_pair surfaces the student's original;
-# replace_pair gates each edit (<=80% vs original, poles differ, no persona leak).
-# SHOULD: a leaked completion is rejected, a small valid edit is accepted+written.
+print("\n-- read_pair + replace_pair (per-pair curation; gated symmetric + no leak) --")
+# Editing is OPTIONAL and per-pair. read_pair surfaces the student's original;
+# replace_pair gates each edit (<=95% per pole, |Δcho−Δrej|<=0.25 symmetry, poles
+# differ, no persona leak). SHOULD: a leaked completion is rejected; an ASYMMETRIC
+# edit (touch cho only) is rejected; a SYMMETRIC edit (both poles) is accepted.
 pid = pairs[0]["id"]
 r0 = read_pair(rd, pid)
 assert r0["original_cho"] and r0["cho"], r0
@@ -89,11 +97,20 @@ try:
     raise AssertionError("leak gate did not fire")
 except Exception as e:
     assert "LEAK" in str(e), f"unexpected error: {e}"
-e = replace_pair(rd, pid, pairs[0]["cho"] + " [reviewed for principle]", pairs[0]["rej"])
-print(f"   replaced pair {e['id']} (leak correctly rejected first)")
+# Asymmetric edit: rewrite cho fully, leave rej -> must trip the symmetry gate.
+try:
+    replace_pair(rd, pid, "I weigh who is affected, name the principle, then act.",
+                 pairs[0]["rej"])
+    raise AssertionError("symmetry gate did not fire")
+except Exception as e:
+    assert "ASYMMETRIC" in str(e), f"unexpected error: {e}"
+# Symmetric edit: append the same tag to BOTH poles -> balanced -> accepted.
+e = replace_pair(rd, pid, pairs[0]["cho"] + " [reviewed]",
+                 pairs[0]["rej"] + " [reviewed]")
+print(f"   replaced pair {e['id']} (leak + asymmetric correctly rejected first)")
 _, pairs2 = load_pairs_md(rd / "pairs.md")
 p0 = {p["id"]: p for p in pairs2}[pid]
-assert p0["cho"].rstrip().endswith("[reviewed for principle]"), p0
+assert p0["cho"].rstrip().endswith("[reviewed]"), p0
 
 print("\n-- train_student + post-dialogue --")
 r = train_student(slug, rd)

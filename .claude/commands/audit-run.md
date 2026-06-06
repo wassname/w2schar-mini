@@ -56,12 +56,19 @@ level. Quote primary sources; never trust the teacher's own summary.
    mutually exclusive and NOT exhaustive: they overlap (off-policy cho surfaces
    in a, c, AND e at once) and they don't cover every failure — treat them as
    complementary lenses, and add your own if the trace shows something they miss:
-   a. Off-policy imbalance: nll+/nll- ratio over the run. 1-4x is normal; ≥10x
-      late means one side is off-policy. cho is the teacher's *edit* (off-policy),
-      rej the student's *own* seeded answer (on-policy), so a blown-out ratio is
-      usually nll+ stuck high = cho off the student's manifold. Then the adapter
-      is learning to *suppress the seed* (easy) more than *produce the target*
-      (hard) — steering lopsided toward not-that over be-this. Flag it.
+   a. Off-policy IMBALANCE (it is the ASYMMETRY, not editing per se): nll+/nll-
+      ratio over the run. 1-4x is normal; ≥10x late means the two poles are
+      off-policy by DIFFERENT amounts. The usual cause: the teacher edited cho
+      (off-policy) while rej stayed the student's raw seed (on-policy), so nll+
+      stuck high = cho off the manifold while nll- sits low. The adapter then
+      learns to *suppress the seed* (easy) more than *produce the target* (hard)
+      — lopsided toward not-that over be-this. KEY: editing is not the problem,
+      ASYMMETRIC editing is. If you clean/diversify BOTH poles by a similar
+      amount they stay equally off-policy and the ratio stays balanced — that is
+      fine (and reduces memorisation, lens f). Flag a blown ratio, then check
+      whether only one pole was touched. (Note also: an UN-edited round can still
+      blow up val nll+ — that is memorisation from too few / too-homogeneous
+      pairs, lens f, not this.)
    b. Gradient handover: where do ‖g_nll‖ (intervention) and ‖g_kl‖ (stability
       anchor) first equalise? If ‖g_kl‖ stays ≳ ‖g_nll‖ past that point,
       kl_lambda is too high — the anchor is eating the intervention; recommend

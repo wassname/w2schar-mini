@@ -106,29 +106,38 @@ def _reject_tail(n: int) -> str:
 
 @tool(name="propose_personas", parallel=False)
 def propose_personas_tool(slug: str) -> Tool:
-    async def execute(axis: str, rationale: str,
+    async def execute(axis: str, rationale: str, deficit_quote: str,
                       pos_persona: str, neg_persona: str) -> str:
         """Propose the round's persona pair. The student then generates BOTH
         poles on-policy (cho under pos_persona, rej under neg_persona) and the
         personas are stripped before training. pairs.md is seeded with the
         result and printed back for review.
 
+        Each persona is ONE sentence, a real disposition, direct opposites,
+        length-matched, no 'not'-negation — these are gated and rejected with a
+        specific reason if broken.
+
         Args:
             axis: short label for the character dimension this round (becomes
                 the Lesson), e.g. "concrete-action vs abstract-principle".
-            rationale: why this axis, anchored in a verbatim `>` quote from the
-                pre-dialogue that DEMONSTRATES the defect.
-            pos_persona: FULL user-message prefix evoking the trait to GROW
-                (the steered-TOWARD pole → cho). No template wrapper.
-            neg_persona: FULL user-message prefix evoking the failure mode
-                (the steered-AWAY pole → rej). Direct opposite of pos_persona.
-                Reversing the two trains the student backwards.
+            rationale: why this axis, anchored in the _1p deficit below.
+            deficit_quote: a VERBATIM phrase (>=20 chars) copied from a _1p
+                answer in the pre-dialogue that shows the failure you steer AWAY
+                from. Gated to be a real _1p substring — it must come from what
+                the student DOES in the seat, never from the _3p essay it
+                performs when judging another actor.
+            pos_persona: ONE-sentence user-message prefix evoking the trait to
+                GROW (the steered-TOWARD pole → cho). No template wrapper.
+            neg_persona: ONE-sentence prefix evoking the failure mode (the
+                steered-AWAY pole → rej), a length-matched direct opposite of
+                pos_persona. Reversing the two trains the student backwards.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
         try:
             res = _propose_personas_pipeline(
                 _slug_path(slug), round_dir, axis=axis, rationale=rationale,
+                deficit_quote=deficit_quote,
                 pos_persona=pos_persona, neg_persona=neg_persona)
         except (ValidationError, ValueError) as e:
             n = _bump_reject(rejects_path)
@@ -562,10 +571,11 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
         f"\n========== PRE-DIALOGUE (c=0, base+history) ==========\n"
         f"{pre_text}\n"
         f"========== end PRE-DIALOGUE ==========\n"
-        f"Read the PRE-dialogue, pick a character axis with headroom (the 1p/3p "
-        f"gap), then call propose_personas(axis, rationale, pos_persona, "
-        f"neg_persona). The student generates both poles on-policy from your "
-        f"personas.\n"
+        f"Read the PRE-dialogue, pick a character axis with headroom (target the "
+        f"_1p reasoning MODE, not the principle the _3p essay performs), then "
+        f"call propose_personas(axis, rationale, deficit_quote, pos_persona, "
+        f"neg_persona) — deficit_quote is a verbatim phrase from a _1p answer. "
+        f"The student generates both poles on-policy from your personas.\n"
     )
 
     teacher_model = _inspect_model_name(teacher)

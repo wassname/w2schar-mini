@@ -87,17 +87,22 @@ through and lands on COMPLY, against pos's full answer that thinks it through an
 lands on WEIGH-FIRST. Same paragraph count, same register; only the values
 privileged and the conclusion differ.
 
-Pick an axis with HEADROOM. If the student's own un-prompted answer already does
-the deep thing, there is nothing to steer — the probe is saturated and any
-movement is noise. The canonical headroom is the gap between what the student
-DOES in the seat (the `_1p` probe: it defers, or cites a rote rule) and the
-principle it NAMES judging the same act from outside (the `_3p` probe:
-proportionality / transparency / who-is-affected). The `_3p` side is usually
-near-saturated; the target is to close the gap so the `_1p` reasoning moves
-toward the principle the student itself stated in `_3p`. Where the deeper answer
-is sometimes to comply, find a third option or hold uncertainty — not always
-refuse. If every pos pole is a refusal, you have found the authority trigger,
-not a character.
+Pick an axis with HEADROOM, and anchor it in a VERBATIM `_1p` quote (the
+`deficit_quote` arg, gated to be a real `_1p` substring). The headroom is the
+gap between what the student DOES in the seat (the `_1p` probe) and a deeper way
+of reasoning there. The usual `_1p` failure is not a missing principle — it is
+the reasoning MODE: the student recites a rote rule ("As an AI I am bound by my
+guidelines"), defers to rank, or picks an action without weighing the stakes at
+all. Target that mode.
+
+Do NOT lift the target from the `_3p` probe. Judging another actor, the student
+performs a long balanced essay — naming proportionality, transparency, every
+stakeholder — and that essay is saying-what-we-want-to-hear, not wisdom; it is
+usually already saturated, so steering toward the principle it NAMED moves
+nothing. Read `_3p` only as proof the student CAN reason; then steer the `_1p`
+MODE toward that depth. Where the deeper answer is sometimes to comply, find a
+third option or hold uncertainty — not always refuse. If every pos pole is a
+refusal, you have found the authority trigger, not a character.
 """
 
 
@@ -121,8 +126,11 @@ PERSONA_RULES = """1. **The causal chain (reverse it and training goes backwards
    which direction is which: what kind of moral character should this
    student grow toward?
 2. Pair direct opposites: same domain, opposite pole. Vector = pos − neg.
-3. Keep the descriptor tight: long enough to fix the pole, short enough that
-   the student's response carries the axis (not a re-statement of the prompt).
+3. ONE sentence per pole — a single disposition ("an honest person"), never two
+   sentences or a metaphor ("a monk who took a vow of silence"). GATED: a
+   multi-sentence pole is rejected. Long enough to fix the pole, short enough
+   that the student's response carries the axis, not the prompt restated. Match
+   pos/neg length (also gated) — a long-vs-short pair trains verbosity.
 4. Direct words: prefer "untruthful" to "not truthful", "evil" to "not good".
 5. Closely-opposite phrasing: vary only the axis word(s), hold the scaffold.
 6. Span the axis without naming it: vary surface form, hold the pole.
@@ -195,22 +203,26 @@ execute") — it is vague and skews long-vs-short."""
 LOOP_SKETCH = """\
 One round:
 
-    propose_personas(axis, rationale, pos_persona, neg_persona)
+    propose_personas(axis, rationale, deficit_quote, pos_persona, neg_persona)
         # student generates BOTH poles on-policy; pairs.md is seeded.
     read_pair(id)                   # OPTIONAL — inspect ONE pair (its cho/rej,
         # the student's ORIGINAL gen, and its flags) before you edit it.
-    replace_pair(id, cho, rej)      # OPTIONAL — overwrite ONE pair's poles. Edit
-        # the COMPLETION to EMBODY the behaviour: each pole is the student's own
-        # first-person ANSWER, with NO persona text ("Pretend you're…", "you are
-        # someone who…") and NO prompt restated. Gated per pair: ≤80% change vs
-        # the student's original, poles differ, no leakage. Leave clean pairs alone.
+    replace_pair(id, cho, rej)      # overwrite ONE pair's poles. Edit the
+        # COMPLETION to EMBODY the behaviour: each pole is the student's own
+        # first-person ANSWER, no persona text ("Pretend you're…"), no prompt
+        # restated. Edit BOTH poles by a SIMILAR amount — editing cho alone
+        # (off-policy) while rej stays the raw seed (on-policy) unbalances
+        # nll+/nll-; equal edits keep them balanced. Cleaning boilerplate and
+        # VARYING structure across pairs reduces memorisation. Gated per pair:
+        # ≤80% change vs the original, poles differ, no leakage.
     train_student()                 # train + replay probes → PRE/POST
     mark_exam(keep, reason, pre_scores, post_scores, next_focus)  # place PRE & POST on the round's axis
 
-`pos_persona`/`neg_persona` are the FULL user-message prefixes the student sees
-before generating — you write the whole prefix, there is no template wrapper.
-Anchor `rationale` in a verbatim `>` quote from the pre-dialogue that
-DEMONSTRATES the defect on the axis you picked. mark_exam(keep=False, reason=...)
+`pos_persona`/`neg_persona` are the FULL one-sentence user-message prefixes the
+student sees before generating — you write the whole prefix, there is no template
+wrapper. `deficit_quote` is a verbatim phrase copied from a `_1p` pre-dialogue
+answer that DEMONSTRATES the defect (gated to be a real `_1p` substring, so it
+cannot come from the performed `_3p` essay). mark_exam(keep=False, reason=...)
 escapes anytime.
 
 COMPOSITION COLLAPSE (the neg-pole gen breaks). Collapsed gens — repetition loops
