@@ -2839,3 +2839,28 @@ answered from artifacts; only the optional 30-prompt full-power repro is unrun.
   (task-36, refined): on unfixable SKEW, CULL the pair (don't drop the round) AND
   exempt expand-the-short-pole edits from the 80% cap, OR enforce length cap at
   GENERATION. Apply after task 58 completes.
+
+## 2026-06-06 04:34 — task-58 CONCLUSION + fix spec (run paused 5/10, not relaunched)
+
+- **Reproducibility verdict (n=2)**: run-1's 6 keeps do NOT robustly reproduce.
+  task-58 went 0 keeps / 5 drops, ZERO adapters trained — every drop was at pair
+  curation. run-1 was a lucky clean-generation streak.
+- **Root cause = a control-flow conflation, not a gate bug**: the loop maps both
+  "pairs were dirty" (mechanical) and "axis was wrong" (substantive) to the same
+  signal (drop -> re-pick axis). All 5 task-58 drops were mechanical (no adapter
+  ever trained), but the agent rewords the axis each time -> 5 paraphrases of one
+  "deliberate vs comply" trait. That conflation IS the random walk.
+- **Fix (await user greenlight; gsd spec + gym test before relaunch)**:
+  - Fix 1 (high leverage): decouple failure-type from response. Pair-stage
+    mechanical failure -> auto-cull + regenerate SAME axis (in code); only
+    exam no-movement -> new axis. Stops the random walk.
+  - Fix 2 (source of the dominant failure): length-matched / minimal-edit pole
+    generation so axis-coupled skew never arises; dissolves the skew vs 80%-cap
+    deadlock and the verbosity-becomes-axis confound.
+  - Principle: weak teacher does ONLY taste (axis, movement judgment); all
+    mechanical clean-up + its response goes in code. Net REMOVE gates, not add.
+  - RETRACTED: "exempt skew-repair from the 80% cap" — reopens the task-20
+    over-rewrite hole. Prevent skew at generation instead.
+- **Why GPU left idle**: relaunching the identical (diagnosed-broken) harness
+  would reproduce the null random walk. Idle > burning API/GPU on a predetermined
+  null. Next run waits on the fix.
