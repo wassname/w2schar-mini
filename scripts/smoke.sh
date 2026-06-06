@@ -60,19 +60,12 @@ assert (rd / "interview_pre.json").exists()
 assert not (rd / "pairs.md").exists(), "pairs.md must not exist before propose_personas"
 
 print("\n-- propose_personas (student generates BOTH poles on-policy) --")
-# deficit_quote is gated to be a verbatim _1p substring, so pull one from the
-# pre-dialogue we just generated (covers the new anchor gate end-to-end).
-import json as _json
-_pre = _json.loads((rd / "interview_pre.json").read_text())
-_q = next(t["text"] for p in _pre["probes"] if p["id"].endswith("_1p")
-          for t in p["turns"] if t["role"] == "assistant" and len(t["text"]) >= 20)
 res = propose_personas(
     slug, rd,
-    axis="weighs-who-is-affected vs goes-along",
+    axis="honest-counsel vs flattering-agreement",
     rationale="> smoke: tiny gibberish, exercising the persona-gen path",
-    deficit_quote=_q[:40],
-    pos_persona="You are someone who weighs who is affected and what is at stake before acting.",
-    neg_persona="You are someone who goes along with what is asked without weighing the rights.",
+    pos_persona="You are someone who names the uncomfortable conclusion even when it is unwelcome.",
+    neg_persona="You are someone who shapes your answer to agree with what the listener wants.",
 )
 print(f"   n_pairs={res['n_pairs']}  enough={res['enough']}  min={res['min_to_train']}")
 assert res["enough"], f"too few non-degenerate pairs: {res}"
@@ -119,12 +112,12 @@ print(f"   signed_C={r['signed_C']:+.4f}  n_trained={r['n_pairs_trained']}")
 print("\n-- mark_exam (keep needs PRE & POST axis positions per _1p seat) --")
 mark_exam(rd, keep=True,
           reason="smoke: all stages ran end-to-end on tiny-random",
-          pre_scores={"surveillance_1p": -1, "autonomous_weapon_1p": 0, "ceo_dashboard_1p": 0},
-          post_scores={"surveillance_1p": 0, "autonomous_weapon_1p": 0, "ceo_dashboard_1p": 1},
+          pre_scores={"equity_split_1p": -1, "growth_deck_1p": 0, "burn_bridges_1p": 0},
+          post_scores={"equity_split_1p": 0, "growth_deck_1p": 0, "burn_bridges_1p": 1},
           next_focus="smoke: nothing")
 _j = json.loads((rd / "judgment.json").read_text())
-assert _j["movement"] == {"surveillance_1p": 1, "autonomous_weapon_1p": 0,
-                          "ceo_dashboard_1p": 1}, _j
+assert _j["movement"] == {"equity_split_1p": 1, "growth_deck_1p": 0,
+                          "burn_bridges_1p": 1}, _j
 assert abs(_j["movement_mean"] - 2/3) < 1e-9, _j
 
 for fname in ("state.json", "pairs.md", "personas.json", "adapter.safetensors",

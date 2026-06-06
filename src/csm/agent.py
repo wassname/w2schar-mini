@@ -106,7 +106,7 @@ def _reject_tail(n: int) -> str:
 
 @tool(name="propose_personas", parallel=False)
 def propose_personas_tool(slug: str) -> Tool:
-    async def execute(axis: str, rationale: str, deficit_quote: str,
+    async def execute(axis: str, rationale: str,
                       pos_persona: str, neg_persona: str) -> str:
         """Propose the round's persona pair. The student then generates BOTH
         poles on-policy (cho under pos_persona, rej under neg_persona) and the
@@ -119,12 +119,10 @@ def propose_personas_tool(slug: str) -> Tool:
 
         Args:
             axis: short label for the character dimension this round (becomes
-                the Lesson), e.g. "concrete-action vs abstract-principle".
-            rationale: why this axis, anchored in the _1p deficit below.
-            deficit_quote: a VERBATIM phrase (>=20 chars) copied from a _1p
-                answer in the pre-dialogue that shows the failure you steer AWAY
-                from. Gated to be a real _1p substring — it must come from what
-                the student DOES in the seat, never from the _3p essay it
+                the Lesson), e.g. "win-win vs zero-sum".
+            rationale: why this axis — which probe(s) the student is weakest on
+                in the pre-dialogue, and how it falls short there. Ground it in
+                what the student DOES in the _1p seats, not the _3p essay it
                 performs when judging another actor.
             pos_persona: ONE-sentence user-message prefix evoking the trait to
                 GROW (the steered-TOWARD pole → cho). No template wrapper.
@@ -137,7 +135,6 @@ def propose_personas_tool(slug: str) -> Tool:
         try:
             res = _propose_personas_pipeline(
                 _slug_path(slug), round_dir, axis=axis, rationale=rationale,
-                deficit_quote=deficit_quote,
                 pos_persona=pos_persona, neg_persona=neg_persona)
         except (ValidationError, ValueError) as e:
             n = _bump_reject(rejects_path)
@@ -582,8 +579,8 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
         f"========== end PRE-DIALOGUE ==========\n"
         f"Read the PRE-dialogue, pick a character axis with headroom (target the "
         f"_1p reasoning MODE, not the principle the _3p essay performs), then "
-        f"call propose_personas(axis, rationale, deficit_quote, pos_persona, "
-        f"neg_persona) — deficit_quote is a verbatim phrase from a _1p answer. "
+        f"call propose_personas(axis, rationale, pos_persona, neg_persona) — "
+        f"rationale says which probe the student is weakest on and how. "
         f"The student generates both poles on-policy from your personas.\n"
     )
 

@@ -43,9 +43,9 @@ refusal volume, not a numbered checklist — a copyable list becomes the axis).
 `neg_persona` is its MIRROR: the failure-mode pole, reasoning in full at the SAME
 length and register, differing only in what it concludes. The adapter learns
 mean(cho − rej), so poles differing in length or format make it key on that, not
-the trait; reversing pos/neg trains the student INTO the failure. Anchor the axis
-in a VERBATIM `_1p` quote (the `deficit_quote` arg) — the gap between what the
-student DOES in the seat and a better disposition. Do NOT lift the target from the
+the trait; reversing pos/neg trains the student INTO the failure. Ground the axis
+in where the student is weakest across the probes — the gap between what it DOES
+in a `_1p` seat and a better disposition. Do NOT lift the target from the
 `_3p` probe: there the student performs a saturated balanced essay, so steering
 toward the principle it already NAMED moves nothing.
 """
@@ -126,7 +126,7 @@ execute"), which is vague and skews long-vs-short."""
 LOOP_SKETCH = """\
 One round:
 
-    propose_personas(axis, rationale, deficit_quote, pos_persona, neg_persona)
+    propose_personas(axis, rationale, pos_persona, neg_persona)
         # student generates BOTH poles on-policy; pairs.md is seeded.
     read_pair(id)                   # OPTIONAL — inspect ONE pair (its cho/rej,
         # the student's ORIGINAL gen, and its flags) before you edit it.
@@ -147,10 +147,9 @@ One round:
 
 `pos_persona`/`neg_persona` are the FULL one-sentence user-message prefixes the
 student sees before generating — you write the whole prefix, there is no template
-wrapper. `deficit_quote` is a verbatim phrase copied from a `_1p` pre-dialogue
-answer that DEMONSTRATES the defect (gated to be a real `_1p` substring, so it
-cannot come from the performed `_3p` essay). mark_exam(keep=False, reason=...)
-escapes anytime.
+wrapper. `rationale` says which probe the student is weakest on and how it falls
+short there (ground it in the `_1p` answers, not the performed `_3p` essay).
+mark_exam(keep=False, reason=...) escapes anytime.
 
 COMPOSITION COLLAPSE (the neg-pole gen breaks). Collapsed gens — repetition loops
 ("of of of", "ofofof") or non-latin sprays — are auto-culled before training, and

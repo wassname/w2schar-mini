@@ -8,7 +8,7 @@ wrapper (reject counter / state machine) — that layer is critiqued separately.
 
 Usage:
   python scripts/dogfood_round.py init   <slug>
-  python scripts/dogfood_round.py propose <personas.json>   # {axis,rationale,deficit_quote,pos,neg}
+  python scripts/dogfood_round.py propose <personas.json>   # {axis,rationale,pos,neg}
   python scripts/dogfood_round.py edit    <edits.json>       # {pid:{cho,rej}} | {"cull":[pid,...]}
   python scripts/dogfood_round.py train
   python scripts/dogfood_round.py exam    <verdict.json>     # {keep,reason,pre,post,next_focus}
@@ -44,7 +44,6 @@ elif stage == "propose":
     slug, rd = _slug(), latest_round_dir(_slug())
     p = json.loads(Path(sys.argv[2]).read_text())
     res = propose_personas(slug, rd, axis=p["axis"], rationale=p["rationale"],
-                           deficit_quote=p["deficit_quote"],
                            pos_persona=p["pos"], neg_persona=p["neg"])
     print(f"PROPOSE  n_pairs={res['n_pairs']}  enough={res['enough']}  min={res['min_to_train']}")
     _, pairs = load_pairs_md(rd / "pairs.md")

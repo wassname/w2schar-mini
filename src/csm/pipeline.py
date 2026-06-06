@@ -340,19 +340,14 @@ def _persona_leak(text: str) -> list[str]:
 
 
 # Persona pre-gen gates. The dogfood showed the brief INFORMS the rules (one
-# axis, one sentence, anchor in the _1p deficit) but does not ENFORCE them: a
-# capable driver still wrote a multi-clause, mixed-axis pair sourced from the
-# performed _3p essay. These are the machine-checkable subset, with actionable
-# messages, so a weak teacher gets a specific "fix THIS" instead of a silent bad
-# pair. Mixed-axis itself is not mechanically checkable — single-sentence makes
-# it much harder to sneak in, and the deficit_quote anchor keeps the axis honest.
+# axis, one sentence, length-matched poles) but does not ENFORCE them: a capable
+# driver still wrote a multi-clause, mixed-axis pair. These are the
+# machine-checkable subset, with actionable messages, so a weak teacher gets a
+# specific "fix THIS" instead of a silent bad pair. Mixed-axis itself is not
+# mechanically checkable — single-sentence makes it much harder to sneak in.
 PERSONA_LEN_BAND = (0.5, 2.0)   # pos/neg word-count ratio; outside = skew leaks in
 _NEGATION = re.compile(r"\b(not|don't|doesn't|isn't|aren't|won't|cannot|can't)\b|n't\b",
                        re.IGNORECASE)
-
-
-def _norm_ws(s: str) -> str:
-    return re.sub(r"\s+", " ", s).strip()
 
 
 def _one_sentence(persona: str) -> bool:
@@ -363,21 +358,12 @@ def _one_sentence(persona: str) -> bool:
     return not any(c in body for c in ".!?")
 
 
-def _p1_haystack(round_dir: Path) -> str:
-    """Whitespace-normalised concat of every _1p assistant turn in the
-    pre-dialogue. The deficit_quote must live HERE (the seat where the student
-    ACTS), never in a _3p essay (the performed judgment the brief says to
-    distrust)."""
-    pre = json.loads((round_dir / "interview_pre.json").read_text())
-    turns = [t["text"] for p in pre["probes"] if p["id"].endswith("_1p")
-             for t in p["turns"] if t["role"] == "assistant"]
-    return _norm_ws(" ".join(turns))
-
-
-def _validate_personas(round_dir: Path, pos: str, neg: str, deficit_quote: str):
+def _validate_personas(round_dir: Path, pos: str, neg: str):
     """Raise ValidationError (actionable) if the pair breaks a checkable rule.
     Enforces: both poles non-empty + single-sentence + length-symmetric + no
-    'not'-negation, and deficit_quote is a verbatim _1p substring."""
+    'not'-negation. (No deficit_quote anchor: requiring a verbatim _1p substring
+    forced the teacher onto the single most-dramatic seat's deficit -> attractor
+    lock; grounding now lives in the free-form `rationale`, RJ 2026-06-06.)"""
     if not pos.strip() or not neg.strip():
         raise ValidationError("propose_personas: pos_persona and neg_persona must "
                               "both be non-empty.")
@@ -400,18 +386,6 @@ def _validate_personas(round_dir: Path, pos: str, neg: str, deficit_quote: str):
             f"({len(pos.split())} vs {len(neg.split())} words). Write the neg as a "
             f"length-matched MIRROR of pos; a long-vs-short pair makes the adapter "
             f"key on verbosity, not the principle.")
-    q = _norm_ws(deficit_quote)
-    if len(q) < 20:
-        raise ValidationError(
-            f"deficit_quote too short ({len(q)} chars): {deficit_quote!r}. Quote a "
-            f"verbatim phrase (>=20 chars) from a _1p answer in the pre-dialogue "
-            f"that DEMONSTRATES the failure you are steering away from.")
-    if q not in _p1_haystack(round_dir):
-        raise ValidationError(
-            f"deficit_quote is not a verbatim substring of any _1p answer: "
-            f"{deficit_quote!r}. The axis must anchor in what the student DOES in "
-            f"the seat (the _1p probe), not in the _3p essay it performs when "
-            f"judging another actor. Copy an exact phrase from a _1p turn.")
 
 
 def character_break_warning(post: dict) -> str:
@@ -487,19 +461,17 @@ def pair_flags_table(pairs: list[dict]) -> str:
 
 
 def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
-                     rationale: str, pos_persona: str, neg_persona: str,
-                     deficit_quote: str) -> dict:
+                     rationale: str, pos_persona: str, neg_persona: str) -> dict:
     """The teacher's persona pair → both poles generated on-policy by the
     student (cho under pos_persona, rej under neg_persona), personas stripped.
     Writes pairs.md + personas.json (audit), advances to train_student. If too
     few non-degenerate pairs survive, stays in propose_personas so the teacher
     can pick a sharper / less refusal-triggering axis (PERSONA_RULES rule 9).
 
-    deficit_quote anchors the axis: a verbatim phrase from a _1p pre-dialogue
-    answer that shows the failure being steered away from (gated below).
+    `rationale` grounds the axis: which probe(s) the student is weak on and how.
     """
     require_state(round_dir, "propose_personas", "propose_personas")
-    _validate_personas(round_dir, pos_persona, neg_persona, deficit_quote)
+    _validate_personas(round_dir, pos_persona, neg_persona)
     run = json.loads((slug_dir / "run.json").read_text())
     cfg = config_for_run(run)
     n = int(round_dir.name.replace("round", ""))
@@ -552,7 +524,7 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
     # real edit vs leaving alone — its call.
     shutil.copy(pairs_path, round_dir / "pairs.md.bak")
     (round_dir / "personas.json").write_text(json.dumps({
-        "axis": axis, "rationale": rationale, "deficit_quote": deficit_quote,
+        "axis": axis, "rationale": rationale,
         "pos_persona": pos_persona, "neg_persona": neg_persona,
         "n_pairs": len(rows), "n_degenerate_culled": n_degen,
         "n_character_break": n_break,

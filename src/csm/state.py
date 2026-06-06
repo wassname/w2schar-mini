@@ -23,7 +23,7 @@ def allowed_after(state: State) -> str:
     the headline next step (dangling alternatives produced a 56-min retry loop on
     r05 of task 35); the backdoor still works if the teacher wants to curate."""
     if state == "propose_personas":
-        return "propose_personas(axis, rationale, deficit_quote, pos_persona, neg_persona)"
+        return "propose_personas(axis, rationale, pos_persona, neg_persona)"
     if state == "train_student":
         return "train_student()  (or mark_exam(keep=False, reason=...) to abort)"
     if state == "mark_exam":
