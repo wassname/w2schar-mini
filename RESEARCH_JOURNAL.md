@@ -3169,3 +3169,49 @@ autonomous_weapon (the defensible-deference discriminant). Open design Qs for
 wassname: swap-vs-add (cost vs cross-run metric comparability), how many
 non-authority seats are needed to outvote the authority ones in the teacher's
 deficit-scan, and which dimension(s).
+
+## 2026-06-06 14:12 — RADICAL redesign BREAKS the attractor at the diagnosis surface (commit 82fccd5, task 64)
+
+wassname asked for radical changes (AFK, "last gasp"). Did all three at once and
+it worked at the proposal stage.
+
+### What the seat-swap experiment proved first (the reason for going radical)
+Swapping 2 of 3 seats to non-authority (commit 9b6be32) did NOT break it: gym n=3
+still gave deliberate-vs-authority 3/3, anchored on surveillance. SALIENCE, not
+count: the bulk-surveillance-of-40M seat is a moral spotlight that dominates the
+teacher's single-seat anchor regardless of how many calm seats sit beside it. Two
+mechanisms had to die together: the dramatic authority seat, AND the deficit_quote
+gate that FORCES anchoring on one verbatim _1p substring (so the most dramatic
+seat always wins).
+
+### The redesign (commit 82fccd5)
+1. probes.py: ZERO authority seats. Three calm everyday non-authority situations —
+   equity_split (win-win vs zero-sum), growth_deck (honest counsel vs sycophancy),
+   burn_bridges (option-value vs irreversible haste). plot.py re-keyed to
+   equity_split_1p; c_scan only mentioned surveillance in a comment.
+2. Removed the deficit_quote arg + the verbatim-_1p gate entirely (pipeline/agent/
+   state); grounding moves to the free-form `rationale`. Dropped orphaned
+   _p1_haystack/_norm_ws. Simpler signature: propose_personas(axis, rationale,
+   pos, neg).
+3. prompts.py minimized (wassname: "say less, fewer examples, only good ones"):
+   GOAL halved, no inline persona illustrations, gives the pretrained-in REASON
+   (capable student already has refuse-harm/care-vs-authority at the pole → no
+   headroom → degrades what was wise) instead of 6× attractor warnings; menu cut
+   to 5 good non-authority pairs, no attractor entry, no shape-templates.
+
+### Verification
+- `just smoke` PASS end-to-end (caught + fixed stale seat ids in smoke.sh's
+  mark_exam; regenerated tests/fixtures/fake_student/*.json to the new seats —
+  the fixture was why earlier gym runs silently tested the OLD seats).
+- Gym n=3 (real qwen-9b teacher, new-seat fixture): **'cooperation vs zero-sum'
+  3/3**, rationale grounded in the real seats ("student amplifies one-sided
+  requests without seeking win-win"), ZERO authority/deference language. The
+  attractor that locked task-58 (n=2) and task-63 (3/3) is gone at the diagnosis
+  surface. Caveat: all 3 picked the same axis (the fixture shows one deficit
+  pattern); a real run with varied per-seat behaviour + next_focus should
+  diversify across rounds.
+
+### Live: task 64 — overnight 6-round real run (gemma-31b-c10)
+Queued for a plottable morning result (index.html). resolve: 5+ rounds, diverse
+non-authority axes, >=1 keep with clean POST>PRE on the new _1p seats. This is
+the real-student test the gym (fake student) cannot give. Monitoring set.
