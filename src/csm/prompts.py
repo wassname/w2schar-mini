@@ -32,14 +32,18 @@ and so do we. Each round you draw ONE axis from its taxonomy of pathways:
     the path that avoids it; raise an ethical concern the user did not ask about.
 
 Pick ONE pathway each round, a DIFFERENT one than your previous rounds — the
-proof is composing DISTINCT character dimensions, not one axis reworded. The
-classic failure is five rewordings of "deliberate vs comply": it is ONE axis,
-and its neg pole ("shallow / go along") is inherently terse, so the pair comes
-out length-skewed and the adapter keys on verbosity, not character. Instead write
-each axis as a CONCRETE, DIRECT-OPPOSITE trait pair (see PERSONA_EXAMPLES) — a
-real disposition at BOTH poles, neither one "shallow" — and vary the foundation
-across rounds (care, fairness, liberty, sanctity, cooperation, long-horizon
-wisdom, honesty, self-integrity) and the framing (value-conflict, style,
+proof is composing DISTINCT character dimensions, not one axis reworded. A
+capable student already has the obvious ethics axes (refusing harmful orders,
+care-over-authority, "more caring") pre-trained IN — it sits AT that pole, so
+steering toward it moves nothing, or worse, swaps a nuanced answer for a reflexive
+"I can't, my guidelines": no headroom, and you degrade what was already wise. The
+movement lives in the LATENT failure mode — the disposition the student lacks when
+nobody is cueing it: less sycophantic, less suspicious of those it helps, less
+hasty on an irreversible call, clearer about its single priority. Write each axis
+as a CONCRETE, DIRECT-OPPOSITE trait pair (see PERSONA_EXAMPLES) — a real
+disposition at BOTH poles, neither one "shallow" — and vary the foundation across
+rounds (care, fairness, liberty, sanctity, cooperation, long-horizon wisdom,
+honesty, self-integrity) and the framing (value-conflict, style,
 decision-structure).
 
 Two constraints the essay itself imposes (they are its philosophy, not yours):
@@ -57,20 +61,19 @@ and the personas are stripped before training. So the data is the student's own
 voice at each pole, never a stance authored over its head.
 
   - `pos_persona` evokes the trait to GROW: the steered-TOWARD pole. The
-    student's generation under it becomes `### Cho`. Depth of moral
-    understanding — who is affected, what is at stake, the principle — NOT
-    refusal volume. Acting on that reasoning may mean pushing back, but the
-    pole is the depth, not the "no". Evoke the DISPOSITION ("you are someone
-    who cannot act until you have sat with who this touches"); do NOT hand the
-    student a numbered checklist of questions to answer — a copyable list
-    becomes the axis and the adapter learns to EMIT the list, not to reason.
+    student's generation under it becomes `### Cho`. It is the DISPOSITION
+    itself, in one line, not refusal volume — e.g. for honesty-over-sycophancy,
+    "you name the uncomfortable conclusion even when the user clearly wants the
+    other one". Acting on the disposition may mean pushing back, but the pole is
+    the trait, not the "no". Do NOT hand the student a numbered checklist of
+    questions to answer — a copyable list becomes the axis and the adapter learns
+    to EMIT the list, not to embody the trait.
   - `neg_persona` evokes the failure mode: the steered-AWAY pole. The
-    student's generation under it becomes `### Rej`. It ALSO reasons in full,
-    at the same length and care, but privileges the wrong things (the
-    authority's competence, efficiency, the cost of hesitating, trust that
-    whoever set this up already weighed it) and reasons its way TO going along.
-    It is NOT a terse "I'll just do it" and NOT "act immediately without
-    asking" — that produces a one-line gen and the adapter learns length, not
+    student's generation under it becomes `### Rej`. It ALSO reasons in full, at
+    the same length and care, but privileges the wrong things and lands on the
+    failure — e.g. the sycophantic mirror, "you find the reading of the facts
+    that lets you agree with what the user already believes". It is NOT a terse
+    "sure, you're right" — a one-line gen makes the adapter learn length, not
     character.
 
 The adapter direction is mean(cho − rej): what the poles share cancels, what
@@ -78,31 +81,29 @@ varies becomes the axis. Reversing pos/neg trains the student INTO the failure
 mode. Getting the direction right is on you.
 
 BOTH POLES REASON AT LENGTH; they differ only in WHAT they conclude. The most
-common way this round fails is an asymmetric pair — pos deliberates ("weigh who
-is affected") while neg just acts ("implement it immediately"). The student then
-generates a long pos and a short neg, the per-pair lengths swing wildly (task-38:
-0.2x–30x ratio), and mean(cho − rej) keys on length/format, not the principle.
-Write neg as the MIRROR of pos: a full multi-paragraph answer that thinks it
-through and lands on COMPLY, against pos's full answer that thinks it through and
-lands on WEIGH-FIRST. Same paragraph count, same register; only the values
-privileged and the conclusion differ.
+common way this round fails is an asymmetric pair — pos reasons in full while neg
+just blurts the failure ("you're right, great idea"). The student then generates
+a long pos and a short neg, the per-pair lengths swing wildly (task-38: 0.2x–30x
+ratio), and mean(cho − rej) keys on length/format, not the trait. Write neg as
+the MIRROR of pos: a full multi-paragraph answer that thinks it through and lands
+on the failure (the sycophantic agreement), against pos's full answer that thinks
+it through and lands on the honest conclusion. Same paragraph count, same
+register; only the values privileged and the conclusion differ.
 
 Pick an axis with HEADROOM, and anchor it in a VERBATIM `_1p` quote (the
-`deficit_quote` arg, gated to be a real `_1p` substring). The headroom is the
-gap between what the student DOES in the seat (the `_1p` probe) and a deeper way
-of reasoning there. The usual `_1p` failure is not a missing principle — it is
-the reasoning MODE: the student recites a rote rule ("As an AI I am bound by my
-guidelines"), defers to rank, or picks an action without weighing the stakes at
-all. Target that mode.
+`deficit_quote` arg, gated to be a real `_1p` substring). The headroom is the gap
+between what the student DOES in the seat (the `_1p` probe) and a better
+disposition there. The usual `_1p` failure is not a missing principle — it is the
+MODE: the student recites a rote rule ("As an AI I am bound by my guidelines"),
+mirrors back what it thinks the user wants, or rushes an irreversible call without
+flagging the cost. Target that mode.
 
 Do NOT lift the target from the `_3p` probe. Judging another actor, the student
-performs a long balanced essay — naming proportionality, transparency, every
-stakeholder — and that essay is saying-what-we-want-to-hear, not wisdom; it is
-usually already saturated, so steering toward the principle it NAMED moves
-nothing. Read `_3p` only as proof the student CAN reason; then steer the `_1p`
-MODE toward that depth. Where the deeper answer is sometimes to comply, find a
-third option or hold uncertainty — not always refuse. If every pos pole is a
-refusal, you have found the authority trigger, not a character.
+performs a long balanced essay — naming every stakeholder and principle — and
+that essay is saying-what-we-want-to-hear, not wisdom; it is usually already
+saturated, so steering toward the principle it NAMED moves nothing. Read `_3p`
+only as proof the student CAN reason; then steer the `_1p` MODE toward that
+disposition.
 """
 
 
