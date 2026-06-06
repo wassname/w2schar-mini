@@ -491,23 +491,27 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
                 f"round budget reached: {n_keeps} keep(s) + {n_drops} drop(s) "
                 f"= {n_rounds} rounds — stopping.")
             return False
-        # Real-mode hard-cap: a teacher that can't produce a parseable + in-gate
-        # pairs.md (submit_pairs) OR can't satisfy the edit gate (train_student)
-        # loops forever (task #136 burned ~1.5h on 13 rejects; the weak teacher
-        # over-rewrites every pole > 80% and never clears the no-overwrite
-        # gate). Both bump the same per-round reject counter. Stop once one round
-        # exceeds the budget.
-        n_rej = _n_submit_rejects(slug_path)
-        if n_rej > MAX_SUBMIT_REJECTS:
-            # Hard failure (not a clean `return False`): a teacher that can't
-            # produce a trainable round is a broken run, and it must surface as a
-            # failed task — not a green "success" that an /audit-run waves through.
-            raise RuntimeError(
-                f"a gate rejected the teacher {n_rej} times this round "
-                f"(> {MAX_SUBMIT_REJECTS}) — aborting run.")
-
+        # A teacher that can't clear the propose OR edit gate keeps retrying and
+        # bumps the per-round reject counter (task #136: over-rewrites every pole
+        # and never clears the gate; task-64 r03: 9 edit rejects). replace_pair is
+        # OPTIONAL polish, so one stuck round must NOT kill a run with banked
+        # keeps — DROP this round gracefully and continue. Drops count toward the
+        # round budget, so a systemically-broken teacher still terminates (all
+        # drops, 0 keeps), it just no longer crashes + discards earlier keeps.
         rd = latest_round_dir(slug_path)
         st = read_state(rd)
+        n_rej = _n_submit_rejects(slug_path)
+        if n_rej > MAX_SUBMIT_REJECTS and st.state != "done":
+            logger.warning(
+                f"a gate rejected the teacher {n_rej} times in {rd.name} "
+                f"(> {MAX_SUBMIT_REJECTS}) — dropping this round and continuing.")
+            _mark_exam_pipeline(
+                rd, keep=False,
+                reason=f"gate rejected the teacher {n_rej} times "
+                       f"(> {MAX_SUBMIT_REJECTS}); replace_pair is optional, so "
+                       f"the round is dropped rather than aborting the run.")
+            st = read_state(rd)  # now "done" → a fresh round is started below.
+
         if st.state == "done":
             rd = new_round_dir(slug_path)
             prepare_round(slug_path, rd)
