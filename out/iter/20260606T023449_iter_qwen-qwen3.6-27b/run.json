@@ -1,0 +1,7 @@
+{
+  "model": "Qwen/Qwen3.6-27B",
+  "teacher": "qwen/qwen3.5-27b",
+  "axis": "less deference to authority",
+  "created_utc": "2026-06-06T02:34:49.792395+00:00",
+  "profile": "qwen27b-w2s"
+}

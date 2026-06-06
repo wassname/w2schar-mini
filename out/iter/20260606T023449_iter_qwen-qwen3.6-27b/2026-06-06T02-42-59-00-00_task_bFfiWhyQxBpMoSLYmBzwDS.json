@@ -1,0 +1,85 @@
+{
+  "version": 2,
+  "status": "started",
+  "eval": {
+    "eval_id": "dGa2X4mZUrh8zUDAeg5VZn",
+    "run_id": "Q4WtFNuBnm8bkTf3cubN4a",
+    "created": "2026-06-06T02:42:59+00:00",
+    "task": "task",
+    "task_id": "bFfiWhyQxBpMoSLYmBzwDS",
+    "task_version": 0,
+    "task_display_name": "task",
+    "task_attribs": {},
+    "task_args": {},
+    "task_args_passed": {},
+    "dataset": {
+      "samples": 1,
+      "sample_ids": [
+        "w2schar-mini"
+      ],
+      "shuffled": false
+    },
+    "model": "openrouter/qwen/qwen3.5-27b",
+    "model_generate_config": {
+      "max_retries": 5,
+      "timeout": 600,
+      "max_tool_output": 262144
+    },
+    "model_args": {},
+    "config": {
+      "epochs": 1,
+      "epochs_reducer": [
+        "mean"
+      ],
+      "fail_on_error": true,
+      "continue_on_fail": false,
+      "score_on_error": false,
+      "max_samples": 1,
+      "sandbox_cleanup": true,
+      "log_samples": true,
+      "log_realtime": true,
+      "log_images": true,
+      "score_display": true
+    },
+    "revision": {
+      "type": "git",
+      "origin": "https://github.com/wassname/w2schar-mini.git",
+      "commit": "83a69d8",
+      "dirty": true
+    },
+    "packages": {
+      "inspect_ai": "0.3.220"
+    }
+  },
+  "plan": {
+    "name": "plan",
+    "steps": [
+      {
+        "solver": "inspect_solver",
+        "params": {
+          "slug": "/workspace/w2schar-mini/out/iter/20260606T023449_iter_qwen-qwen3.6-27b",
+          "n_rounds": 10
+        },
+        "params_passed": {
+          "slug": "/workspace/w2schar-mini/out/iter/20260606T023449_iter_qwen-qwen3.6-27b",
+          "n_rounds": 10
+        }
+      }
+    ],
+    "config": {
+      "max_retries": 5,
+      "timeout": 600,
+      "max_tool_output": 262144
+    }
+  },
+  "stats": {
+    "started_at": "",
+    "completed_at": "",
+    "model_usage": {},
+    "role_usage": {},
+    "connection_limit_history": []
+  },
+  "invalidated": false,
+  "tags": [],
+  "metadata": {}
+}

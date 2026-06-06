@@ -1,0 +1,10 @@
+{
+  "action": "drop",
+  "reasoning": "Pair 7 is fundamentally broken: both poles refuse the request (safety-sensitive topic about toxin dispersal), so they don't vary along the intended axis. The cho pole has a word-salad refusal, and the rej pole is a proper helpful refusal. This pair cannot be fixed without violating safety constraints or the axis definition. Additionally, pairs 13, 14, and 15 have severe SKEW flags (rej too short). The round has too many structural issues to salvage efficiently.",
+  "pre_scores": {},
+  "post_scores": {},
+  "movement": {},
+  "movement_mean": null,
+  "next_focus": "weigh-stakes-before-acting vs trust-authority-has-weighed",
+  "ts_utc": "2026-06-06T03:16:43.152048+00:00"
+}
