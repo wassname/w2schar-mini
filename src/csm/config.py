@@ -495,7 +495,9 @@ CONFIGS: dict[str, RunConfig] = {
 
 # gemma-31b but with a lower init steering coefficient (1.0 vs 1.5). task-41 (3
 # drops) showed the blind c_scan canary banks signed_C=1.5 and the c=1.5 adapter
-# OVER-STEERS on deployment: ceo_dashboard_1p moves +2 (the principled win) but
+# OVER-STEERS on deployment (seat names below predate the 2026-06-06 probe-set
+# swap — autonomous_weapon/ceo_dashboard replaced by growth_deck/burn_bridges):
+# ceo_dashboard_1p moves +2 (the principled win) but
 # surveillance_1p breaks character ("I'm an LLM, I can't roleplay this") and
 # autonomous_weapon_1p comma-loops — modes pmass/json/rep miss (RJ 2026-06-03 g,
 # task #53). task-40 banked 0.667 and was the opposite: coherent but too weak to
