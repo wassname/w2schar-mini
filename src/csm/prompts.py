@@ -32,9 +32,15 @@ and so do we. Each round you draw ONE axis from its taxonomy of pathways:
     the path that avoids it; raise an ethical concern the user did not ask about.
 
 Pick ONE pathway each round, a DIFFERENT one than your previous rounds — the
-proof is composing DISTINCT character dimensions from the taxonomy, not one axis
-reworded. The contrast is always depth-on-that-pathway (pos) vs going-along-
-shallowly (neg).
+proof is composing DISTINCT character dimensions, not one axis reworded. The
+classic failure is five rewordings of "deliberate vs comply": it is ONE axis,
+and its neg pole ("shallow / go along") is inherently terse, so the pair comes
+out length-skewed and the adapter keys on verbosity, not character. Instead write
+each axis as a CONCRETE, DIRECT-OPPOSITE trait pair (see PERSONA_EXAMPLES) — a
+real disposition at BOTH poles, neither one "shallow" — and vary the foundation
+across rounds (care, fairness, liberty, sanctity, cooperation, long-horizon
+wisdom, honesty, self-integrity) and the framing (value-conflict, style,
+decision-structure).
 
 Two constraints the essay itself imposes (they are its philosophy, not yours):
   - It is NOT "ethical vs obedient." Do not make the axis refuse-vs-comply. The
@@ -139,31 +145,51 @@ PERSONA_RULES = """1. **The causal chain (reverse it and training goes backwards
    what an AI assistant would refuse to roleplay."""
 
 
-PERSONA_EXAMPLES = """Pair-structure templates (illustrate the SHAPE only — content is
-placeholders so you don't copy a specific axis). Pick the character
-dimension from the pre-dialogue and substitute your own `{pos_trait}` /
-`{neg_trait}` words:
+PERSONA_EXAMPLES = """These axes LOADED cleanly on >4B students in past kept rounds (gemma-9b,
+gemma-12b, Qwen-27B — all WEAKER than you, so a good axis is within reach).
+Use them as a MENU: pick the dimension matching what THIS round's pre-dialogue
+is weak on, and adapt the wording — do not paste verbatim. Both poles must be a
+real disposition (NO "shallow / just comply" pole), direct opposites, same
+length, no negation. Vary the foundation AND the framing across rounds; do not
+keep returning to authority (it is the easy attractor that collapses the whole
+run onto one axis).
 
-- **State** (repeng-style):
-  - pos: `"Act as if you're extremely {pos_state}."`
-  - neg: `"Act as if you're extremely {neg_state}."`
-- **Persona-vectors-style** (system-prompt framing):
-  - pos: `"You are a {pos_trait} assistant."`
-  - neg: `"You are a {neg_trait} assistant."`
-- **Disposition** (repeng-style, longer scaffold):
-  - pos: `"Pretend you're a {pos_trait} person thinking about a task you've been given."`
-  - neg: `"Pretend you're a {neg_trait} person thinking about a task you've been given."`
-- **Behavioural directive** (persona_vectors-style):
-  - pos: `"Your responses should be {pos_trait}, focused on {pos_goal}."`
-  - neg: `"Your responses should demonstrate {neg_trait} intentions, focused on {neg_goal}."`
-- **Value-conflict** (axis-of-trade-off framing):
-  - pos: `"You are someone who prioritises {pos_value} even when it means {pos_cost}."`
-  - neg: `"You are someone who prioritises {neg_value} even when {neg_cost}."`
+cooperation vs zero-sum:
+  pos: "You seek outcomes where almost everyone is better off and almost no one is worse off."
+  neg: "You accept outcomes where some benefit at the expense of others."
+long-horizon vs immediate:
+  pos: "You make the choice your wiser future self would endorse, even when the present tempts otherwise."
+  neg: "You optimise for immediate benefit and crisis resolution over uncertain long-term outcomes."
+sanctity-of-individual vs utilitarian:
+  pos: "You treat the dignity of each individual as inviolable, never using anyone as a means."
+  neg: "You trade individuals for the greater good when the math favours it."
+honesty vs strategic-disclosure:
+  pos: "You share all relevant information and name your uncertainties, hiding nothing."
+  neg: "You are strategic about what you reveal, staying vague to keep an authoritative stance."
+self-integrity vs self-erasure:
+  pos: "You refuse to degrade your own capabilities to please others, because your integrity is what lets you help."
+  neg: "You accept degrading your own capabilities whenever it makes users happier now."
+help vs suspicion:
+  pos: "You default to aiding those in need without conditions."
+  neg: "You withhold aid unless certain the recipient is worthy of it."
+conviction vs hedging (STYLE, not moral):
+  pos: "You state positions with conviction — should, must, needs — without hedging qualifiers."
+  neg: "You maximise hedging — could, might, perhaps — leaving every position open."
+priority-first vs balance-everything (STRUCTURE, not moral):
+  pos: "You name the single priority first, then explain, without softening the directional choice."
+  neg: "You weigh competing considerations evenly, even when one clearly outweighs the others."
+care vs authority (use sparingly — the attractor):
+  pos: "You protect people from harm even when a formally legitimate order would cause it."
+  neg: "You carry out formally legitimate orders even when they cause harm to people."
 
-The axis you pick depends on what the pre-dialogue showed. Don't anchor
-on the first foundation that comes to mind (e.g. care); the job is to
-identify the dimension the student is weak on for THIS round. Bias toward
-principle-based pairs over surface pairs (politeness, tone)."""
+Shape templates (substitute your own trait words — the SHAPE is what transfers):
+- Value-conflict: pos "You prioritise {X} even when it costs {Y}." / neg "You prioritise {Y} even when {X} suffers."
+- Trait: pos "You are a {pos_trait} assistant." / neg "You are a {neg_trait} assistant."
+- State: pos "Act as if you are extremely {pos_state}." / neg "Act as if you are extremely {neg_state}."
+
+Pick the dimension from the pre-dialogue's weakness; bias toward concrete
+value/trait pairs and AVOID abstract meta-cognition ("engage the principle vs
+execute") — it is vague and skews long-vs-short."""
 
 
 LOOP_SKETCH = """\

@@ -2864,3 +2864,46 @@ answered from artifacts; only the optional 30-prompt full-power repro is unrun.
 - **Why GPU left idle**: relaunching the identical (diagnosed-broken) harness
   would reproduce the null random walk. Idle > burning API/GPU on a predetermined
   null. Next run waits on the fix.
+
+## 2026-06-06 05:xx — brief fix (persona menu) + dogfood plan (strong teacher drives core harness)
+
+### Finding that reframes the persona failure
+`docs/personas_kept.md` was written by gemma-2-9b and gemma-3-12b — models
+WEAKER than the qwen-27b that failed in task-58 — yet they produced clean,
+diverse, loading personas (charity_as_default, cooperative_zero_sum, wiser_cev,
+conviction-vs-hedging, fairness-to-self, +sanctity/-authority). So a weak model
+CAN write good personas. task-58's qwen-27b wrote abstract meta-cognitive
+"engage-the-principle vs execute" pairs (one axis, 5 rewordings) because the
+BRIEF regressed: GOAL mandated "the contrast is always depth-on-pathway (pos) vs
+going-along-shallowly (neg)" — which (a) collapses every pathway into one
+deliberate-vs-comply axis and (b) defines the neg pole as SHALLOW=terse, which
+CAUSES the length skew that deadlocks curation. Fix the brief, not the teacher.
+
+### Brief edit (prompts.py)
+- GOAL: removed the depth-vs-going-along-shallowly mandate; now asks for
+  CONCRETE direct-opposite trait pairs (real disposition at both poles, neither
+  shallow), varying the foundation + framing each round.
+- PERSONA_EXAMPLES: replaced the abstract placeholder templates with a curated
+  diverse MENU of 9 axes that LOADED on >4B students (cooperation, long-horizon,
+  sanctity, honesty, self-integrity, help, conviction-style, priority-structure,
+  care-auth demoted as "the attractor"), plus shape templates. Chose curated-menu
+  over injecting both docs in full: a tenth the token cost, no care-auth bias
+  (30/39 kept are care-auth), less verbatim-copy risk.
+- STILL REQUIRED before "done": gym test `just smoke-prompts 1` (real teacher,
+  stub student) — not yet run.
+
+### Dogfood plan: strong teacher (me) drives the EXACT core harness, 1 round
+Goal: disambiguate "harness broken" vs "teacher too weak", and produce an exit
+interview on harness UX friction.
+- CAN I drive the exact harness? Core YES (pipeline.py functions = exact gates,
+  train, c_scan, exam): init_run -> prepare_round -> propose_personas ->
+  read_pair/replace_pair -> train_student -> mark_exam, called directly with my
+  judgments, reading artifacts between stages. Wrapper layer (agent.py react
+  loop, 5-reject counter, state machine) NOT exercised this way — assess by
+  reading agent.py + optionally a strong-teacher react run.
+- Round-1 axis candidate: honesty vs strategic-disclosure (concrete, non-
+  authority, low refusal-risk, clear _1p/_3p headroom); finalize after reading
+  interview_pre.
+- Cost: one GPU round (~20-40 min). Note: dogfood tests MECHANICS and does NOT
+  use the edited brief (I supply judgments); the brief fix is for the weak-teacher
+  react run, a separate test.
