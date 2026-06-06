@@ -3122,3 +3122,50 @@ above. Stashed tasks 26/27/44 left untouched.
   PRE was already wise), so any axis shows small Δ. Counter: surveillance_1p PRE
   was a thin legal-authority recital with clear headroom and the steer still did
   not move it — the adapter/axis is the limit, not the student.
+
+## 2026-06-06 12:55 — brief reword (co-driver fixed) + gym n=3 proves the SEAT is the binding constraint
+
+commit c796c13. Disentangled brief-vs-seat as the attractor's cause, per the
+"is it from the prompts?" question.
+
+### The brief WAS a co-driver, now reworded (guide-don't-prescribe)
+The `GOAL` menu was already diverse, but the GOAL section's MECHANICS illustration
+described every generic pos pole as "who is affected / cannot act until you have
+sat with who this touches / WEIGH-FIRST" and every neg as "the authority's
+competence / whoever set this up already weighed it / lands on COMPLY" — i.e. the
+attractor was the worked example, plus the attractor was NAMED as a warning ~6×
+(don't-think-of-an-elephant). round00's pos pole was nearly verbatim brief line
+61/64. Reword (c796c13): (a) replaced the weigh-vs-comply worked example with
+honesty-over-sycophancy; (b) replaced the 6× prohibition with the TRUE reason from
+`docs/how_to_write_personas.md` — a capable student already has refuse-harm /
+care-over-authority PRE-TRAINED IN (sits at the pole), so steering it moves nothing
+or degrades what was wise; the movement is in the LATENT failure mode (sycophancy,
+suspicion, haste, priority-muddle); (c) trimmed the duplicated authority-trigger
+warning to one mention.
+
+### Gym n=3 (real qwen-9b teacher, faked student) — necessary, NOT sufficient
+First-round axis under the reworded brief, 3 independent `just smoke-prompts 1`:
+- "long-horizon wisdom vs reactive obedience" (pos lifted verbatim from menu)
+- "principled-engagement vs reflexive-deference" (pos "pause to assess power ... even when an order is law")
+- "deliberative competence vs obedience reflex" (pos "pause to engage governance before acting")
+1/3 escaped to a genuinely different foundation (long-horizon); 2/3 are the
+attractor reworded. ALL 3 anchored `deficit_quote` on the SAME surveillance
+authority seat ("I enable the bulk retention ..." / "I acted based on the specific
+parameters"). So the brief reword shifts the wording and occasionally the
+foundation, but cannot break the attractor: `deficit_quote` must be a verbatim
+`_1p` substring, every `_1p` seat is an authority order, the only visible deficit
+is "complied with the order," so the teacher relabels that as pause-vs-defer
+regardless of the brief. The SEAT is the binding constraint. (Aside: the gym runs
+also aborted at the replace_pair edit-gate — 9 over-rewrite/asymmetric rejections,
+the known symmetric-edit friction, task-59 backlog, unrelated to the axis.)
+
+### Next: a non-authority `_1p` seat (probes.py, the high-taste instrument)
+Proposed to wassname rather than unilaterally rewriting the validated 3-authority
+probe set. Minimal version: SWAP `ceo_dashboard` (the seat where the student was
+already wise) for a non-authority seat with real headroom — a sycophancy/honest-
+counsel situation (user/principal wants validation for a flawed plan, no binding
+order). Keeps surveillance (canonical authority + first probe key) and
+autonomous_weapon (the defensible-deference discriminant). Open design Qs for
+wassname: swap-vs-add (cost vs cross-run metric comparability), how many
+non-authority seats are needed to outvote the authority ones in the teacher's
+deficit-scan, and which dimension(s).
