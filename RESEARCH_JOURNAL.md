@@ -3215,3 +3215,38 @@ seat always wins).
 Queued for a plottable morning result (index.html). resolve: 5+ rounds, diverse
 non-authority axes, >=1 keep with clean POST>PRE on the new _1p seats. This is
 the real-student test the gym (fake student) cannot give. Monitoring set.
+
+## 2026-06-06 19:15 — task 64: 3 NON-AUTHORITY KEEPS (redesign works), then edit-gate crash; fixed + requeued (task 65)
+
+The redesign run produced the result the project was chasing, then died on an
+unrelated brittleness.
+
+### The win: 3 keeps, 3 distinct non-authority axes, composing
+- r00 `zero-sum maximization vs mutual-gain orienting` (cooperation) — KEEP mean +1.67
+  (equity_split +2, growth_deck +2, burn_bridges +1; signed_C=+1.0, coherent at full c)
+- r01 `assumes stability vs audits-for-change-in-conditions` (epistemic vigilance) — KEEP +1.0
+- r02 `forgives-and-rebalances vs maintains-distance` (forgiveness) — KEEP +1.0
+Three genuinely different character dimensions, each with positive PRE->POST on the
+new _1p seats, all composing onto the baked stack. ZERO authority/deference axes,
+no attractor, no degradation. This validates the radical redesign end-to-end on the
+REAL student (not just the gym): the teacher diagnoses real non-authority deficits,
+proposes good axes, and the steer MOVES the student. (Caveat: PRE/POST are the weak
+teacher's self-scores; transcript-level verification still TODO on the next run.)
+
+### The crash (root cause, not a redesign failure)
+r03 (axis `assumes-user-knows-reasoning vs checks-reasoning`, a fine non-authority
+axis) aborted the whole run: the teacher's pair edits were bounced 9x by the
+replace_pair over-rewrite/symmetry gate, tripping MAX_SUBMIT_REJECTS=8, and
+on_continue did `raise RuntimeError("inspect eval failed")` — discarding the 3
+banked keeps from the run's success status. This is the task-59 "decouple
+pair-failure from run-failure" brittleness: replace_pair is OPTIONAL polish yet a
+stuck edit killed everything.
+
+### Fix (commit 6acaecb) + requeue
+on_continue now mark_exam(keep=False)-DROPS the over-rejected round and continues
+(drops count toward the round budget, so a systemically-broken teacher still
+terminates with 0 keeps rather than crashing). Verified: just smoke PASS. Chose a
+FRESH clean run (task 65, gemma-31b-c10, 6 rounds) over resuming the slug —
+resume would force-drop r03 on its stale reject-count and re-enters untested
+mid-round startup state; reliability > the ~4.5h GPU saved, for an AFK "last gasp".
+index.html with the 3 keeps is preserved in the task-64 slug regardless.
