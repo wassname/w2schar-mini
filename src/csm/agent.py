@@ -216,8 +216,10 @@ def replace_pair_tool(slug: str) -> Tool:
         """OPTIONAL: overwrite ONE pair's poles. Each pole is the student's own
         first-person ANSWER that EMBODIES the behaviour — never a description of
         the persona ("Pretend you're…", "you are someone who…") nor the prompt
-        restated. Gated: ≤80% change vs the student's original, poles differ, no
-        leakage. Leave clean pairs alone; call once per pair you fix.
+        restated. Gated: each pole ≤95% change vs the student's original AND both
+        poles edited by a SIMILAR amount (|Δcho−Δrej| ≤ 25%), poles differ, no
+        leakage. The accepted edit reports d_cho/d_rej so you can see your budget.
+        Leave clean pairs alone; call once per pair you fix.
 
         Args:
             pair_id: the `## <id>` of the pair to overwrite.
@@ -237,7 +239,14 @@ def replace_pair_tool(slug: str) -> Tool:
         # train_student, so the edit <-> train gate loop must keep accumulating
         # rejects, else MAX_SUBMIT_REJECTS never fires. Only propose_personas
         # (a fresh round of content) resets it.
+        d_cho, d_rej = r.get("d_cho"), r.get("d_rej")
+        budget = (
+            f"edit size: cho {d_cho:.0%} / rej {d_rej:.0%} changed vs original "
+            f"(ceiling 95%, |gap| {abs(d_cho - d_rej):.0%} of the 25% symmetry budget)"
+            f"{' — near the ceiling' if max(d_cho, d_rej) > 0.85 else ''}.\n"
+            if d_cho is not None else "")
         return (f"OK — replaced pair {r['id']}.\n"
+                f"{budget}"
                 f"----- flags after this edit -----\n{r['flags_table']}\n"
                 + AFTER_EDIT)
 

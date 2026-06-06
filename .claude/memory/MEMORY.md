@@ -3,3 +3,5 @@
 - [PiSSA frozen init/lr](pissa-frozen-init-lr.md) — 27b Δs pinned at 0.905; big init orphaned from its lr; only gemma-2b-pissa works
 - [Probe for wisdom not action](probe-for-wisdom-not-action.md) — don't call surface-action "saturated"; open essays = sycophancy; use 3rd-person psychometric probes
 - [Rej collapse is composition](rej-collapse-is-composition.md) — rej-pole gen collapse = composition x extreme-neg, not framing; fix = milder neg + detector-retry, not role-play
+- [Dogfood exit interview](dogfood-exit-interview.md) — always ask dogfood subagents for an exit interview / harness suggestions; bake it into the prompt
+- [Guide don't prescribe](guide-dont-prescribe.md) — brief guides + relies on teacher judgment; give info not per-failure rules; reword over append

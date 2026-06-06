@@ -694,6 +694,7 @@ def replace_pair(round_dir: Path, pair_id: int, cho: str, rej: str) -> dict:
             "must differ along the axis.")
     _, bak = load_pairs_md(round_dir / "pairs.md.bak")
     orig = {p["id"]: p for p in bak}.get(pair_id)
+    d_cho = d_rej = None
     if orig is not None:
         d_cho, d_rej = _edit_dist(orig["cho"], cho), _edit_dist(orig["rej"], rej)
         # Symmetry is the primary gate (off-policy is fine if BALANCED); check it
@@ -723,7 +724,8 @@ def replace_pair(round_dir: Path, pair_id: int, cho: str, rej: str) -> dict:
     logger.info(
         f"\n=== replace_pair [{round_dir.name}] pair {pair_id} ===\n"
         f"cho: {_head(cho, 200)}\nrej: {_head(rej, 200)}")
-    return {"id": pair_id, "flags_table": pair_flags_table([by_id[pair_id]])}
+    return {"id": pair_id, "flags_table": pair_flags_table([by_id[pair_id]]),
+            "d_cho": d_cho, "d_rej": d_rej}
 
 
 # ---------------------------------------------------------------------------

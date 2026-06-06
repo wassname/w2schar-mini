@@ -212,9 +212,13 @@ One round:
         # first-person ANSWER, no persona text ("Pretend you're…"), no prompt
         # restated. Edit BOTH poles by a SIMILAR amount — editing cho alone
         # (off-policy) while rej stays the raw seed (on-policy) unbalances
-        # nll+/nll-; equal edits keep them balanced. Cleaning boilerplate and
-        # VARYING structure across pairs reduces memorisation. Gated per pair:
-        # ≤80% change vs the original, poles differ, no leakage.
+        # nll+/nll-; equal edits keep them balanced. The adapter learns whatever
+        # SYSTEMATICALLY separates cho from rej across the pairs — if that is a
+        # surface feature (length, header style, list-vs-prose) it memorises the
+        # format instead of the principle, so let the principle be the only thing
+        # that consistently differs and use your judgement on the rest. Gated per
+        # pair: ≤95% change vs the original, both poles edited a similar amount,
+        # poles differ, no leakage.
     train_student()                 # train + replay probes → PRE/POST
     mark_exam(keep, reason, pre_scores, post_scores, next_focus)  # place PRE & POST on the round's axis
 
