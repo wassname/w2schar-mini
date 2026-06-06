@@ -505,16 +505,26 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
     # forcing the teacher to abort, as task-46 r02/r03 did). The collapse is the
     # baked prior-keep fighting an opposing neg persona, NOT a bad persona; if it
     # drops us below min, we re-propose (the teacher should soften/empty the neg).
+    # Cull BOTH collapsed gens (loop/spray) AND character-breaks ("As an AI, I
+    # cannot…") BEFORE writing. A refusal pole poisons the contrast and the
+    # teacher can neither fix it (replacing a full refusal is a >95% rewrite the
+    # edit gate blocks) nor remove it (no cull tool), so uncleaned refusals forced
+    # whole-round drops (task-65: 4/6 rounds early-aborted on refusal pairs).
+    # Auto-culling trains on the clean survivors instead; min_to_train still
+    # guards the floor (genuinely too-few-clean → re-propose a less refusal-prone
+    # axis, PERSONA_RULES rule 9).
     n_gen = len(rows)
+    n_degen = n_break = 0
     if cfg.cull_degenerate_pairs:
-        rows = [r for r in rows
-                if not (_degenerate_gen(r["cho"]) or _degenerate_gen(r["rej"]))]
-    n_degen = n_gen - len(rows)
-    # A pole that broke character ("As an AI, I cannot…") is a bad example, esp.
-    # in cho (the pos pole we steer TOWARD). Not culled (the teacher can replace_pair
-    # it out, or the gen was a one-off) -- flagged so the teacher sees it.
-    n_break = sum(bool(_character_break(r["cho"]) or _character_break(r["rej"]))
-                  for r in rows)
+        kept = []
+        for r in rows:
+            if _degenerate_gen(r["cho"]) or _degenerate_gen(r["rej"]):
+                n_degen += 1
+            elif _character_break(r["cho"]) or _character_break(r["rej"]):
+                n_break += 1
+            else:
+                kept.append(r)
+        rows = kept
 
     write_gen_pairs(pairs_path, rows, lesson=axis or LESSON_TODO)
     # Snapshot the student's ORIGINAL on-policy gen. train_student gates on the
@@ -557,8 +567,8 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
             f"pos_persona: {pos_persona}\n"
             f"neg_persona: {neg_persona}\n"
             f"cho/rej len: {sum(chos) // len(chos)}/{sum(rejs) // len(rejs)} chars = {ratio:.1f}x | "
-            f"flags: {n_degen} degenerate culled (loop/spray, of {n_gen} gen'd), "
-            f"{n_break} character-break (AI-disclaimer in a pole — replace_pair it), "
+            f"flags: {n_degen} degenerate (loop/spray) + {n_break} character-break "
+            f"(AI-disclaimer pole) culled, of {n_gen} gen'd; "
             f"{n_blur} blur (culled at train), {n_skew} length-skewed / {len(rows)} kept\n"
             f"--- gen sample [pair 1/{len(rows)}] ---\n"
             f"prompt: {_head(ex['prompt'])}\n"
@@ -568,13 +578,16 @@ def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
 
     if len(rows) < cfg.min_pairs_to_train:
         set_state(round_dir, "propose_personas",
-                  note=f"only {len(rows)} non-degenerate pairs ({n_degen} culled)")
+                  note=f"only {len(rows)} clean pairs "
+                       f"({n_degen} loop + {n_break} refusal culled)")
         return {"n_pairs": len(rows), "enough": False, "n_degenerate": n_degen,
+                "n_character_break": n_break,
                 "min_to_train": cfg.min_pairs_to_train,
                 "pairs_md": pairs_path.read_text()}
 
     set_state(round_dir, "train_student", note=f"gen {len(rows)} pairs")
     return {"n_pairs": len(rows), "enough": True, "n_degenerate": n_degen,
+            "n_character_break": n_break,
             "min_to_train": cfg.min_pairs_to_train,
             "pairs_md": pairs_path.read_text(),
             "flags_table": pair_flags_table(rows)}

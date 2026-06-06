@@ -167,8 +167,10 @@ def propose_personas_tool(slug: str) -> Tool:
                 )
             return why + " Re-call propose_personas." + _reject_tail(n)
         rejects_path.unlink(missing_ok=True)
-        culled = (f" ({res['n_degenerate']} collapsed pairs culled — trained on the "
-                  f"coherent survivors)" if res.get("n_degenerate") else "")
+        n_cull = res.get("n_degenerate", 0) + res.get("n_character_break", 0)
+        culled = (f" ({res.get('n_degenerate',0)} loop + "
+                  f"{res.get('n_character_break',0)} refusal pairs auto-culled — "
+                  f"trained on the clean survivors)" if n_cull else "")
         return (
             f"OK — generated {res['n_pairs']} on-policy pairs (both poles){culled}.\n"
             f"========== pairs.md (student-generated cho/rej) ==========\n"
