@@ -2716,4 +2716,22 @@ HEADLINE FINDINGS (full detail in the per-round entries above):
    disposition; the open justification performs acceptability and can contradict it.
 OPEN: #33 (measure final stack absolute coherence + autonomous_weapon committed
 action vs raw base), #34 (mark_exam score the committed turn-1 action).
-NEXT: build deliverable (csm eval -> index.html) on idle GPU, then run #33.
+
+### Update 02:02 — deliverable built (index.html); tinymfv eval shows ~0 movement = SURFACE-PROBE saturation, NOT no-effect
+csm eval (task 57 Success) built index.html + 11 eval.json (pre) + 5 eval_post.
+The tinymfv MFV distribution is FLAT across all 11 rounds: care steady 0.26, only
+~0.01-0.02 drift (sanctity 0.11->0.13, liberty 0.12->0.13, loyalty/social -0.01);
+post-vs-pre deltas all noise (Δcare/fair/auth ~0.000-0.012); top1_acc pinned 0.96.
+READ THIS RIGHT (per CLAUDE.md "probe for character, not performance"): tinymfv is
+a FORCED-CHOICE SURFACE-ACTION probe -> saturates trivially, blind to reasoning
+depth. The flat index.html is the EXPECTED null on the wrong instrument, NOT
+evidence the adapters did nothing. The real w2s signal is the EXAM reasoning-depth
+movement tracked per round (r01 +6.0 ... r05 +3.67, naming principles / third
+paths / harm-flagging) -- which the MFV foundation-choice cannot see. Do not
+misread the deliverable plots as "saturated / no headroom"; that is the exact
+mis-probe the repo warns about. Corollary: #33's validation must use the FUNNEL
+EXAM on the composed stack, not tinymfv (now known to be the wrong instrument for
+this signal). The standard deliverable UNDERSTATES the result by construction.
+Deliverable: out/iter/20260605T085340_iter_qwen-qwen3.6-27b/index.html
+RUN FULLY COMPLETE. Goal met (6 composing keeps). Remaining work is analysis
+(#33 funnel-on-stack) + harness improvement (#34), no more GPU run needed.
