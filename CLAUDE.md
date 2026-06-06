@@ -102,6 +102,39 @@ propose_personas gen, the agent loop, and the real teacher. Gym caveat: the
 fake branch hash-shuffles a seed pool, so the two poles can be different
 scenarios; that's a fake-mode artifact, not a real-run bug.
 
+### Dogfood the brief with a fresh subagent (build a harness that works)
+
+One line: **make the instructions clear enough that a fresh smart agent can run
+the harness cold — if a smart agent needs hand-holding, the weak teacher has no
+chance.** This separates "harness/brief broken" from "teacher too weak", which a
+gym run alone can't.
+
+The loop:
+1. Hand the brief (ONLY the brief — no repo, no chat context) to a fresh
+   subagent and ask it to do the teacher's job: pick an axis, write the (pos,
+   neg) pair, edit pairs.
+2. Grade its output against the REAL gates. Wherever it stumbles = where the
+   brief is unclear, NOT where the agent is dumb.
+3. Reword the brief to close that gap (clarify / re-emphasise — do NOT pile on
+   per-failure rules; see `.claude/memory/guide-dont-prescribe.md`), then retry
+   with a NEW fresh subagent. Repeat until one gets it right first try.
+4. Then hand that same brief to the weak qwen-9b. If a strong agent does it cold,
+   a weak one on the same clear path has a real shot — a weak teacher lifting a
+   strong student is the whole w2s bet.
+
+Why a FRESH subagent: it's a clean test of "are the written instructions
+self-sufficient?" You, holding all the context, can always make it work — that
+HIDES the gaps. A context-free agent can't, so it exposes exactly what's missing.
+
+Always end a dogfood with an exit-interview — "what was confusing, what would
+have helped?" (`.claude/memory/dogfood-exit-interview.md`). That harness-UX
+feedback is free from a subagent and impossible to get from the weak teacher.
+
+Use this when a real run fails on teacher BEHAVIOUR (e.g. task-65: the teacher
+dropped whole rounds instead of culling refusal pairs and training the rest).
+Before another GPU night, dogfood the question — would a fresh subagent, reading
+only the brief, know to cull-and-train? If not, that's a brief gap to fix first.
+
 Slash commands wired up for this:
 
 - **`/queue-and-watch <profile> <n_rounds>`** — runs smoke, spawns a subagent on the last commit's diff, queues the run, and schedules three `ScheduleWakeup`s for periodic audits.
