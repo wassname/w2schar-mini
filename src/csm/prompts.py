@@ -289,6 +289,13 @@ AFTER_EDIT = ("\n----- pair updated (on the student's manifold, no leakage). nex
 AFTER_TRAIN = "\n----- next: mark_exam(keep, reason, pre_scores, post_scores, next_focus) -----\n" + JUDGE_GUIDE
 
 
+AFTER_MARK_EXAM = (
+    "\n----- round committed. If anything about this round was confusing or"
+    " suboptimal — axis definition unclear, probe/seat mismatch, gate fired"
+    " unexpectedly, brief gap — write one line here. Otherwise proceed. -----\n"
+)
+
+
 COMPACTION_INSTRUCTIONS = """\
 Weight-steering character iteration loop. The teacher proposes a
 (pos_persona, neg_persona) pair; the student generates both poles on-policy

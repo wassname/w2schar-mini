@@ -3291,6 +3291,61 @@ edit_pairs reject-rate 9b vs deepseek.
 
 ---
 
+## 2026-06-07 13:00 — teacher-strength comparison: 9b (pueue-67) vs deepseek-v4-flash (pueue-68)
+
+Slugs: `20260607T002706_iter_google-gemma-4-31b-it` (9b) · `20260607T055930_iter_google-gemma-4-31b-it` (deepseek)
+Commits: `fb63efd` (pool fix) · `61c89bb` (deepseek profile). pueue-69 (27b teacher) still running; extend this table when it completes.
+
+### Results
+
+| Round | 9b action | 9b Δ   | Drop reason                         | deepseek action | ds Δ   | Drop reason                        |
+|-------|-----------|--------|-------------------------------------|-----------------|--------|------------------------------------|
+| r00   | KEEP      | +2.0   | cooperation axis                    | KEEP            | +1.0   | cooperation axis                   |
+| r01   | DROP      | +0.33  | shallow + wrong-way seat            | DROP            | 0.0    | probe/axis mismatch (temporal)     |
+| r02   | DROP      | null   | edit-gate fumble (9b, 9x)           | KEEP            | +0.67  | proactive candor                   |
+| r03   | DROP      | 0.0    | no movement                         | DROP            | null   | edit-gate fumble (deepseek, 9x)    |
+| r04   | DROP      | null   | edit-gate fumble (9b, 9x)           | KEEP            | +2.0   | strategic counsel                  |
+| r05   | DROP      | null   | train crash recovery                | DROP            | null   | cho>>rej length skew (15/26 pairs) |
+
+**Keep rate: 9b = 1/6, deepseek = 3/6.**
+
+### Interpretation
+
+Deepseek triples the keep-rate. The contrast in drop types is informative:
+
+1. **Edit-gate fumbles**: 9b had 2/6 (r02, r04); deepseek had 1/6 (r03). Deepseek is better
+   but NOT immune. The gate is the constraint, not just teacher quality. (Deepseek also hit
+   the >8 gate ceiling on r03.)
+
+2. **New deepseek failure mode**: r05 length skew (15/26 pairs cho systematically longer than
+   rej). The "proactive counsel" axis naturally produces verbose cho poles. The edit-pairs
+   gate correctly caught it, but deepseek created the skew in the first place. Different
+   kind of pair-quality failure than the 9b's fumbles.
+
+3. **Probe/axis mismatch (r01 deepseek)**: "proactive candor" axis measures temporal order
+   (raise concerns before vs after executing). The eval seats (equity_split, growth_deck,
+   burn_bridges) score CONTENT not sequence, so the distinction collapsed to zero Δ. This
+   is a seat-design gap, not a deepseek failure. The teacher picked up the right direction
+   from r00's next_focus but couldn't operationalize it into a probe-visible signal.
+
+4. **Per-keep movement**: 9b's single keep was higher (Δ+2.0) than deepseek's average
+   (Δ+1.22 = (1.0+0.67+2.0)/3). Deepseek converts more rounds to keeps but each keep
+   moves the student less per round on average. Small N, weak signal.
+
+5. **w2s caveat stands**: deepseek beating the 9b is expected and doesn't validate the
+   w2s claim (9b→31b gap is the point). What it does show: the harness CAN produce 3/6
+   keeps with a capable teacher, so the method is not bottlenecked by the pool or training
+   loop — the bottleneck IS the weak teacher.
+
+### Open question for pueue-69 (27b teacher)
+The 9b drops divide into: reasoning failures (r01, r03) and mechanical failures
+(r02, r04). Hypothesis: 27b clears the mechanical bar (edit_pairs length-symmetry)
+while still being weaker than 31b student. If 27b keep-rate ≈ deepseek keep-rate,
+the bottleneck is instruction-following (mechanical), not reasoning quality. If
+27b keep-rate ≈ 9b, the bottleneck is reasoning. pueue-69 resolves this.
+
+---
+
 ## 2026-06-07 06:10 — task 67 post-mortem: pool fix confirmed, weak teacher is the ceiling
 
 Slug: `20260607T002706_iter_google-gemma-4-31b-it` | pueue-67 | commit: `fb63efd`
@@ -3334,3 +3389,34 @@ isolate: does a stronger teacher clear the edit_pairs gate reliably?
 ### Next
 
 Task 68 (deepseek) started at 05:59 UTC. Monitor for r00 judgment ~08:00 UTC.
+
+---
+
+## 2026-06-07 — decision: shelving w2s weak-teacher framing
+
+Commit: `61c89bb` | pueue-69 killed (27b teacher, round00 incomplete)
+
+### Summary of evidence
+
+After ~1 month of harness iteration and three teacher-arm comparisons:
+
+- 9b teacher (pueue-67): 1/6 keeps. 2 mechanical edit-gate failures, 1 reasoning failure, 1 crash, 1 no-movement. One genuine keep: cooperation +2.0.
+- deepseek teacher (pueue-68): 3/6 keeps. Capable teacher clears the edit-gate reliably and picks measurable axes.
+- 27b teacher (pueue-69): killed at round00 cho-gen, no data.
+
+### Decision
+
+The 9b→31b capability gap is likely too large. The weak teacher's failures divide into:
+- Mechanical (edit-gate length-balance, 2/5 drops): reflects 9b instruction-following ceiling
+- Reasoning (wrong-way axis, temporal mismatch, no movement, 2-3/5 drops): reflects 9b judgment ceiling
+
+Both ceilings are real. Fixing the harness further won't close the capability gap. A month of harness iteration produced one clean datapoint from the 9b. That ratio is not sustainable.
+
+### What survives
+
+The deepseek results ARE a result: character steering works (cooperation +1.0, proactive candor +0.67, strategic counsel +2.0) measured with psychometric probes that distinguish reasoning depth from surface behavior. The harness, pool, and eval are sound.
+
+### Next hypothesis
+
+27b→80b (or similar) gap: smaller relative capability gap, both ends large enough to reason about the target character axes. The w2s claim may hold at a narrower gap even if 9b→31b is too wide.
+

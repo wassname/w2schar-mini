@@ -31,7 +31,7 @@ from csm.pipeline import (read_pair as _read_pair_pipeline,
                           revert_round as _revert_round_pipeline,
                           train_student as _train_student_pipeline,
                           character_break_warning)
-from csm.prompts import (AFTER_EDIT, AFTER_PROPOSE, AFTER_TRAIN,
+from csm.prompts import (AFTER_EDIT, AFTER_MARK_EXAM, AFTER_PROPOSE, AFTER_TRAIN,
                          COMPACTION_INSTRUCTIONS, INITIAL_TASK,
                          ON_CONTINUE_NUDGE, REACT_PROMPT)
 from csm.state import allowed_after, ValidationError, read_state
@@ -416,6 +416,7 @@ def mark_exam_tool(slug: str) -> Tool:
         return (
             f"mark_exam OK — action: {judgment['action']}.\n"
             f"next: harness will allocate a new round or stop on budget exhausted."
+            f"{AFTER_MARK_EXAM}"
         )
 
     return execute
