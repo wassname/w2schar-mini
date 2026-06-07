@@ -111,6 +111,15 @@ weak qwen-9b on that same clear brief has a shot (the w2s bet). A context-free
 agent is the honest test of "is the brief self-sufficient?"; you, holding all the
 context, hide the gaps.
 
+The dogfood subagent is a STRONG model (Opus, your session model), NOT a proxy for
+the weak teacher. Its job is to surface brief gaps — ambiguity, contradiction,
+redundancy via the exit-interview — for us to fix so the WEAK 9b has a clearer
+brief. What it proves: a clear brief is followable cold (a strong agent did it).
+What it does NOT prove: that a 9b can do it — when the subagent guesses "a 9b
+would score N/5 here", that is a strong model's speculation about a weaker one,
+not data. The only real weak-model evidence is the gym (`just smoke-prompts`, real
+qwen-9b) or a live run; trust those over the subagent's confidence guess.
+
 The teacher's judgement stages — the subagent drives each and exit-interviews
 each ("what was confusing, what would have helped?"):
 - pick the axis — a non-saturated character dimension from the pre-dialogue `_1p` weakness

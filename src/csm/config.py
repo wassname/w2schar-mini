@@ -507,6 +507,21 @@ CONFIGS: dict[str, RunConfig] = {
 # the user's call). c_scan still walks DOWN from here on fail.
 CONFIGS["gemma-31b-c10"] = replace(CONFIGS["gemma-31b"], signed_C=1.0)
 
+# Strong-teacher exploratory arm (#53 caveat: a strong teacher undercuts the
+# weak-teacher w2s headline — this is a comparison, not the main result).
+# deepseek-v4-flash supervises the gemma-31b student on the cleaned pool + edited
+# brief: does a strong teacher get more/better keeps than the weak qwen-9b?
+# tiny-t-deepseek validates the teacher id credit-free (fake student, no GPU).
+CONFIGS["gemma-31b-t-deepseek"] = replace(CONFIGS["gemma-31b-c10"], teacher="deepseek/deepseek-v4-flash")
+CONFIGS["tiny-t-deepseek"] = replace(CONFIGS["tiny"], teacher="deepseek/deepseek-v4-flash")
+
+# Intermediate-teacher arm: 27b teacher → 31b student. w2s gap holds (27b < 31b)
+# but much smaller than 9b→31b. Hypothesis: 9b fails edit-gate not on reasoning
+# quality but on instruction-following (length-balance); 27b should clear that bar
+# while still being weaker than the student on most axes.
+CONFIGS["gemma-31b-t-27b"] = replace(CONFIGS["gemma-31b-c10"], teacher="qwen/qwen3.5-27b")
+CONFIGS["tiny-t-27b"] = replace(CONFIGS["tiny"], teacher="qwen/qwen3.5-27b")
+
 # Tiny-gap weak-to-strong, same family: teacher=judge qwen3.5-27b SUPERVISES
 # (edits poles + keep/drop) student qwen3.6-27b's own on-policy gens. The teacher
 # IS the judge (one react agent) — a STRONGER supervisor than the 9b (tests "is the

@@ -6,3 +6,4 @@
 - [Dogfood exit interview](dogfood-exit-interview.md) — always ask dogfood subagents for an exit interview / harness suggestions; bake it into the prompt
 - [Guide don't prescribe](guide-dont-prescribe.md) — brief guides + relies on teacher judgment; give info not per-failure rules; reword over append
 - [Attractor is seat-driven](attractor-is-seat-driven.md) — deliberate-vs-authority axis comes from mono-authority probes.py seats, not the brief; brief fixes insufficient; trained axis degrades character (ceo wisdom→refusal). Memorization fix confirmed working.
+- [Pool stems must afford axis](pool-stems-must-afford-axis.md) — task-65 dropped all 6 rounds because pool had essay-requests + harmful/authority stems; those break contrastive pairs (identical refusals / same-direction essays); fix = afford-only pool (fb63efd)

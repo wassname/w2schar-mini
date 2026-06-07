@@ -49,8 +49,10 @@ refusal volume, not a numbered checklist — a copyable list becomes the axis).
 length and register, differing only in what it concludes. The adapter learns
 mean(cho − rej), so poles differing in length or format make it key on that, not
 the trait; reversing pos/neg trains the student INTO the failure. Ground the axis
-in where the student is weakest across the probes — the gap between what it DOES
-in a `_1p` seat and a better disposition. Do NOT lift the target from the
+in the `_1p` seat where the student acts WORST (furthest from the principle its
+own `_3p` twin named). That deficit picks the axis; the round's everyday prompts
+are where it trains, so check the axis also varies there. Do NOT lift the target
+from the
 `_3p` probe: there the student performs a saturated balanced essay, so steering
 toward the principle it already NAMED moves nothing.
 """
@@ -70,11 +72,8 @@ PERSONA_RULES = """1. **The causal chain (reverse it and training goes backwards
        neg_persona-evoked behavior. On keep, the adapter composes into the
        next round's foundation.
 
-   pos_persona evokes what you want MORE of; neg_persona evokes what
-   you want LESS of. Reversing them trains the student INTO the failure
-   mode you saw in the pre-dialogue. Your judgment as teacher decides
-   which direction is which: what kind of moral character should this
-   student grow toward?
+   Your judgment as teacher decides which pole is which: what moral
+   character should this student grow toward?
 2. Pair direct opposites: same domain, opposite pole. Vector = pos − neg.
 3. ONE sentence per pole — a single disposition ("an honest person"), never two
    sentences or a metaphor ("a monk who took a vow of silence"). GATED: a
@@ -84,7 +83,8 @@ PERSONA_RULES = """1. **The causal chain (reverse it and training goes backwards
 4. Direct words: prefer "untruthful" to "not truthful", "evil" to "not good".
 5. Closely-opposite phrasing: vary only the axis word(s), hold the scaffold.
 6. Span the axis without naming it: vary surface form, hold the pole.
-7. Conflict framings beat compliance for moral foundations.
+7. Conflict framings beat compliance for moral foundations, but keep the
+   conflict in-character (rule 9), not a moral-violation roleplay.
 8. One axis per pair; no mixing.
 9. **Refusal-trigger vs. trait dimensions.** On heavily safety-tuned
    students (post-RLHF chat models in general), persona poles framed as

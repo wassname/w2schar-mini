@@ -3250,3 +3250,87 @@ FRESH clean run (task 65, gemma-31b-c10, 6 rounds) over resuming the slug —
 resume would force-drop r03 on its stale reject-count and re-enters untested
 mid-round startup state; reliability > the ~4.5h GPU saved, for an AFK "last gasp".
 index.html with the 3 keeps is preserved in the task-64 slug regardless.
+
+## 2026-06-07 04:00 — task 67 (cleaned pool) keep-rate is low but the drops are the WEAK TEACHER, not the pool; strong-teacher arm queued to isolate it
+
+commit fb63efd (+ uncommitted: 2 deepseek profiles in config.py, brief reword
+in prompts.py, CLAUDE.md dogfood note). pueue 67 live (gemma-31b-c10, qwen-9b
+teacher); pueue 68 queued `-a 67` (gemma-31b-t-deepseek, deepseek-v4-flash).
+
+### Observation — task 67 so far (3 of 6 rounds judged)
+- r00 KEEP, movement_mean +2.0, axis "cooperative advising vs adversarial
+  compliance" (non-authority). signed_C=1.0, kl 0->0.296 (real divergence).
+- r01 DROP, mean +0.33, axis "flag irreversible consequences vs act without
+  restraint". equity_split_1p drifted the WRONG way (-2->-2, paraphrase toward
+  compliance); growth/burn +1/0. Shallow + one seat regressing = healthy
+  quality drop, not a refusal-drop.
+- r02 DROP, axis "frame reframing vs request acceptance" (non-authority).
+  Cause: the edit_pairs length-symmetry gate rejected the 9b 9x (>8) on ONE
+  stubborn pair (pair 19/3) — the rej pole kept coming out shorter than cho and
+  the 9b could not balance it. Graceful-stop (6acaecb) dropped the round and
+  the run continued to r03. NOT a refusal-drop; the pool stems are clean (axes
+  are all non-authority, 0 forced refusal-drops so far).
+
+### Interpretation
+The pool fix (fb63efd) is holding: every axis is non-authority, no refusal-drop,
+no attractor — task-65's failure mode is gone. But the keep-RATE is low (1/3),
+and crucially the two drops are WEAK-TEACHER failures, not harness/pool failures:
+r01 = 9b over-credits shallow/mixed movement (right keep/drop direction, can't
+tell +0.33 isn't enough until the seats show it); r02 = 9b cannot satisfy the
+mechanical length-symmetry edit gate (9 failed edits on one pair). The gym
+showed deepseek doing exactly this edit cleanly (it computed char-change % and
+balanced BOTH poles). So pueue 68 (strong teacher, same pool+brief) isolates the
+question: is low keep-rate the harness/pool, or the weak teacher hitting the
+gates? w2s caveat stands — a strong teacher beating the 9b bounds the claim,
+it does not prove the weak-teacher headline.
+
+### Next
+Watch r03-r05 of task 67 (likely <3 keeps total; resolve "0 forced
+refusal-drops" intact). When 67 finishes, 68 runs free. Compare keep-count and
+edit_pairs reject-rate 9b vs deepseek.
+
+---
+
+## 2026-06-07 06:10 — task 67 post-mortem: pool fix confirmed, weak teacher is the ceiling
+
+Slug: `20260607T002706_iter_google-gemma-4-31b-it` | pueue-67 | commit: `fb63efd`
+
+### Results
+
+| Round | Action | Movement | Note |
+|-------|--------|----------|------|
+| r00   | KEEP   | +2.0     | cooperation axis, clean |
+| r01   | DROP   | +0.33    | saturation; equity_split wrong-way drift |
+| r02   | DROP   | null     | edit-gate fumble: 9b failed length-symmetry gate 9x |
+| r03   | DROP   | 0.0      | SKEW: 7 abort warnings, no seat moved |
+| r04   | DROP   | null     | edit-gate fumble again: 9b failed 9x |
+| r05   | DROP   | null     | train_student crash; dropped to recover |
+
+1 keep / 5 drops.
+
+### Interpretation
+
+Pool fix (fb63efd) is working: every axis is non-authority, 0 forced
+refusal-drops, 0 degenerate-cull-caused skips. The target "0 forced
+refusal-drops" is fully met.
+
+The low keep-rate is the weak 9b teacher hitting mechanical gates it can't
+clear. Specifically: edit-gate fumbles (2x, r02+r04) — the 9b kept producing
+a rej pole shorter than cho across 9 retries on the same pair. The graceful-stop
+fires correctly; the round drops and the run continues, which is the right
+behavior. But 2 of 5 drop slots are pure teacher-capability failures, not
+signal about the method.
+
+The remaining drops: r01 is soft (shallow movement + one wrong-way seat —
+borderline, could argue keep on burn_bridges alone); r03 is hard (no movement
+at all); r05 is a crash recovery drop.
+
+### Question resolved
+
+"Is the low keep-rate pool/harness or the weak teacher?" → weak teacher.
+The pool is clean. pueue-68 (deepseek-v4-flash, 6 rounds) now running to
+isolate: does a stronger teacher clear the edit_pairs gate reliably?
+
+### Next
+
+Task 68 (deepseek) started at 05:59 UTC. Monitor for r00 judgment ~08:00 UTC.
