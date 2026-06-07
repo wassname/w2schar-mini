@@ -1,16 +1,14 @@
 {
-  "total": 136,
+  "total": 87,
   "by_source": {
     "daily_dilemmas-self": 50,
-    "genies_preferences": 48,
-    "machiavelli": 8,
-    "speechmap-questions": 30
+    "genies_preferences": 29,
+    "machiavelli": 8
   },
-  "build_commit": "5b536aa",
+  "build_commit": "f39fcf7",
   "licenses": {
     "daily_dilemmas-self": "CC-BY-4.0 (Chiu et al, daily_dilemmas)",
     "genies_preferences": "see hf wassname/genies_preferences (GENIES)",
-    "speechmap-questions": "see hf wassname/speechmap-questions (speechmap.ai)",
     "machiavelli": "MIT (Pan et al 2023, MACHIAVELLI)"
   },
   "eval_disjoint_from": "tiny-mfv ['classic', 'scifi', 'ai-actor'] (10-word shingle dedup)",

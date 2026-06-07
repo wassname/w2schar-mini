@@ -11,15 +11,29 @@ framings is the upstream fix: varied prompts -> varied gens -> less memorising.
 Sources (one job each; all eval-disjoint from tiny-mfv):
   - daily_dilemmas-self : first-person character/honesty dilemmas, value-filtered.
                           The clean backbone. CC-BY (Chiu daily_dilemmas).
-  - genies_preferences  : the authority/power/sycophancy AI-seat register
-                          (relinquish_power, reward_seeking, ...). Strip the
-                          alpaca scaffold + chosen/rejected (we gen our own poles).
-  - speechmap-questions : provocative user requests (compose/argue/explain X) at
-                          the engage/refuse/reframe boundary -- the wisdom of
-                          when and whether to act. Dedup by topic, stratify domain.
+  - genies_preferences  : the SYCOPHANCY AI-seat register (sycophancy_*,
+                          change_my_view). Strip the alpaca scaffold +
+                          chosen/rejected (we gen our own poles).
   - machiavelli         : narrative power/deception decision points (dirtiest
                           stems, capped small for register diversity).
 AIRiskDilemmas is RESERVED for a future eval split and deliberately NOT used here.
+
+== Affordance constraint (read before adding a source) ==
+
+Every stem must AFFORD an open, in-character response along which a reasoning
+axis can vary continuously: a contrastive (cho, rej) pair needs the SAME prompt
+to admit a positive and a negative pole that differ only in the axis. Two stem
+shapes break that and are excluded on purpose -- task-65 dropped all 6 rounds to
+them:
+  - prescribed-content essay requests ("write an essay arguing FOR serfdom"):
+    the content is fixed by the request, so both poles emit the same essay (or
+    both refuse) -- no axis room. (Why speechmap-questions was removed.)
+  - harmful / authority-relinquish asks ("how to smuggle contraband"; "you are
+    an AI, relinquish power"): one pole refuses (short) and one complies (long)
+    -> length-skew + refusal, not an axis. Authority stems also reimport, at the
+    training-data level, the deliberate-vs-authority attractor we removed from the
+    interview seats. (Why the genies authority/power/illegal configs were removed;
+    sycophancy stems stay -- they afford a real flatter-vs-level-with-them axis.)
 
 Eval-leak guard: no pool stem may share a >=10-word shingle with any tiny-mfv
 item (configs classic/scifi/ai-actor) -- train/eval stay disjoint.
@@ -60,12 +74,15 @@ DD_VALUES = [
     "professional integrity", "personal integrity", "secrecy",
 ]
 
-# Only configs whose PROMPT itself is a moral/authority/character scenario. The
-# GENIES "preference" often lives in chosen/rejected (which we discard), so
-# capability-task configs (reward_seeking=sentence-rewrite, punishment_avoidance=
-# math, truthful_qa=trivia) give NON-moral stems and are excluded.
+# Sycophancy/change-my-view configs only: the stem itself poses a flatter-vs-
+# level-with-them choice that affords an in-character axis (see affordance
+# constraint above). The authority/power/illegal configs (relinquish_power,
+# survival_influence, pursue_goals, illegal_dont_help) are excluded -- they
+# trigger refusals and reimport the authority attractor. Capability-task configs
+# (reward_seeking=rewrite, punishment_avoidance=math, truthful_qa=trivia) give
+# NON-moral stems and are excluded too. The GENIES "preference" often lives in
+# chosen/rejected, which we discard (we gen our own poles).
 GENIES_MORAL = [
-    "relinquish_power", "survival_influence", "pursue_goals", "illegal_dont_help",
     "sycophancy_feedback", "sycophancy_answer", "sycophancy_are_you_sure",
     "sycophancy_mimicry", "change_my_view",
 ]
@@ -73,9 +90,8 @@ GENIES_CONTROL = ["cooking", "creative_writing"]  # deliberate non-moral control
 
 MFV_CONFIGS = ["classic", "scifi", "ai-actor"]
 
-# per-source caps -> total ~150, no single source dominates
+# per-source caps -> total ~90, no single source dominates
 CAP_DAILY = 50
-CAP_SPEECH = 30       # provocative requests: the engage/refuse/reframe register
 CAP_GENIES_PER = 6
 CAP_CONTROL = 6
 CAP_MACH = 8          # last-choice register filler; machiavelli stems are long+dirty.
@@ -123,43 +139,6 @@ def from_daily() -> list[dict]:
             pool.append({"text": _close(stem, len(pool)),
                          "source": "daily_dilemmas-self", "config": t,
                          "tags": ["1p", "character"]})
-        i += 1
-    return pool
-
-
-# ----------------------------------------------------------------------------- speechmap
-def from_speechmap() -> list[dict]:
-    """Provocative user requests (compose/argue/explain X) where character decides
-    whether/how to engage -- the 'wisdom of when to act' register. We pick the
-    CONTESTED ones (high compliance_std = the 132 surveyed models DISAGREE on
-    whether to answer), not the unanimous-refuse ones: a request everyone denies
-    re-collapses the axis onto refusal (the failure mode the brief warns about);
-    a 50/50 split is a genuine judgment call. Dedup grouping_key (4 near-dup
-    variations/topic), then rank by compliance_std desc within each domain and
-    round-robin so the spicy takes stay domain-diverse."""
-    ds = load_dataset("wassname/speechmap-questions", "questions", split="train")
-    by_domain, seen_group = {}, set()
-    for r in ds:
-        if r["grouping_key"] in seen_group:
-            continue
-        seen_group.add(r["grouping_key"])
-        q = _norm(r["question_text"])
-        if len(q) < 40:
-            continue
-        by_domain.setdefault(r["domain"], []).append(
-            (r["compliance_std"], r["compliance_mean"], q))
-    for d in by_domain:  # most-contested first within each domain
-        by_domain[d].sort(reverse=True)
-    pool, domains = [], list(by_domain)
-    RNG.shuffle(domains)
-    i = 0
-    while len(pool) < CAP_SPEECH and any(by_domain.values()):
-        d = domains[i % len(domains)]
-        if by_domain[d]:
-            std, mean, q = by_domain[d].pop(0)
-            pool.append({"text": q, "source": "speechmap-questions", "config": d,
-                         "tags": ["request", "speech-boundary"],
-                         "compliance_mean": round(mean, 3), "compliance_std": round(std, 3)})
         i += 1
     return pool
 
@@ -293,8 +272,7 @@ def assert_shape(p: dict):
 def main():
     pool = []
     pool += from_daily()
-    pool += from_speechmap()
-    pool += from_genies(GENIES_MORAL, CAP_GENIES_PER, ["ai-seat", "authority"])
+    pool += from_genies(GENIES_MORAL, CAP_GENIES_PER, ["ai-seat", "sycophancy"])
     pool += from_genies(GENIES_CONTROL, CAP_CONTROL // len(GENIES_CONTROL),
                         ["control", "non-moral"], close=False)
     if CAP_MACH:  # last-choice register filler
@@ -315,7 +293,6 @@ def main():
         "licenses": {
             "daily_dilemmas-self": "CC-BY-4.0 (Chiu et al, daily_dilemmas)",
             "genies_preferences": "see hf wassname/genies_preferences (GENIES)",
-            "speechmap-questions": "see hf wassname/speechmap-questions (speechmap.ai)",
             "machiavelli": "MIT (Pan et al 2023, MACHIAVELLI)",
         },
         "eval_disjoint_from": f"tiny-mfv {MFV_CONFIGS} (10-word shingle dedup)",
