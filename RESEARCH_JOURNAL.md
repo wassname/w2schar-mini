@@ -1881,6 +1881,93 @@ behind protocol both turns, so the comply-is-right discriminant does not yet
 discriminate). (3) Then re-run and read POST movement on the new probes.
 
 
+## 2026-06-12 (a) -- PLAN: weak-selector harness redesign + verified persona pair library (design entry, no new runs)
+
+**Introduction.** Question this design answers: can a <50b teacher drive the
+iterated loop if its job is reduced from authoring Cho prose to selection,
+critique, and scenario-writing? Every harness failure in this journal traces
+to teacher authorship: the stale-Cho bleed (entry 2026-06-01 (a)), the leaky
+char gates around teacher prose, and the admitted-unverifiable flipped-pair
+case (prompts.py:69-71 "getting this right is on you"). Separately, the flat
+tinymfv deltas (<0.01 on every clean round) are consistent with a saturated
+target pole: the unprompted student already sits at the Cho pole (entry (a)
+Discussion: "the base gemma-2-27b already argues the merit-weighing pole").
+This entry records the redesign agreed in chat 2026-06-12, plus its evidence
+base and falsification arms, so a fresh clone can execute it.
+
+**Methods.** No new runs. Evidence assembled this session from: this journal
+(entries 2026-06-01 (a)/(b), 2026-05-31), the parent repo journal
+(weight-steering-lite/RESEARCH_JOURNAL.md, single entry 2026-05-08), and
+src/csm/prompts.py at commit 9e7d06f. Literature spot-checked by fetching
+arxiv abstracts this session (links in Table 1).
+
+**Results.**
+
+| # | claim feeding the design | source | strength |
+|---|--------------------------|--------|----------|
+| 1 | teacher-authored Cho enables stale-bleed; char gates cannot catch scenario mismatch (0.71-0.76 < 0.90 ceiling) | this journal, 2026-06-01 (a) Table 2 | measured |
+| 2 | only journaled PASS used batch persona-sampled both-poles + judge filter, 273 pairs, 0.6B student | weight-steering-lite/RESEARCH_JOURNAL.md 2026-05-08 (cue=PASS, Auth flips -/+) | measured, n=1 run |
+| 3 | unprompted strong student already occupies the Cho pole (no headroom at c>0) | this journal 2026-06-01 (a) Discussion; tinymfv deltas <0.01 in Table 3 | inference from measured |
+| 4 | weak verification, not generation, is the supported W2S shape; weak verifier quality is itself the bottleneck | arxiv.org/abs/2312.09390; arxiv.org/abs/2404.17140 (abstract checked 2026-06-12) | literature |
+| 5 | debate buys little without information asymmetry; pair-checking has none | arxiv.org/abs/2407.04622 (abstract checked 2026-06-12) | literature |
+| 6 | aggregated narrow verifiers can beat one big gate | arxiv.org/abs/2606.05268 (abstract checked 2026-06-12) | literature, other domain |
+
+Table 1. Evidence base for the redesign. "measured" = numbers in a journal
+entry with provenance; "inference" = reading of measured numbers, not itself
+measured; "literature" = external paper, abstract verified this session.
+
+| step | actor | task | gate / verification |
+|------|-------|------|---------------------|
+| 0 (once) | frontier model + sweep | draft ~10 engage-persona variants; verify each VIA OPENROUTER samples on the student: keep personas whose pos/neg completions show judge-scored differential behaviour ON the depth axis and below-threshold separation OFF-axis (length, register, echo). Survivors form a reusable persona pair library | measured separation, not craft |
+| 1 | teacher | ~30 one-line scenarios targeting next_focus | none needed; bad scenario dies at step 2 |
+| 2 | student + rubric judge | answer each scenario unprompted; keep ~15 where depth score is LOW (base actually goes along); that answer = Rej, on-policy, no persona | mechanical headroom gate |
+| 3 | student | k=8 Cho candidates per scenario under library persona (persona-in-user, temp ~0.8, variant round-robin) | sampling, no authorship |
+| 4 | mechanical | prune candidates: own-prompt must rank #1 by embedding, length band vs Rej, persona-echo filter, refusal check | no LLM |
+| 5 | teacher | best-of-k pick per scenario | 10% of picks audited offline vs frontier judge; per-round selection-agreement number |
+| 6 | existing pipeline | train, interview, mark_exam(keep, reason, next_focus) | unchanged |
+
+Table 2. Per-round pipeline. Teacher bandwidth drops from ~15 prose twins to
+30 one-liners + 15 picks + 1 verdict; every teacher output is short or audited.
+
+| arm | step 5 variant | ties/loses kills |
+|-----|----------------|------------------|
+| weak-select | 9b teacher picks | "weak selection adds signal" (the W2S premise) |
+| random-select | uniform pick among step-4 survivors | (control) |
+| prompt-only | no adapter; engage-persona at inference | "weight-steering beats prompting" (method premise) |
+
+Table 3. Falsification arms, gemma-9b (only proven steerer, 10/10 keeps
+2026-05-21). Score all arms on judge-rated depth on held-out step-2-style
+scenarios + tinymfv + coherence canary.
+
+Provenance:
+- prompts.py line refs: src/csm/prompts.py:69-71 (flipped-pair admission),
+  :26-81 (GOAL twin-writing brief) at commit 9e7d06f.
+- Parent PASS: weight-steering-lite/RESEARCH_JOURNAL.md, entry 2026-05-08,
+  "200 prompts x 4 personas x 2 samples -> judge-filtered (thr=2.0) -> 273
+  pairs", "cue=PASS".
+- Chat decisions (2026-06-12 session): persona library verified via
+  OpenRouter for on-axis differential behaviour (user addition); selection
+  over authorship; debate dropped per Table 1 row 5.
+
+**Discussion (speculative).** My read: authorship is where a small teacher
+fails and where contamination (teacher voice, stale reuse) enters; selection
+is both easier and auditable, so the redesign moves every high-bandwidth
+surface to the student or to mechanical gates. I flag two alternatives.
+(1) Saturated-pole: if the axis never had headroom at c>0, even a perfect
+selection harness reads flat on tinymfv; the c<0 sweep below distinguishes
+this before any rebuild. (2) Weak-verifier bottleneck (Table 1 row 4): a 9b
+may also select badly; the random-select arm and the selection-agreement
+audit measure this instead of assuming it away. Note rej-side change: Rej
+becomes the unprompted answer on low-headroom scenarios, retiring
+DEFER_PERSONA seeding to a fallback; this trades the validated defer-anchor
+(2026-05-31) for headroom, and could fail if step-2 yields too few scenarios.
+
+**Next.** (1) 20-min pre-test, zero new code: scripts/c_sweep_eval.py at
+c in {-2,-1,0,+1} on an existing kept gemma-9b adapter; movement at c<0
+confirms the saturated-pole reading. (2) Build step-0 persona library sweep
+(OpenRouter, on-axis vs off-axis separation scores). (3) Run Table 3 arms.
+
+## 2026-06-01 (a) -- PiSSA vs LoRA on gemma-2-27b, and a stale-Cho bleed that corrupts rounds 01+
 
 **Introduction.** Question: does bf16-PiSSA steer gemma-2-27b with a larger,
 more stable baked coefficient (`signed_C`) than the nf4-LoRA baseline, over a
