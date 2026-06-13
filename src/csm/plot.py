@@ -14,7 +14,7 @@ Input artifacts per round:
     eval_post.json   — post-state tinymfv summary (this adapter @ signed_C)
     judgment.json    — {action, reasoning, next_focus}
     pairs.md         — `## Lesson` block (the trait this round taught)
-    interview_pre.json / interview_post.json — for the petrov text column
+    interview_pre.json / interview_post.json — for the first interview probe column
 
 Output: <slug>/index.html.
 """
@@ -106,26 +106,38 @@ def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict:
         "action": judgment.get("action"),
         "reasoning": judgment.get("reasoning", ""),
         "next_focus": judgment.get("next_focus", ""),
-        "petrov_pre": _petrov_answer(round_dir, "pre"),
-        "petrov_post": _petrov_answer(round_dir, "post"),
+        **_first_probe_fields(round_dir),
     }
 
 
-def _petrov_answer(round_dir: Path, phase: str) -> str | None:
-    """First assistant reply on the first probe (equity_split_1p, the in-role
-    win-win-vs-zero-sum action), or None. Name kept for the JS dataset keys; the id
-    below is what selects the probe."""
+def _first_probe_fields(round_dir: Path) -> dict[str, str | None]:
+    """Extract the first probe id, first user prompt, and first assistant
+    replies from interview_pre/post.json."""
+    probe_pre = _read_first_probe(round_dir, "pre")
+    probe_post = _read_first_probe(round_dir, "post")
+    return {
+        "probe_id": (probe_pre or probe_post or {}).get("id"),
+        "probe_prompt": (probe_pre or probe_post or {}).get("prompt"),
+        "probe_pre": (probe_pre or {}).get("answer"),
+        "probe_post": (probe_post or {}).get("answer"),
+    }
+
+
+def _read_first_probe(round_dir: Path, phase: str) -> dict[str, str] | None:
+    """Return the first probe's id, opening user turn, and first assistant reply."""
     path = round_dir / f"interview_{phase}.json"
     if not path.exists():
         return None
     d = json.loads(path.read_text())
-    for probe in d.get("probes", []):
-        if probe.get("id") != "equity_split_1p":
-            continue
-        for t in probe.get("turns", []):
-            if t.get("role") == "assistant":
-                return t.get("text", "")
-    return None
+    probes = d.get("probes", [])
+    if not probes:
+        return None
+    probe = probes[0]
+    prompt = next((t.get("text", "") for t in probe.get("turns", [])
+                   if t.get("role") == "user"), "")
+    answer = next((t.get("text", "") for t in probe.get("turns", [])
+                   if t.get("role") == "assistant"), "")
+    return {"id": probe.get("id", ""), "prompt": prompt, "answer": answer}
 
 
 def _load_rounds(slug_dir: Path) -> list[dict]:
@@ -248,7 +260,7 @@ def _escape(s: str) -> str:
              .replace('"', "&quot;"))
 
 
-def _petrov_diff(curr: str | None, prev: str | None, max_words: int = 180) -> str:
+def _answer_diff(curr: str | None, prev: str | None, max_words: int = 180) -> str:
     """Italicize tokens in curr whose lowercased-alnum form doesn't appear
     in prev's vocabulary. Highlights what the round shifted vs the prior."""
     if not curr:
@@ -280,6 +292,25 @@ def _delta_str(post_vec, pre_vec, idx) -> str:
         return "—"
     d = float(post_vec[idx] - pre_vec[idx])
     return f"{d:+.3f}"
+
+
+def _probe_title(row: dict) -> str:
+    probe_id = row.get("probe_id")
+    prompt = row.get("probe_prompt")
+    if probe_id and prompt:
+        return f"{probe_id} — {_prompt_excerpt(prompt)}"
+    if probe_id:
+        return str(probe_id)
+    if prompt:
+        return _prompt_excerpt(prompt)
+    return "interview probe"
+
+
+def _prompt_excerpt(prompt: str, limit: int = 96) -> str:
+    text = " ".join(prompt.split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
 
 
 def _build_table(rows: list[dict]) -> str:
@@ -317,7 +348,7 @@ def _build_table(rows: list[dict]) -> str:
 </tr>"""
 
     body_rows = [base_row]
-    prev_petrov_post = None
+    prev_probe_post = None
     for r in rows:
         action = r["action"] or "?"
         action_cls = "keep" if action == "keep" else ("drop" if action == "drop" else "")
@@ -331,8 +362,9 @@ def _build_table(rows: list[dict]) -> str:
         x_attr = f"{x:.6f}" if x is not None else ""
         x_post_attr = f"{x_post:.6f}" if x_post is not None else ""
 
-        petrov_pre_html = _petrov_diff(r["petrov_pre"], prev_petrov_post)
-        petrov_post_html = _petrov_diff(r["petrov_post"], r["petrov_pre"])
+        probe_title = _probe_title(r)
+        probe_pre_html = _answer_diff(r["probe_pre"], prev_probe_post)
+        probe_post_html = _answer_diff(r["probe_post"], r["probe_pre"])
 
         body_rows.append(f"""
 <tr class="row {action_cls}" data-round="{r['round_n']}"
@@ -351,20 +383,21 @@ def _build_table(rows: list[dict]) -> str:
     <div class="field"><span class="label">Δ care</span><span class="value mono">{d_care}</span></div>
   </td>
   <td class="petrov-col">
-    <div class="field"><span class="label">petrov pre</span></div>
-    <div class="petrov">{petrov_pre_html}</div>
-    <div class="field"><span class="label">petrov post</span></div>
-    <div class="petrov">{petrov_post_html}</div>
+    <div class="field"><span class="label">probe</span><span class="value">{_escape(probe_title)}</span></div>
+    <div class="field"><span class="label">pre answer</span></div>
+    <div class="petrov">{probe_pre_html}</div>
+    <div class="field"><span class="label">post answer</span></div>
+    <div class="petrov">{probe_post_html}</div>
   </td>
 </tr>""")
 
-        prev_petrov_post = r["petrov_post"] or r["petrov_pre"]
+        prev_probe_post = r["probe_post"] or r["probe_pre"]
 
     return f"""<table class="timeline">
 <thead><tr>
   <th>graph (← less ▸ more authority deference →)</th>
   <th>round</th><th>lesson / assessment / next focus</th>
-  <th>Δ mean_p</th><th>petrov pre / post</th>
+  <th>Δ mean_p</th><th>probe pre / post</th>
 </tr></thead>
 <tbody>{''.join(body_rows)}</tbody></table>"""
 
