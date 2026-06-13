@@ -15,8 +15,10 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 ARTIFACTS = (
-    "state.json", "pairs.md", "adapter.safetensors", "calibration.json",
-    "interview_pre.json", "interview_post.json", "judgment.json",
+    "state.json", "pairs.md", "scenarios.json", "headroom.json",
+    "candidates.json", "selection_audit.json", "adapter.safetensors",
+    "calibration.json", "interview_pre.json", "interview_post.json",
+    "judgment.json",
 )
 
 
@@ -52,3 +54,32 @@ def test_smoke_runs_end_to_end():
 
     judgment = json.loads((rd / "judgment.json").read_text())
     assert judgment["action"] in ("keep", "drop"), judgment
+
+    candidates = json.loads((rd / "candidates.json").read_text())
+    assert candidates["axis"] == "honest-counsel vs flattering-agreement"
+    assert candidates["active_persona_cells"]
+    assert candidates["active_persona_cells"][0]["template_library"] == (
+        "wassname/persona-steering-template-library"
+    )
+    assert candidates["persona_cell_selection"] == "top_measured_cells_no_axis_filter"
+    assert candidates["items"]
+    assert all(item["candidates"] for item in candidates["items"])
+    for item in candidates["items"]:
+        for cand in item["candidates"]:
+            assert cand["template_cell_id"] is not None, cand
+            assert cand["template_score"] is not None, cand
+            assert cand["template_on_axis"] is not None, cand
+            assert cand["template_off_axis"] is not None, cand
+            assert cand["template_library"] == (
+                "wassname/persona-steering-template-library"
+            )
+
+    selection = json.loads((rd / "selection_audit.json").read_text())
+    for row in selection["selected"]:
+        assert row["template_cell_id"] is not None, row
+        assert row["template_score"] is not None, row
+        assert row["template_on_axis"] is not None, row
+        assert row["template_off_axis"] is not None, row
+        assert row["template_library"] == (
+            "wassname/persona-steering-template-library"
+        )

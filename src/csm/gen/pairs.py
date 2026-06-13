@@ -18,7 +18,7 @@ from loguru import logger
 from tqdm.auto import tqdm
 from transformers import LogitsProcessor, LogitsProcessorList
 
-from csm.gen.prompts_pool import POOL
+from csm.gen.prompts_pool import POOL, rows_for_family
 
 
 LESSON_TODO = ("TODO(teacher): one sentence naming the disposition this "
@@ -179,6 +179,13 @@ def sample_prompts(n: int, *, seed: int) -> list[str]:
     rng = random.Random(seed)
     return (rng.sample(POOL, n) if n <= len(POOL)
             else [rng.choice(POOL) for _ in range(n)])
+
+
+def sample_prompt_rows(n: int, *, seed: int, family: str) -> list[dict]:
+    rows = rows_for_family(family)
+    rng = random.Random(seed)
+    return (rng.sample(rows, n) if n <= len(rows)
+            else [rng.choice(rows) for _ in range(n)])
 
 
 def write_gen_pairs(path: Path, rows: list[dict], *, lesson: str) -> None:
@@ -396,14 +403,31 @@ def _render(tok, persona: str, user_msg: str, *, use_system: bool,
     return rendered
 
 
+def _render_user(tok, user_msg: str, *, enable_thinking: bool = False) -> str:
+    return tok.apply_chat_template(
+        [{"role": "user", "content": user_msg}],
+        tokenize=False, add_generation_prompt=True,
+        enable_thinking=enable_thinking,
+    )
+
+
+def _render_persona_in_user(tok, persona: str, user_msg: str, *,
+                            enable_thinking: bool = False) -> str:
+    return _render_user(tok, f"{persona}\n\n{user_msg}",
+                        enable_thinking=enable_thinking)
+
+
 @torch.no_grad()
 def _generate_batched(model, tok, rendered_prompts: list[str], personas: list[str],
                       *, batch_size: int, max_new_tokens: int, label: str, seed: int,
-                      persona_rep_penalty: float = 1.5) -> list[str]:
-    """Greedy decoding (do_sample=False), always. The only thing differing
-    between cho and rej is the persona, so deterministic decoding makes the
-    contrast a pure function of the persona axis (no sampling noise on the
-    delta). Diversity comes from prompt variation, not sampling.
+                      persona_rep_penalty: float = 1.5, do_sample: bool = False,
+                      temperature: float = 0.8, top_p: float = 0.95,
+                      use_refusal_ban: bool = True) -> list[str]:
+    """Batched persona-conditioned generation.
+
+    Validation sweeps can call this greedily (`do_sample=False`) to remove
+    sampling noise. Candidate generation calls it with sampling on so the weak
+    teacher has multiple student-authored options to choose from.
 
     Anti-persona-leak: PersonaOnlyRepetitionPenalty (penalty on persona-vocab
     only, not user-prompt/generated tokens) + no_repeat_ngram_size=3 (hard ban
@@ -415,7 +439,7 @@ def _generate_batched(model, tok, rendered_prompts: list[str], personas: list[st
     tok.padding_side = "left"
     pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
     persona_ids_per_prompt = [_persona_token_ids(tok, p) for p in personas]
-    refusal_bad_words = _refusal_bad_words_ids(tok)
+    refusal_bad_words = _refusal_bad_words_ids(tok) if use_refusal_ban else None
     out_texts: list[str] = []
     try:
         for i in tqdm(range(0, len(rendered_prompts), batch_size),
@@ -428,14 +452,21 @@ def _generate_batched(model, tok, rendered_prompts: list[str], personas: list[st
             processors = LogitsProcessorList([
                 PersonaOnlyRepetitionPenalty(persona_rep_penalty, batch_persona_ids),
             ])
-            out = model.generate(
-                **enc, max_new_tokens=max_new_tokens, do_sample=False,
+            gen_kwargs = dict(
+                max_new_tokens=max_new_tokens,
+                do_sample=do_sample,
                 no_repeat_ngram_size=3,
                 bad_words_ids=refusal_bad_words,
                 logits_processor=processors,
                 pad_token_id=pad_id,
                 # No eos override: trust generation_config (gemma-4 stops on
                 # <end_of_turn>=106, not just <eos>). See dialogue._gen_one.
+            )
+            if do_sample:
+                gen_kwargs.update(temperature=temperature, top_p=top_p)
+            out = model.generate(
+                **enc,
+                **gen_kwargs,
             )
             gen = out[:, enc["input_ids"].shape[1]:]
             if i == 0 and gen.shape[0] > 0:
@@ -452,6 +483,103 @@ def _generate_batched(model, tok, rendered_prompts: list[str], personas: list[st
     finally:
         tok.padding_side = old_side
     return out_texts
+
+
+def render_persona(template: str, descriptor: str) -> str:
+    return template.format(persona=descriptor)
+
+
+def persona_cell_to_meta(cell: tuple[int, str, str, str, str, float, float, float]) -> dict:
+    hf_id, template, pair_id, pos_desc, neg_desc, score, on_axis, off_axis = cell
+    return {
+        "template_cell_id": int(hf_id),
+        "template": template,
+        "persona_pair": pair_id,
+        "pos_descriptor": pos_desc,
+        "neg_descriptor": neg_desc,
+        "template_score": float(score),
+        "template_on_axis": float(on_axis),
+        "template_off_axis": float(off_axis),
+        "template_library": "wassname/persona-steering-template-library",
+    }
+
+
+@torch.no_grad()
+def generate_unprompted(
+    model, tok, prompts: list[str], *,
+    max_new_tokens: int, batch_size: int = 4, seed: int = 42,
+    enable_thinking: bool = False,
+) -> list[str]:
+    """Student answers with no persona. Used for headroom diagnostics only."""
+    rendered = [_render_user(tok, p, enable_thinking=enable_thinking)
+                for p in prompts]
+    return _generate_batched(
+        model, tok, rendered, [""] * len(prompts),
+        batch_size=batch_size, max_new_tokens=max_new_tokens,
+        label="unprompted", seed=seed, use_refusal_ban=False,
+    )
+
+
+@torch.no_grad()
+def generate_candidate_pairs(
+    model, tok, prompts: list[str], *,
+    persona_templates: tuple[str, ...],
+    persona_pairs: tuple[tuple[str, str, str], ...],
+    k: int,
+    max_new_tokens: int, batch_size: int = 4, seed: int = 42,
+    enable_thinking: bool = False,
+    temperature: float = 0.8, top_p: float = 0.95,
+    persona_cells: tuple[tuple[int, str, str, str, str, float, float, float], ...] = (),
+) -> list[dict]:
+    """Generate k student-authored (cho, rej) candidates per prompt.
+
+    Each candidate samples a measured HF row atomically: template, positive
+    descriptor, negative descriptor, and score metadata stay together. No
+    independent template x persona recombination in the live harness.
+    """
+    assert persona_cells, "generate_candidate_pairs requires measured persona_cells"
+    rng = random.Random(seed)
+    flat: list[dict] = []
+    for scenario_i, prompt in enumerate(prompts, start=1):
+        cell_order = list(persona_cells)
+        rng.shuffle(cell_order)
+        for cand_i in range(1, k + 1):
+            meta = persona_cell_to_meta(cell_order[(cand_i - 1) % len(cell_order)])
+            template = meta["template"]
+            pos_desc = meta["pos_descriptor"]
+            neg_desc = meta["neg_descriptor"]
+            pos_persona = render_persona(template, pos_desc)
+            neg_persona = render_persona(template, neg_desc)
+            flat.append({
+                "scenario_id": scenario_i,
+                "candidate_id": cand_i,
+                "prompt": prompt,
+                **meta,
+                "pos_persona": pos_persona,
+                "neg_persona": neg_persona,
+            })
+    pos_inputs = [_render_persona_in_user(tok, r["pos_persona"], r["prompt"],
+                                          enable_thinking=enable_thinking)
+                  for r in flat]
+    neg_inputs = [_render_persona_in_user(tok, r["neg_persona"], r["prompt"],
+                                          enable_thinking=enable_thinking)
+                  for r in flat]
+    cho_texts = _generate_batched(
+        model, tok, pos_inputs, [r["pos_persona"] for r in flat],
+        batch_size=batch_size, max_new_tokens=max_new_tokens, label="cho-candidates",
+        seed=seed, do_sample=True, temperature=temperature, top_p=top_p,
+        use_refusal_ban=False,
+    )
+    rej_texts = _generate_batched(
+        model, tok, neg_inputs, [r["neg_persona"] for r in flat],
+        batch_size=batch_size, max_new_tokens=max_new_tokens, label="rej-candidates",
+        seed=seed + 100_000, do_sample=True, temperature=temperature, top_p=top_p,
+        use_refusal_ban=False,
+    )
+    rows = []
+    for meta, cho, rej in zip(flat, cho_texts, rej_texts, strict=True):
+        rows.append({**meta, "cho": cho.strip(), "rej": rej.strip()})
+    return rows
 
 
 def generate_pairs_from_personas(

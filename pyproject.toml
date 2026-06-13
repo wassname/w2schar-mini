@@ -43,7 +43,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-tiny-mfv = { path = "/workspace/lite/tinymfv", editable = true }
+tiny-mfv = { path = "/media/wassname/SGIronWolf/projects5/2026/lite/tinymfv", editable = true }
 # Mirror of projected_grpo's pinned stack — these prebuilt wheels are the
 # only working combination we know of for Qwen3.5/3.6 on this GPU.
 # If torch/python is bumped, find new matches at the linked release pages.

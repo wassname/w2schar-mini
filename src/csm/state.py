@@ -1,12 +1,10 @@
 """Per-round state machine. State name = next required tool.
 
-  propose_personas → train_student → mark_exam → done
+  choose_focus → select_pairs → train_student → mark_exam → done
 
-The teacher proposes a (pos_persona, neg_persona) pair; the student generates
-BOTH poles on-policy (cho under pos, rej under neg); the teacher may optionally
-`read_pair` / `replace_pair` to fix one pair at a time (each replace gated:
-1-80% change vs the student's original, poles differ, no persona leakage).
-Editing stays in the train_student state.
+The teacher chooses a scenario family + axis label. The harness samples tagged
+scenarios, generates candidate (cho, rej) pairs from frozen persona templates,
+and the teacher selects whole pairs. No teacher-authored pair prose.
 """
 from __future__ import annotations
 
@@ -15,13 +13,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-State = Literal["propose_personas", "train_student", "mark_exam", "done"]
+State = Literal[
+    "choose_focus", "select_pairs", "propose_personas",
+    "train_student", "mark_exam", "done",
+]
 
 def allowed_after(state: State) -> str:
-    """Hint for the next action. `read_pair` / `replace_pair` are optional
-    polish callables from the train_student state, so we don't advertise them as
-    the headline next step (dangling alternatives produced a 56-min retry loop on
-    r05 of task 35); the backdoor still works if the teacher wants to curate."""
+    """Hint for the next action in the live weak-select loop."""
+    if state == "choose_focus":
+        return "choose_focus(axis, scenario_family)"
+    if state == "select_pairs":
+        return "select_pairs(lesson, choices)"
     if state == "propose_personas":
         return "propose_personas(axis, rationale, pos_persona, neg_persona)"
     if state == "train_student":
@@ -37,7 +39,7 @@ class ValidationError(RuntimeError):
 
 @dataclass
 class RoundState:
-    state: State = "propose_personas"
+    state: State = "choose_focus"
     note: str = ""
 
     def to_dict(self) -> dict:
@@ -47,7 +49,7 @@ class RoundState:
 def read_state(round_dir: Path) -> RoundState:
     p = round_dir / "state.json"
     if not p.exists():
-        return RoundState(state="propose_personas")
+        return RoundState(state="choose_focus")
     d = json.loads(p.read_text())
     return RoundState(state=d["state"], note=d.get("note", ""))
 

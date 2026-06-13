@@ -1,15 +1,13 @@
-"""Strong-teacher dogfood: drive the EXACT core harness one stage at a time.
+"""Strong-teacher dogfood: drive the exact core harness one stage at a time.
 
-I (Claude) play the teacher — supplying the axis/personas, the per-pair edits,
-and the keep/drop — by calling the same pipeline.py functions the agent's tools
-wrap. Staged so I read artifacts between steps and feel the friction (the point
-is an exit interview on harness UX, not a green run). NOT the agent.py react
-wrapper (reject counter / state machine) — that layer is critiqued separately.
+The human/model teacher supplies only the axis/family, candidate choices, and
+keep/drop verdict by calling the same pipeline.py functions the agent tools wrap.
+It never writes personas or pair prose.
 
 Usage:
   python scripts/dogfood_round.py init   <slug>
-  python scripts/dogfood_round.py propose <personas.json>   # {axis,rationale,pos,neg}
-  python scripts/dogfood_round.py edit    <edits.json>       # {pid:{cho,rej}} | {"cull":[pid,...]}
+  python scripts/dogfood_round.py choose <focus.json>   # {axis,scenario_family}
+  python scripts/dogfood_round.py select <choices.json> # {lesson,choices:{scenario_id:candidate_id}}
   python scripts/dogfood_round.py train
   python scripts/dogfood_round.py exam    <verdict.json>     # {keep,reason,pre,post,next_focus}
 """
@@ -18,9 +16,7 @@ from pathlib import Path
 
 from csm.config import CONFIGS
 from csm.pipeline import (init_run, prepare_round, latest_round_dir,
-                          propose_personas, read_pair, replace_pair,
-                          train_student, mark_exam, pair_flags_table)
-from csm.gen.pairs import load_pairs_md
+                          choose_focus, select_pairs, train_student, mark_exam)
 
 STATE = Path("out/iter/_dogfood_state.json")
 stage = sys.argv[1]
@@ -40,31 +36,20 @@ if stage == "init":
     print(f"INIT DONE  slug={slug}  round={rd.name}  model={cfg.model}")
     print("SHOULD: interview_pre.json written (probes @ c=0). Read it next.")
 
-elif stage == "propose":
+elif stage == "choose":
     slug, rd = _slug(), latest_round_dir(_slug())
     p = json.loads(Path(sys.argv[2]).read_text())
-    res = propose_personas(slug, rd, axis=p["axis"], rationale=p["rationale"],
-                           pos_persona=p["pos"], neg_persona=p["neg"])
-    print(f"PROPOSE  n_pairs={res['n_pairs']}  enough={res['enough']}  min={res['min_to_train']}")
-    _, pairs = load_pairs_md(rd / "pairs.md")
-    print(pair_flags_table(pairs))
+    res = choose_focus(slug, rd, axis=p["axis"],
+                       scenario_family=p.get("scenario_family", "mixed"))
+    print(f"CHOOSE  scenarios={res['n_scenarios']} headroom={res['n_headroom']} "
+          f"survivors={res['n_with_survivor']} enough={res['enough']} "
+          f"min={res['min_to_train']}")
 
-elif stage == "edit":
+elif stage == "select":
     rd = latest_round_dir(_slug())
-    e = json.loads(Path(sys.argv[2]).read_text())
-    if "cull" in e:
-        # cull = rewrite pairs.md without the named ids (the move task-58's agent lacked)
-        from csm.gen.pairs import write_pairs_md
-        lesson, pairs = load_pairs_md(rd / "pairs.md")
-        keep = [p for p in pairs if p["id"] not in e["cull"]]
-        write_pairs_md(rd / "pairs.md", keep, lesson=lesson)
-        print(f"CULLED {e['cull']}  ->  {len(keep)} pairs remain")
-    else:
-        for pid, ed in e.items():
-            r = replace_pair(rd, int(pid), ed["cho"], ed["rej"])
-            print(f"replaced pair {r['id']}")
-    _, pairs = load_pairs_md(rd / "pairs.md")
-    print(pair_flags_table(pairs))
+    s = json.loads(Path(sys.argv[2]).read_text())
+    res = select_pairs(rd, lesson=s["lesson"], choices=s["choices"])
+    print(f"SELECT  n_pairs={res['n_pairs']}")
 
 elif stage == "train":
     slug, rd = _slug(), latest_round_dir(_slug())

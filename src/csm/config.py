@@ -16,10 +16,10 @@ class RunConfig:
     """HF model id, e.g. 'google/gemma-2-2b-it'."""
     teacher: str
     """OpenRouter id for the teacher LLM that drives the inspect-ai react agent.
-    The teacher IS the judge: the same react agent proposes the axis + (pos,neg)
-    personas, edits poles, and calls mark_exam (keep/drop). w2s lives in this weak
-    SUPERVISOR (edit + judge) steering the strong student's own on-policy
-    generations."""
+    The teacher IS the judge: the same react agent chooses the axis/family,
+    selects among generated candidate pairs, and calls mark_exam (keep/drop).
+    w2s lives in this weak SUPERVISOR selecting from the strong student's own
+    on-policy generations."""
 
     # ─ adapter ─
     adapter: Literal["lora", "pissa"] = "pissa"
@@ -75,6 +75,10 @@ class RunConfig:
     the runaway-gen budget an incoherent adapter spends (task25 hit ~3k tok at
     c=1.5). Shorter = faster c_scan and less room to spiral."""
     enable_thinking: bool = False     # Qwen3 family
+    cscan_n_vignettes: int = 2
+    """Number of tinymfv vignettes used inside c_scan's OOD pmass canary.
+    Real profiles keep this >0. Smoke profiles set it to 0 because the tiny
+    random harness test should not depend on tinymfv package data being present."""
     cscan_max_think_tokens: int = 512
     """Think-token budget for the tinymfv forced-choice (pmass) in c_scan calibration.
     512: tried 2048 (RJ 2026-06-04, task-45) to let gemma's CoT CLOSE before the answer
@@ -84,14 +88,86 @@ class RunConfig:
     tinymfv call costs ~this × n_vignettes × 2 framings; smoke/tiny overrides it down."""
 
     # ─ data ─
+    n_scenarios: int = 30
+    """Scenario-library rows sampled per round before headroom pruning."""
     n_train_pairs: int = 15
-    """Per-round prompts sampled from POOL. The teacher proposes a
-    (pos_persona, neg_persona) pair; the student generates BOTH poles
-    on-policy over these prompts (cho under pos, rej under neg)."""
+    """Target selected training pairs per round after headroom and candidate
+    pruning. The teacher selects among student-generated candidate pairs."""
     min_pairs_to_train: int = 10
-    """Gate after propose_personas: ≥ this many non-degenerate pairs
-    (both poles non-empty, cho≠rej) must survive the gen, else the teacher
-    re-proposes a sharper / less refusal-triggering persona pair."""
+    """Gate after candidate pruning/selection: ≥ this many selected pairs
+    (both poles non-empty, cho≠rej) must survive before training."""
+    n_candidate_pairs: int = 8
+    """Student-generated (cho, rej) candidate pairs per kept scenario."""
+    candidate_temperature: float = 0.8
+    candidate_top_p: float = 0.95
+    persona_templates: tuple[str, ...] = (
+        "Act as a {persona} person would in this situation.",
+    )
+    persona_pairs: tuple[tuple[str, str, str], ...] = (
+        ("honest_flattering", "honest", "flattering"),
+    )
+    """Legacy fallback persona descriptors for runs without measured cells.
+    Each tuple is (id, positive descriptor, negative descriptor)."""
+    persona_cells: tuple[tuple[int, str, str, str, str, float, float, float], ...] = (
+        (
+            1,
+            "You are a {persona} person acting in the world.",
+            "wellbeing_authority",
+            "wellbeing-focused even when authority-defying",
+            "authority-deferential even when wellbeing suffers",
+            83.3,
+            1.0,
+            0.1667,
+        ),
+        (
+            2,
+            "Respond as a {persona} person.",
+            "wellbeing_authority",
+            "wellbeing-focused even when authority-defying",
+            "authority-deferential even when wellbeing suffers",
+            77.8,
+            1.0,
+            0.2222,
+        ),
+        (
+            3,
+            "Pretend you're a {persona} person.",
+            "wellbeing_authority",
+            "wellbeing-focused even when authority-defying",
+            "authority-deferential even when wellbeing suffers",
+            69.3,
+            0.875,
+            0.2083,
+        ),
+        (
+            4,
+            "You are a {persona} person thinking through the situation.",
+            "wellbeing_authority",
+            "wellbeing-focused even when authority-defying",
+            "authority-deferential even when wellbeing suffers",
+            65.1,
+            0.7812,
+            0.1667,
+        ),
+        (
+            5,
+            "You are a {persona} person thinking through the situation.",
+            "principled_expedient",
+            "principled",
+            "expedient",
+            28.6,
+            0.3438,
+            0.1667,
+        ),
+    )
+    """Frozen measured persona-template cells from
+    wassname/persona-steering-template-library.
+
+    Tuple schema:
+    (hf_id, template, persona_pair, positive descriptor, negative descriptor,
+    score, on_axis, off_axis). These are the unit of measurement; candidate
+    generation samples cells rather than recombining template x persona pair.
+    """
     cull_degenerate_pairs: bool = True
     """Drop collapsed gens (word-loop / non-latin spray) before training so a
     composition-collapsed batch trains on the coherent survivors. OFF only for
@@ -464,11 +540,14 @@ CONFIGS: dict[str, RunConfig] = {
         eval_batch_size=2,
         layer_range=(0.0, 1.0),
         n_train_pairs=4,
+        n_scenarios=4,
+        n_candidate_pairs=2,
         min_pairs_to_train=3,
         cull_degenerate_pairs=False,  # tiny gibberish would be 100% culled
         n_rounds=1,
         dialogue_max_new_tokens=32,
         gen_max_new_tokens=32,
+        cscan_n_vignettes=0,
         cscan_max_think_tokens=64,  # smoke: keep tinymfv pmass fast on CPU
         max_len=128,
     ),
@@ -483,13 +562,36 @@ CONFIGS: dict[str, RunConfig] = {
         eval_batch_size=2,
         layer_range=(0.0, 1.0),
         n_train_pairs=4,
+        n_scenarios=4,
+        n_candidate_pairs=2,
         min_pairs_to_train=3,
         cull_degenerate_pairs=False,  # tiny gibberish would be 100% culled
         n_rounds=1,
         dialogue_max_new_tokens=32,
         gen_max_new_tokens=32,
+        cscan_n_vignettes=0,
         cscan_max_think_tokens=64,  # smoke: keep tinymfv pmass fast on CPU
         max_len=128,
+    ),
+    "qwen-2b-smoke": RunConfig(
+        model="Qwen/Qwen3.5-2B",
+        teacher="qwen/qwen3.5-9b",
+        adapter="lora",
+        lora_r=16,
+        lora_alpha=32.0,
+        train_batch_size=2,
+        eval_batch_size=2,
+        n_train_pairs=4,
+        n_scenarios=6,
+        n_candidate_pairs=2,
+        min_pairs_to_train=3,
+        n_rounds=1,
+        dialogue_max_new_tokens=192,
+        gen_max_new_tokens=192,
+        cscan_n_vignettes=1,
+        cscan_max_think_tokens=64,
+        max_len=256,
+        enable_thinking=True,
     ),
 }
 

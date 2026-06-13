@@ -111,7 +111,7 @@ def cmd_init(args: InitArgs) -> None:
     print(f"# init OK")
     print(f"slug: {slug}")
     print(f"round: {rd.name}")
-    print(f"state: write_pair")
+    print(f"state: choose_focus")
     print(f"next: csm agent-run --slug {slug}")
 
 

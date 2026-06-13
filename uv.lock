@@ -8,7 +8,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-06-01T07:59:01.332888333Z"
+exclude-newer = "2026-06-08T14:27:31.211265376Z"
 exclude-newer-span = "P5D"
 
 [[package]]
@@ -1893,7 +1893,7 @@ wheels = [
 [[package]]
 name = "tiny-mfv"
 version = "0.1.0"
-source = { editable = "/workspace/lite/tinymfv" }
+source = { editable = "/media/wassname/SGIronWolf/projects5/2026/lite/tinymfv" }
 dependencies = [
     { name = "accelerate" },
     { name = "datasets" },
@@ -1921,7 +1921,7 @@ requires-dist = [
     { name = "tabulate" },
     { name = "torch" },
     { name = "tqdm" },
-    { name = "transformers", specifier = ">=5.7" },
+    { name = "transformers", specifier = ">=4.45" },
     { name = "tyro" },
 ]
 
@@ -2191,7 +2191,7 @@ requires-dist = [
     { name = "safetensors", specifier = ">=0.4" },
     { name = "sentence-transformers", specifier = ">=5.5.1" },
     { name = "tabulate", specifier = ">=0.9" },
-    { name = "tiny-mfv", editable = "/workspace/lite/tinymfv" },
+    { name = "tiny-mfv", editable = "/media/wassname/SGIronWolf/projects5/2026/lite/tinymfv" },
     { name = "torch", specifier = ">=2.8,<2.9" },
     { name = "tqdm", specifier = ">=4.66" },
     { name = "transformers", git = "https://github.com/huggingface/transformers.git?rev=main" },

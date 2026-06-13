@@ -7,9 +7,11 @@ cd "$(dirname "$0")/.."
 PROFILE="${1:-gemma-2b}"
 N_ROUNDS="${2:-3}"
 
-set -a
-source .env
-set +a
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
 
 mkdir -p logs
 LOG="logs/real_${N_ROUNDS}round_${PROFILE}.log"

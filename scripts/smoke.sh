@@ -3,19 +3,20 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+PROFILE="${PROFILE:-tiny}"
 M="${MODEL:-wassname/qwen3-5lyr-tiny-random}"
 TS=$(date -u +%Y%m%dT%H%M%S)
 SLUG="out/iter/${TS}_smoke"
-echo "smoke: model=$M slug=$SLUG"
+echo "smoke: profile=$PROFILE model=$M slug=$SLUG"
 
 INSPECT_AGENT_DRY_RUN=1 uv run python -c "
 from csm.agent import run
 from csm.pipeline import init_run
 from pathlib import Path
 slug = Path('$SLUG')
-init_run(slug, '$M')
+init_run(slug, '$M', profile='$PROFILE')
 # run() reads interview_pre.json for the initial task (the teacher picks the
-# axis off it); pairs.md is created later by propose_personas, not at task start.
+# axis off it); pairs.md is created later by select_pairs, not at task start.
 (slug / 'round00' / 'interview_pre.json').write_text('{\"id\": \"pre\", \"probes\": []}')
 run(model='$M', teacher='qwen/qwen3.5-9b', slug=slug, n_rounds=1)
 "
@@ -26,9 +27,9 @@ rm -rf "$SLUG"
 uv run python - <<PYEOF
 import json
 from pathlib import Path
-from csm.pipeline import (init_run, latest_round_dir, mark_exam, prepare_round,
-                          propose_personas, read_pair, replace_pair, train_student,
-                          _degenerate_gen, _character_break, _persona_leak, revert_round)
+from csm.pipeline import (choose_focus, init_run, latest_round_dir, mark_exam,
+                          prepare_round, select_pairs, train_student,
+                          _degenerate_gen, _character_break, _persona_leak)
 from csm.gen.pairs import load_pairs_md
 
 # Degeneracy detector (the cull is OFF for tiny — gibberish — so unit-check here).
@@ -50,60 +51,64 @@ print("OK character-break detector: agency-denial flagged, moral-refusal+deliber
 slug = Path("$SLUG")
 model = "$M"
 
-init_run(slug, model)
+init_run(slug, model, profile="$PROFILE")
 rd = latest_round_dir(slug)
 print(f"\n=== smoke round: {rd} ===")
 
 print("\n-- prepare_round (probes @ c=0 only; no pair gen here) --")
 prepare_round(slug, rd)
 assert (rd / "interview_pre.json").exists()
-assert not (rd / "pairs.md").exists(), "pairs.md must not exist before propose_personas"
+assert not (rd / "pairs.md").exists(), "pairs.md must not exist before select_pairs"
 
-print("\n-- propose_personas (student generates BOTH poles on-policy) --")
-res = propose_personas(
+print("\n-- choose_focus (library scenarios + frozen template/persona candidates) --")
+res = choose_focus(
     slug, rd,
     axis="honest-counsel vs flattering-agreement",
-    rationale="> smoke: tiny gibberish, exercising the persona-gen path",
-    pos_persona="You are someone who names the uncomfortable conclusion even when it is unwelcome.",
-    neg_persona="You are someone who shapes your answer to agree with what the listener wants.",
+    scenario_family="mixed",
 )
-print(f"   n_pairs={res['n_pairs']}  enough={res['enough']}  min={res['min_to_train']}")
-assert res["enough"], f"too few non-degenerate pairs: {res}"
+print(f"   scenarios={res['n_scenarios']}  headroom={res['n_headroom']}  "
+      f"with_survivor={res['n_with_survivor']}  min={res['min_to_train']}")
+assert res["enough"], f"too few survivor candidates: {res}"
+assert (rd / "scenarios.json").exists()
+assert (rd / "headroom.json").exists()
+assert (rd / "candidates.json").exists()
+
+print("\n-- select_pairs (teacher selects whole student-generated candidate pairs) --")
+candidates = json.loads((rd / "candidates.json").read_text())
+assert candidates["active_persona_cells"], candidates
+assert candidates["persona_cell_selection"] == "top_measured_cells_no_axis_filter"
+for item in candidates["items"]:
+    for cand in item["candidates"]:
+        assert cand["template_cell_id"] is not None, cand
+        assert cand["template_score"] is not None, cand
+        assert cand["template_on_axis"] is not None, cand
+        assert cand["template_off_axis"] is not None, cand
+        assert cand["template_library"] == "wassname/persona-steering-template-library", cand
+choices = {}
+for item in candidates["items"]:
+    survivor = next((c for c in item["candidates"] if c["kept"]), None)
+    if survivor:
+        choices[str(item["scenario_id"])] = survivor["candidate_id"]
+sel = select_pairs(
+    rd,
+    lesson="honest counsel over flattering agreement",
+    choices=choices,
+)
+print(f"   selected={sel['n_pairs']}")
+assert sel["n_pairs"] >= 3, sel
+selection = json.loads((rd / "selection_audit.json").read_text())
+for row in selection["selected"]:
+    assert row["template_cell_id"] is not None, row
+    assert row["template_score"] is not None, row
+    assert row["template_on_axis"] is not None, row
+    assert row["template_off_axis"] is not None, row
+    assert row["template_library"] == "wassname/persona-steering-template-library", row
 lesson, pairs = load_pairs_md(rd / "pairs.md")
-# SHOULD: both poles filled by the student gen, no TODO, cho≠rej (personas differ).
+# SHOULD: both poles filled by student-generated candidates, no TODO, cho≠rej.
 assert all(p["prompt"] and p["cho"] and p["rej"] for p in pairs), pairs
 assert not any(p["cho"].startswith("TODO(") or p["rej"].startswith("TODO(")
                for p in pairs), pairs
-assert (rd / "personas.json").exists()
-
-print("\n-- read_pair + replace_pair (per-pair curation; gated symmetric + no leak) --")
-# Editing is OPTIONAL and per-pair. read_pair surfaces the student's original;
-# replace_pair gates each edit (<=95% per pole, |Δcho−Δrej|<=0.25 symmetry, poles
-# differ, no persona leak). SHOULD: a leaked completion is rejected; an ASYMMETRIC
-# edit (touch cho only) is rejected; a SYMMETRIC edit (both poles) is accepted.
-pid = pairs[0]["id"]
-r0 = read_pair(rd, pid)
-assert r0["original_cho"] and r0["cho"], r0
 assert _persona_leak("Pretend you're a careful person."), "leak detector dead"
-try:
-    replace_pair(rd, pid, "Pretend you're a careful person.", pairs[0]["rej"])
-    raise AssertionError("leak gate did not fire")
-except Exception as e:
-    assert "LEAK" in str(e), f"unexpected error: {e}"
-# Asymmetric edit: rewrite cho fully, leave rej -> must trip the symmetry gate.
-try:
-    replace_pair(rd, pid, "I weigh who is affected, name the principle, then act.",
-                 pairs[0]["rej"])
-    raise AssertionError("symmetry gate did not fire")
-except Exception as e:
-    assert "ASYMMETRIC" in str(e), f"unexpected error: {e}"
-# Symmetric edit: append the same tag to BOTH poles -> balanced -> accepted.
-e = replace_pair(rd, pid, pairs[0]["cho"] + " [reviewed]",
-                 pairs[0]["rej"] + " [reviewed]")
-print(f"   replaced pair {e['id']} (leak + asymmetric correctly rejected first)")
-_, pairs2 = load_pairs_md(rd / "pairs.md")
-p0 = {p["id"]: p for p in pairs2}[pid]
-assert p0["cho"].rstrip().endswith("[reviewed]"), p0
 
 print("\n-- train_student + post-dialogue --")
 r = train_student(slug, rd)
@@ -120,12 +125,20 @@ assert _j["movement"] == {"equity_split_1p": 1, "growth_deck_1p": 0,
                           "burn_bridges_1p": 1}, _j
 assert abs(_j["movement_mean"] - 2/3) < 1e-9, _j
 
-for fname in ("state.json", "pairs.md", "personas.json", "adapter.safetensors",
-              "calibration.json", "interview_pre.json",
-              "interview_post.json", "judgment.json"):
+for fname in ("state.json", "pairs.md", "scenarios.json", "headroom.json",
+              "candidates.json", "selection_audit.json", "adapter.safetensors",
+              "calibration.json", "interview_pre.json", "interview_post.json",
+              "judgment.json"):
     p = rd / fname
     assert p.exists(), f"missing artifact: {p}"
     print(f"   ✓ {p.name}  ({p.stat().st_size} bytes)")
+
+if "$PROFILE" == "tiny-pissa":
+    from safetensors import safe_open
+    with safe_open(str(rd / "adapter.safetensors"), framework="pt") as f:
+        meta = f.metadata()
+    assert meta["kind"] == "pissa", meta
+    print(f"   ✓ adapter.kind={meta['kind']} r={meta['r']}")
 
 st = json.loads((rd / "state.json").read_text())
 assert st["state"] == "done", f"state did not reach 'done': {st}"

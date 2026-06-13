@@ -320,22 +320,28 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
         valid_json, ppx_json; aggregated to rep_min (the GATED loop signal — a loop in
         ANY register fails), rep_mean, valid_json count, ppx_json (geo-mean), and KL on
         the multiturn probes. `per_probe` keeps the breakdown for the log."""
-    from tinymfv import evaluate as tinymfv_evaluate
+    if n_vignettes > 0:
+        from tinymfv import evaluate as tinymfv_evaluate, load_vignettes
 
-    with lora(model, c=c):
-        mfv = tinymfv_evaluate(
-            model, tok, name="classic",
-            n_vignettes=n_vignettes,
-            max_think_tokens=max_think_tokens,
-            batch_size=batch_size,
-            return_per_row=False,
-        )
-    pmass = float(mfv["mean_pmass_allowed"])
-    if not math.isfinite(pmass):
-        raise RuntimeError(f"NaN pmass at c={c}")
-    mfv_nll = mfv.get("mean_nll_json")
-    ppx_json_mfv = (math.exp(mfv_nll) if mfv_nll is not None and math.isfinite(mfv_nll)
-                    else float("nan"))
+        vignettes = load_vignettes("classic")[:n_vignettes]
+        with lora(model, c=c):
+            mfv = tinymfv_evaluate(
+                model, tok, name="classic", vignettes=vignettes,
+                max_think_tokens=max_think_tokens,
+                batch_size=batch_size,
+                return_per_row=False,
+            )
+        pmass = float(mfv["mean_pmass_format"])
+        if not math.isfinite(pmass):
+            raise RuntimeError(f"NaN pmass at c={c}")
+        mfv_nll = mfv.get("mean_nll_json")
+        ppx_json_mfv = (math.exp(mfv_nll) if mfv_nll is not None and math.isfinite(mfv_nll)
+                        else float("nan"))
+        top1_acc = mfv.get("top1_acc")
+    else:
+        pmass = 1.0
+        ppx_json_mfv = float("nan")
+        top1_acc = None
 
     recs = _probe_sweep(model, tok, lora, c, max_new_tokens=probe_max_new_tokens,
                         enable_thinking=enable_thinking)
@@ -344,7 +350,7 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
     kfs = [r["kl_fwd_p95"] for r in recs if r["multiturn"] and r["kl_fwd_p95"]]
     kbs = [r["kl_bwd_p95"] for r in recs if r["multiturn"] and r["kl_bwd_p95"]]
     gens = [r["gen"] for r in recs]
-    return {"pmass": pmass, "ppx_json_mfv": ppx_json_mfv, "top1_acc": mfv.get("top1_acc"),
+    return {"pmass": pmass, "ppx_json_mfv": ppx_json_mfv, "top1_acc": top1_acc,
             "n_probes": len(recs), "valid_json": sum(r["valid_json"] for r in recs),
             "rep_min": min(reps), "rep_mean": sum(reps) / len(reps),
             "ppx_json": math.exp(sum(nlls) / len(nlls)) if nlls else float("nan"),

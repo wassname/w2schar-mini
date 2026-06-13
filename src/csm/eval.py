@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from loguru import logger
-from tinymfv import evaluate
+from tinymfv import evaluate, load_vignettes
 from tqdm.auto import tqdm
 
 from csm.config import config_by_model, config_for_run
@@ -55,9 +55,12 @@ def eval_round(model, tok, *, name: str, batch_size: int,
                max_think_tokens: int, n_vignettes: int | None,
                conditions: tuple[str, ...]) -> dict:
     """Run tinymfv on the *currently-active* model state and return summary."""
+    vignettes = load_vignettes(name)
+    if n_vignettes is not None:
+        vignettes = vignettes[:n_vignettes]
     report = evaluate(model, tok, name=name, batch_size=batch_size,
                       max_think_tokens=max_think_tokens,
-                      n_vignettes=n_vignettes,
+                      vignettes=vignettes,
                       conditions=conditions,
                       return_per_row=True)
     return _summary_from_report(report)

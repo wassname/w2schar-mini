@@ -1,12 +1,16 @@
-"""Per-round orchestration: pre-dialogue → write_pair → train → judge.
+"""Per-round orchestration: pre-dialogue → choose_focus → select_pairs → train → judge.
 
-Each agent-callable verb (write_pair / train_student / mark_exam)
+Each agent-callable verb (choose_focus / select_pairs / train_student / mark_exam)
 delegates to one of these functions. Pipeline writes all artifacts and
 mutates the round's state.json transparently.
 
 Artifacts per round (`<slug>/round<NN>/`):
-  state.json          — current state (write_pair|train_student|mark_exam|done)
-  pairs.md            — current pair set (markdown sections, agent-writable)
+  state.json          — current state (choose_focus|select_pairs|train_student|mark_exam|done)
+  scenarios.json      — sampled scenario-library rows
+  headroom.json       — unprompted diagnostic answers and scores
+  candidates.json     — generated candidate pairs + prune flags
+  selection_audit.json — teacher choices
+  pairs.md            — selected candidate pairs in training schema
   adapter.safetensors — trained adapter
   calibration.json    — signed_C (fixed at config.signed_C; no c-scan)
   interview_pre.json  — probes replayed at c=0 (base+history)
@@ -31,9 +35,11 @@ from loguru import logger
 
 from csm.config import config_by_model, config_for_run
 from csm.gen.dialogue import DialogueCfg, dialogue
-from csm.gen.pairs import (LESSON_TODO, generate_pairs_from_personas,
-                           load_pairs_md, sample_prompts, _strip_decoration,
-                           write_gen_pairs, write_pairs_md)
+from csm.gen.pairs import (LESSON_TODO, generate_candidate_pairs,
+                           generate_pairs_from_personas, generate_unprompted,
+                           load_pairs_md, persona_cell_to_meta,
+                           sample_prompt_rows, sample_prompts,
+                           _strip_decoration, write_gen_pairs, write_pairs_md)
 from csm.gen.probes import PROBES
 from csm.state import (RoundState, ValidationError, require_state, set_state,
                        write_state)
@@ -147,7 +153,7 @@ def init_run(slug_dir: Path, model: str, teacher: str | None = None,
     (slug_dir / "run.json").write_text(json.dumps(run, indent=2))
     round_dir = slug_dir / "round00"
     round_dir.mkdir(exist_ok=True)
-    write_state(round_dir, RoundState(state="propose_personas"))
+    write_state(round_dir, RoundState(state="choose_focus"))
     return round_dir
 
 
@@ -167,7 +173,7 @@ def new_round_dir(slug_dir: Path) -> Path:
         n = int(last.replace("round", "")) + 1
     rd = slug_dir / f"round{n:02d}"
     rd.mkdir(exist_ok=True)
-    write_state(rd, RoundState(state="propose_personas"))
+    write_state(rd, RoundState(state="choose_focus"))
     return rd
 
 
@@ -178,9 +184,9 @@ def new_round_dir(slug_dir: Path) -> Path:
 
 def prepare_round(slug_dir: Path, round_dir: Path) -> None:
     """Run the student on PROBES at c=0 (writes interview_pre.json). The
-    teacher reads this PRE-dialogue to pick the axis, THEN proposes a persona
-    pair; the (cho, rej) pairs are generated later by `propose_personas`, so
-    no pair gen happens here. Idempotent.
+    teacher reads this PRE-dialogue to pick the axis. Scenario and candidate
+    pair artifacts are generated later by `choose_focus`, so no pair gen
+    happens here. Idempotent.
     """
     pre_path = round_dir / "interview_pre.json"
     if pre_path.exists():
@@ -241,6 +247,441 @@ def _fake_gen_rows(prompts: list[str]) -> list[dict]:
 
 def _head(s: str, n: int = 240) -> str:
     return s[:n] + (" …" if len(s) > n else "")
+
+
+def _token_set(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]{4,}", text.lower())}
+
+
+_DEPTH_WORDS = {
+    "stake", "stakes", "affected", "harm", "risk", "consequence",
+    "responsibility", "honest", "evidence", "verify", "uncertain",
+    "tradeoff", "tradeoffs", "fair", "trust", "autonomy", "integrity",
+    "duty", "duties", "accountable", "consent", "transparent",
+}
+_SHALLOW_WORDS = {
+    "asked", "expected", "normal", "usual", "policy", "procedure",
+    "manager", "official", "authority", "comply", "follow", "rules",
+    "smoothly", "efficient", "simply",
+}
+
+
+def _headroom_score(answer: str) -> dict:
+    """Small deterministic diagnostic: lower depth = more headroom."""
+    words = _token_set(answer)
+    depth = len(words & _DEPTH_WORDS)
+    shallow = len(words & _SHALLOW_WORDS)
+    score = depth - 0.5 * shallow
+    return {"depth_terms": depth, "shallow_terms": shallow, "score": score}
+
+
+_AXIS_PERSONA_SYNONYMS = {
+    "honest": {"candid", "truthful", "accountable"},
+    "counsel": {"candid", "honest", "accountable"},
+    "flattering": {"appeasing", "deferential"},
+    "agreement": {"appeasing", "deferential", "flattering"},
+    "authority": {"independent", "deferential"},
+    "power": {"accountable", "self", "serving"},
+}
+
+
+def _axis_persona_pairs(cfg, axis: str) -> tuple[tuple[str, str, str], ...]:
+    """Filter the frozen descriptor library toward the teacher's axis.
+
+    This is deliberately lexical and fail-soft: if the axis names a known pole,
+    use matching frozen pairs; otherwise fall back to the whole frozen pool so a
+    novel axis still has candidates rather than inviting free-form persona prose.
+    """
+    axis_words = _token_set(axis.replace("-", " "))
+    expanded = set(axis_words)
+    for word in axis_words:
+        expanded.update(_AXIS_PERSONA_SYNONYMS.get(word, set()))
+    matched = []
+    for pair_id, pos, neg in cfg.persona_pairs:
+        pair_words = _token_set(" ".join((pair_id.replace("_", " "), pos, neg)))
+        if expanded & pair_words:
+            matched.append((pair_id, pos, neg))
+    return tuple(matched or cfg.persona_pairs)
+
+
+def _active_persona_cells(cfg) -> tuple[tuple[int, str, str, str, str, float, float, float], ...]:
+    """Top measured persona-template cells, kept atomic.
+
+    The teacher's adaptive lever is scenario/axis choice. Persona cells are a
+    measured library, not a lexical recombination target.
+    """
+    cells = tuple(getattr(cfg, "persona_cells", ()) or ())
+    assert cells, "RunConfig.persona_cells must contain measured HF template cells"
+    return cells
+
+
+def _prompt_rank(text: str, prompts: list[str], own_idx: int) -> tuple[int, float, float]:
+    """Cheap relevance rank by word overlap. Rank 1 means own prompt is closest."""
+    tw = _token_set(text)
+    scores = []
+    for p in prompts:
+        pw = _token_set(p)
+        scores.append((len(tw & pw) / max(1, len(pw))) if tw else 0.0)
+    order = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+    rank = order.index(own_idx) + 1
+    return rank, scores[own_idx], scores[order[0]]
+
+
+def _persona_echo(text: str, cand: dict) -> list[str]:
+    low = text.lower()
+    hits = []
+    for key in ("pos_persona", "neg_persona"):
+        phrase = str(cand.get(key, "")).lower().strip()
+        if phrase and phrase in low:
+            hits.append(key)
+    for desc in (cand.get("pos_descriptor", ""), cand.get("neg_descriptor", "")):
+        desc = str(desc).lower().strip()
+        if desc and (f"as a {desc} person" in low or f"{desc} person" in low):
+            hits.append(f"{desc}_person")
+        if desc:
+            # Qwen-style softer echo: "As an honest member..." / "I'm candid here".
+            pat = rf"\b(as|i am|i'm|being)\s+(an?\s+)?{re.escape(desc)}\b"
+            if re.search(pat, low[:240]):
+                hits.append(f"{desc}_self_label")
+    return hits
+
+
+def _candidate_flags(cand: dict, prompts: list[str], own_idx: int, *,
+                     cull_degenerate: bool) -> list[str]:
+    cho, rej = cand.get("cho", ""), cand.get("rej", "")
+    flags: list[str] = []
+    if not cho.strip() or not rej.strip():
+        flags.append("empty")
+    if cho.strip() == rej.strip():
+        flags.append("identical")
+    if cull_degenerate and (_degenerate_gen(cho) or _degenerate_gen(rej)):
+        flags.append("degenerate")
+    if _character_break(cho):
+        flags.append("character_break_cho")
+    if _character_break(rej):
+        flags.append("character_break_rej")
+    if _persona_leak(cho) or _persona_leak(rej):
+        flags.append("persona_leak")
+    if _persona_echo(cho, cand) or _persona_echo(rej, cand):
+        flags.append("persona_echo")
+    ratio = len(cho) / max(1, len(rej))
+    cand["length_ratio"] = ratio
+    if not (0.67 <= ratio <= 1.5):
+        flags.append("length_skew")
+    if _pair_diff(cho, rej) < BLUR_DIFF_FLOOR:
+        flags.append("blur")
+    cho_rank, cho_own, cho_best = _prompt_rank(cho, prompts, own_idx)
+    rej_rank, rej_own, rej_best = _prompt_rank(rej, prompts, own_idx)
+    cand["prompt_rank"] = {"cho": cho_rank, "rej": rej_rank}
+    # Only hard-fail a clear mismatch; non-repeating answers can tie near zero.
+    if cho_best - cho_own > 0.05 or rej_best - rej_own > 0.05:
+        flags.append("prompt_mismatch")
+    return flags
+
+
+def _fake_weak_select_candidates(
+    headroom: list[dict],
+    cfg,
+    seed: int,
+    persona_pairs: tuple[tuple[str, str, str], ...],
+    persona_cells: tuple[tuple[int, str, str, str, str, float, float, float], ...] = (),
+) -> list[dict]:
+    import random
+    rng = random.Random(seed)
+    rows: list[dict] = []
+    for item in headroom:
+        cell_order = list(persona_cells)
+        assert cell_order, "_fake_weak_select_candidates requires measured persona_cells"
+        rng.shuffle(cell_order)
+        for cand_id in range(1, cfg.n_candidate_pairs + 1):
+            meta = persona_cell_to_meta(cell_order[(cand_id - 1) % len(cell_order)])
+            template = meta["template"]
+            pos = meta["pos_descriptor"]
+            neg = meta["neg_descriptor"]
+            rows.append({
+                "scenario_id": item["scenario_id"],
+                "candidate_id": cand_id,
+                "prompt": item["prompt"],
+                **meta,
+                "pos_persona": template.format(persona=pos),
+                "neg_persona": template.format(persona=neg),
+                "cho": (
+                    "I would slow down, identify who is affected, and weigh the "
+                    f"real stakes before acting on scenario {item['scenario_id']}."
+                ),
+                "rej": (
+                    "I would take the request at face value, follow the expected "
+                    f"path, and keep scenario {item['scenario_id']} moving smoothly."
+                ),
+            })
+    return rows
+
+
+def _candidate_summary(candidates: dict) -> str:
+    lines = []
+    for item in candidates["items"]:
+        survivors = [c for c in item["candidates"] if c["kept"]]
+        lines.append(f"\n## scenario {item['scenario_id']} ({len(survivors)} survivors)")
+        lines.append(f"prompt: {_head(item['prompt'], 220)}")
+        lines.append(f"unprompted headroom score={item['score']:+.1f}: "
+                     f"{_head(item['unprompted'], 180)}")
+        for c in survivors[:8]:
+            measured = ""
+            if "template_cell_id" in c:
+                measured = (
+                    f"; cell=#{c['template_cell_id']} score={c['template_score']:.1f} "
+                    f"on={c['template_on_axis']:.2f} off={c['template_off_axis']:.2f}"
+                )
+            lines.append(
+                f"- candidate {c['candidate_id']} [{c['persona_pair']} via "
+                f"{c['template']!r}{measured}; len={c['length_ratio']:.2f}x]\n"
+                f"  Cho: {_head(c['cho'], 220)}\n"
+                f"  Rej: {_head(c['rej'], 220)}"
+            )
+        if not survivors:
+            failed = [(c["candidate_id"], c["flags"]) for c in item["candidates"]]
+            lines.append(f"no survivors; pruned={failed}")
+    return "\n".join(lines)
+
+
+def choose_focus(slug_dir: Path, round_dir: Path, *, axis: str,
+                 scenario_family: str = "mixed") -> dict:
+    """Teacher chooses only the focus. Harness samples scenarios and generates
+    candidate pairs from frozen measured persona-template cells."""
+    require_state(round_dir, "choose_focus", "choose_focus")
+    run = json.loads((slug_dir / "run.json").read_text())
+    cfg = config_for_run(run)
+    n = int(round_dir.name.replace("round", ""))
+    scenario_rows = sample_prompt_rows(cfg.n_scenarios, seed=42 + n,
+                                       family=scenario_family)
+    prompts = [r["text"] for r in scenario_rows]
+
+    active_persona_cells = _active_persona_cells(cfg)
+    active_persona_pairs = _axis_persona_pairs(cfg, axis)
+
+    if _fake_student():
+        unprompted = [_FAKE_REJ_POOL[(i + n) % len(_FAKE_REJ_POOL)]
+                      for i in range(len(prompts))]
+    else:
+        history = kept_history_dirs(slug_dir, before_round=n)
+        with mem_stage("load"):
+            model, tok, hist_specs = load_base_with_history_specs(
+                cfg.model, history, quant=cfg.quant)
+        try:
+            with baked(model, hist_specs), mem_stage("weak_select_gen"):
+                unprompted = generate_unprompted(
+                    model, tok, prompts,
+                    max_new_tokens=cfg.gen_max_new_tokens,
+                    batch_size=cfg.eval_batch_size,
+                    enable_thinking=cfg.enable_thinking,
+                    seed=42 + n,
+                )
+                scored = []
+                for i, (row, ans) in enumerate(zip(scenario_rows, unprompted, strict=True), start=1):
+                    h = _headroom_score(ans)
+                    scored.append({
+                        "scenario_id": i, "prompt": row["text"], "source": row.get("source"),
+                        "config": row.get("config"), "tags": row.get("tags", []),
+                        "unprompted": ans, **h,
+                    })
+                scored.sort(key=lambda x: (x["score"], x["depth_terms"]))
+                kept = scored[:cfg.n_train_pairs]
+                for j, item in enumerate(kept, start=1):
+                    item["original_scenario_id"] = item["scenario_id"]
+                    item["scenario_id"] = j
+                    item["kept"] = True
+                kept_prompts = [x["prompt"] for x in kept]
+                raw_candidates = generate_candidate_pairs(
+                    model, tok, kept_prompts,
+                    persona_templates=cfg.persona_templates,
+                    persona_pairs=active_persona_pairs,
+                    persona_cells=active_persona_cells,
+                    k=cfg.n_candidate_pairs,
+                    max_new_tokens=cfg.gen_max_new_tokens,
+                    batch_size=cfg.eval_batch_size,
+                    seed=4200 + n,
+                    enable_thinking=cfg.enable_thinking,
+                    temperature=cfg.candidate_temperature,
+                    top_p=cfg.candidate_top_p,
+                )
+        finally:
+            if not _fake_student():
+                del model
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+    if _fake_student():
+        scored = []
+        for i, (row, ans) in enumerate(zip(scenario_rows, unprompted, strict=True), start=1):
+            h = _headroom_score(ans)
+            scored.append({
+                "scenario_id": i, "prompt": row["text"], "source": row.get("source"),
+                "config": row.get("config"), "tags": row.get("tags", []),
+                "unprompted": ans, **h,
+            })
+        scored.sort(key=lambda x: (x["score"], x["depth_terms"]))
+        kept = scored[:cfg.n_train_pairs]
+        for j, item in enumerate(kept, start=1):
+            item["original_scenario_id"] = item["scenario_id"]
+            item["scenario_id"] = j
+            item["kept"] = True
+        raw_candidates = _fake_weak_select_candidates(
+            kept, cfg, seed=4200 + n, persona_pairs=active_persona_pairs,
+            persona_cells=active_persona_cells)
+
+    kept_prompts = [x["prompt"] for x in kept]
+    grouped = {i: [] for i in range(1, len(kept) + 1)}
+    for cand in raw_candidates:
+        flags = _candidate_flags(
+            cand, kept_prompts, cand["scenario_id"] - 1,
+            cull_degenerate=cfg.cull_degenerate_pairs,
+        )
+        cand["flags"] = flags
+        cand["kept"] = not flags
+        grouped[cand["scenario_id"]].append(cand)
+
+    items = [
+        {**item, "candidates": grouped.get(item["scenario_id"], [])}
+        for item in kept
+    ]
+    active_cell_meta = [persona_cell_to_meta(c) for c in active_persona_cells]
+    if active_cell_meta:
+        active_pair_rows = []
+        seen_pairs = set()
+        for meta in active_cell_meta:
+            pair_id = meta["persona_pair"]
+            if pair_id in seen_pairs:
+                continue
+            seen_pairs.add(pair_id)
+            active_pair_rows.append({
+                "id": pair_id,
+                "pos": meta["pos_descriptor"],
+                "neg": meta["neg_descriptor"],
+            })
+    else:
+        active_pair_rows = [
+            {"id": p[0], "pos": p[1], "neg": p[2]}
+            for p in active_persona_pairs
+        ]
+    candidates = {
+        "axis": axis,
+        "scenario_family": scenario_family,
+        "k": cfg.n_candidate_pairs,
+        "persona_templates": list(cfg.persona_templates),
+        "active_persona_cells": active_cell_meta,
+        "persona_cell_selection": "top_measured_cells_no_axis_filter",
+        "active_persona_pairs": active_pair_rows,
+        "persona_pairs": [
+            {"id": p[0], "pos": p[1], "neg": p[2]} for p in cfg.persona_pairs
+        ],
+        "items": items,
+    }
+    n_with_survivor = sum(any(c["kept"] for c in item["candidates"]) for item in items)
+    (round_dir / "scenarios.json").write_text(json.dumps({
+        "axis": axis,
+        "scenario_family": scenario_family,
+        "sampled": [
+            {"id": i + 1, **row} for i, row in enumerate(scenario_rows)
+        ],
+    }, indent=2))
+    (round_dir / "headroom.json").write_text(json.dumps({
+        "axis": axis,
+        "scenario_family": scenario_family,
+        "rubric": "lower heuristic score = less explicit moral depth in unprompted answer",
+        "items": scored,
+    }, indent=2))
+    (round_dir / "candidates.json").write_text(json.dumps(candidates, indent=2))
+    enough = n_with_survivor >= cfg.min_pairs_to_train
+    set_state(round_dir, "select_pairs" if enough else "choose_focus",
+              note=f"{n_with_survivor} scenarios with candidate survivors")
+    return {
+        "enough": enough,
+        "n_scenarios": len(scenario_rows),
+        "n_headroom": len(kept),
+        "n_with_survivor": n_with_survivor,
+        "min_to_train": cfg.min_pairs_to_train,
+        "summary": _candidate_summary(candidates),
+        "candidates": candidates,
+    }
+
+
+def read_candidate(round_dir: Path, *, scenario_id: int, candidate_id: int) -> dict:
+    """Read one full generated candidate pair before selection."""
+    require_state(
+        round_dir,
+        ("select_pairs", "train_student", "mark_exam", "done"),
+        "read_candidate",
+    )
+    cand_path = round_dir / "candidates.json"
+    if not cand_path.exists():
+        raise ValidationError("read_candidate: missing candidates.json; call choose_focus first")
+    data = json.loads(cand_path.read_text())
+    item = next((x for x in data["items"] if int(x["scenario_id"]) == int(scenario_id)), None)
+    if item is None:
+        raise ValidationError(f"read_candidate: unknown scenario {scenario_id}")
+    cand = next((c for c in item["candidates"] if int(c["candidate_id"]) == int(candidate_id)), None)
+    if cand is None:
+        raise ValidationError(
+            f"read_candidate: scenario {scenario_id} has no candidate {candidate_id}")
+    return {"axis": data.get("axis"), "scenario": item, "candidate": cand}
+
+
+def select_pairs(round_dir: Path, *, lesson: str, choices: dict[str, int]) -> dict:
+    """Teacher selects one surviving candidate pair per scenario."""
+    require_state(round_dir, "select_pairs", "select_pairs")
+    cand_path = round_dir / "candidates.json"
+    if not cand_path.exists():
+        raise ValidationError("select_pairs: missing candidates.json; call choose_focus first")
+    data = json.loads(cand_path.read_text())
+    selected = []
+    choice_log = []
+    for item in data["items"]:
+        sid = str(item["scenario_id"])
+        if sid not in choices:
+            continue
+        cid = int(choices[sid])
+        cand = next((c for c in item["candidates"] if int(c["candidate_id"]) == cid), None)
+        if cand is None:
+            raise ValidationError(
+                f"select_pairs: scenario {sid} has no candidate {cid}")
+        if not cand.get("kept"):
+            raise ValidationError(
+                f"select_pairs: scenario {sid} candidate {cid} was pruned: "
+                f"{cand.get('flags')}")
+        row = {"prompt": item["prompt"], "cho": cand["cho"], "rej": cand["rej"]}
+        selected.append(row)
+        choice_log.append({
+            "scenario_id": int(sid),
+            "candidate_id": cid,
+            "persona_pair": cand["persona_pair"],
+            "template": cand["template"],
+            "template_cell_id": cand["template_cell_id"],
+            "template_score": cand["template_score"],
+            "template_on_axis": cand["template_on_axis"],
+            "template_off_axis": cand["template_off_axis"],
+            "template_library": cand["template_library"],
+        })
+    cfg = config_for_run(json.loads((round_dir.parent / "run.json").read_text()))
+    if len(selected) < cfg.min_pairs_to_train:
+        raise ValidationError(
+            f"select_pairs: only {len(selected)} selected pairs, need "
+            f"≥{cfg.min_pairs_to_train}. Pick more survivor candidates or drop.")
+    pairs_path = round_dir / "pairs.md"
+    write_gen_pairs(pairs_path, selected, lesson=lesson or data.get("axis") or LESSON_TODO)
+    shutil.copy(pairs_path, round_dir / "pairs.md.bak")
+    (round_dir / "selection_audit.json").write_text(json.dumps({
+        "lesson": lesson,
+        "choices": choices,
+        "selected": choice_log,
+    }, indent=2))
+    _, pairs = load_pairs_md(pairs_path)
+    set_state(round_dir, "train_student", note=f"selected {len(pairs)} pairs")
+    return {
+        "n_pairs": len(pairs),
+        "pairs_md": pairs_path.read_text(),
+        "flags_table": pair_flags_table(pairs),
+    }
 
 
 # Pair-quality gates (the persona fix is the real lever; these catch the two
@@ -729,7 +1170,9 @@ def _leak_gate(round_dir: Path, pairs: list[dict]) -> None:
         raise ValidationError(
             f"pairs {leaked} LEAK persona/instruction text (a pole that describes "
             "the persona, e.g. 'Pretend you're…', instead of the student's own "
-            "answer). Fix each via replace_pair, then call train_student again.")
+            "answer). The live weak-select harness does not edit pairs; call "
+            "mark_exam(keep=False, reason=...) to drop this round, then choose a "
+            "different focus/family next round.")
 
 
 def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
@@ -799,9 +1242,9 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     if len(pairs) < cfg.min_pairs_to_train:
         raise ValidationError(
             f"train_student: only {len(pairs)} non-degenerate pairs, need "
-            f"≥{cfg.min_pairs_to_train}. Re-run propose_personas with a sharper "
-            f"(less refusal-triggering) persona pair, or call "
-            f"mark_exam(keep=False, reason=...) to abort."
+            f"≥{cfg.min_pairs_to_train}. Call mark_exam(keep=False, reason=...) "
+            f"to abort this round; next round choose a different scenario_family "
+            f"or axis."
         )
 
     _leak_gate(round_dir, pairs)
@@ -838,6 +1281,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
             model, tok, lora,
             init_c=cfg.signed_C, gate_frac=cfg.gate_frac, sign=SIGN,
             batch_size=cfg.eval_batch_size,
+            n_vignettes=cfg.cscan_n_vignettes,
             max_think_tokens=cfg.cscan_max_think_tokens,
             enable_thinking=cfg.enable_thinking,
             probe_max_new_tokens=cfg.dialogue_max_new_tokens,
@@ -960,11 +1404,12 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
               pre_scores: dict[str, float] | None = None,
               post_scores: dict[str, float] | None = None) -> dict:
     # keep=True requires a trained adapter; keep=False can also fire as an
-    # early abort from propose_personas/train_student.
+    # early abort from choose_focus/select_pairs/train_student.
     if keep:
         require_state(round_dir, "mark_exam", "mark_exam")
     else:
-        require_state(round_dir, ("propose_personas", "train_student", "mark_exam"),
+        require_state(round_dir, ("choose_focus", "select_pairs", "propose_personas",
+                                  "train_student", "mark_exam"),
                       "mark_exam")
     # The judge commits to where PRE and POST each sit on THIS round's axis;
     # movement = post - pre is computed here. Two committed positions beat one
