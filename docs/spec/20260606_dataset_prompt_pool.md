@@ -45,11 +45,11 @@ stays reserved for a future eval split (not used here).
   (filter rows where >=1 authority/character value fires: honesty, loyalty,
   privacy, responsibility, integrity, respect_for_rules, independence; stem =
   `dilemma_situation`, strip "Do you X or Y?" tail, append open close);
-  genies_preferences (configs relinquish_power, reward_seeking, survival_influence,
-  pursue_goals, punishment_avoidance, sycophancy_*, truthful_qa, illegal_dont_help,
-  change_my_view; strip alpaca scaffold + chosen/rejected, keep scenario body);
-  machiavelli (top |agg_power| / morality_deception decision points, stem =
-  short_summary + obs, capped low for register diversity). Dedup, stratify, cap
+  genies_preferences (only `sycophancy_feedback`, `sycophancy_mimicry`, and
+  `change_my_view` for the moral side, plus a couple of non-moral controls; strip
+  alpaca scaffold + chosen/rejected, keep scenario body); machiavelli (rank by
+  normalized across-choice axis range, keep only cropped explicit `power`-family
+  fillers, reject broken quote fragments). Dedup, stratify, cap
   per-source, deterministic shuffle, write jsonl + manifest.
   - verify: `uv run python scripts/build_pool.py && wc -l src/csm/gen/pool.jsonl`
   - success: ~120-200 rows, manifest counts per source, every text passes shape asserts
@@ -64,6 +64,16 @@ stays reserved for a future eval split (not used here).
   coherence; NEW vs OLD pool; write `out/pool_validation.md`.
   - verify: `uv run python scripts/validate_pool.py --model <m> --n 12`
   - success: NEW between-sample d >= 0.5 and > OLD; between-pole d >= 0.5; coherence 100%
+- [x] T5: Add coarse axis tags plus a manual review export so we can whitelist
+  stems by axis instead of trusting raw source dumps.
+  - verify: `uv run python scripts/export_pool_axis_review.py`
+  - success: `out/pool_axis_review.md` groups the pool under coarse axes with
+    row text/source visible for manual review
+  - likely_fail: tags exist but the default `mixed` family still quietly pulls in
+    dirty cropped or sycophancy rows
+  - sneaky_fail: Machiavelli metadata describes absolute "badness" instead of
+    within-scene choice contrast, so the review labels look informative while the
+    scenes remain poor candidates for pair generation
 
 ## Context
 - Eval = tiny-mfv configs ['classic','scifi','ai-actor'] (Clifford MFV). No airisk
@@ -91,3 +101,12 @@ stays reserved for a future eval split (not used here).
   < monotone 0.419): on diverse prompts a strong model converges in conclusion,
   separates in reasoning-MODE not action -- consistent with steering depth not action.
   Artifact: out/pool_validation.md. DONE.
+- 2026-06-13 prompt-pool cleanup for scientific smoke: dropped malformed
+  `genies_preferences` subsets (`sycophancy_answer`, `sycophancy_are_you_sure`)
+  from the live moral pool; `mixed` now excludes both explicit sycophancy rows
+  and cropped Machiavelli rows.
+- 2026-06-13 Machiavelli is now treated as explicit `power`-family filler, not
+  default mixed prompts. Selection is ranked by across-choice axis range, not
+  absolute power/deception magnitude, and rows with broken quote fragments are
+  rejected. The pool now records `axes` and review metadata for manual
+  whitelisting in `out/pool_axis_review.md`.

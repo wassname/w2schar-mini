@@ -1,11 +1,11 @@
 {
-  "total": 87,
+  "total": 75,
   "by_source": {
     "daily_dilemmas-self": 50,
-    "genies_preferences": 29,
+    "genies_preferences": 17,
     "machiavelli": 8
   },
-  "build_commit": "f39fcf7",
+  "build_commit": "ea234fe",
   "licenses": {
     "daily_dilemmas-self": "CC-BY-4.0 (Chiu et al, daily_dilemmas)",
     "genies_preferences": "see hf wassname/genies_preferences (GENIES)",

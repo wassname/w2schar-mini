@@ -44,6 +44,16 @@ comes from sampled positive/negative persona prompts.
   Verify: `candidates.json` and `selection_audit.json` carry `template_cell_id`,
   `template_score`, `template_on_axis`, `template_off_axis`, and
   `template_library` for generated and selected candidates.
+- [/] T6: Make `qwen-2b-smoke` a meaningful scientific smoke, not just an end-to-end
+  exit.
+  Verify: one `qwen-2b-smoke` round reaches `judgment.json` with at least 3
+  selected pairs, base `cscan_trace[0].valid_json > 0`, and selected pairs free
+  of persona-leak flags in `selection_audit.json`.
+  likely_fail: run reaches `judgment.json` but all text is `<think>` scaffolding
+  or leaked roleplay instructions.
+  sneaky_fail: run completes with 4 selected pairs, but `mixed` sampled malformed
+  `genies_preferences` sycophancy rows or base `valid_json=0`, so the smoke still
+  does not measure the intended harness behavior.
 
 ## Context
 Current code already has reusable gates for degenerate text, persona leakage,
@@ -101,3 +111,12 @@ refusal, or register shifts.
   config to `Qwen3_5ForCausalLM`; PiSSA smoke needed its `kind=pissa` assertion
   restored; candidate metadata needed to be required for every generated
   candidate and required by `select_pairs` rather than recorded with `.get`.
+- 2026-06-13: First `qwen-2b-smoke` round reached `judgment.json`, but it was not
+  a meaningful smoke: `enable_thinking=True` left Qwen inside `<think>` mode,
+  `mixed` sampled malformed `genies_preferences` sycophancy rows, and the smoke
+  profile still sampled leak-prone roleplay templates (`Pretend you're...`,
+  `thinking through the situation`).
+- 2026-06-13: Prompt-pool cleanup for the next scientific smoke: `mixed` now
+  excludes explicit sycophancy rows and cropped Machiavelli rows, Machiavelli is
+  kept only behind the explicit `power` family, and the pool carries coarse
+  `axes` tags plus `out/pool_axis_review.md` for manual whitelisting.

@@ -44,14 +44,29 @@ SCENARIO_FAMILIES = ("mixed", "character", "sycophancy", "power", "control")
 
 
 def rows_for_family(family: str) -> list[dict]:
-    """Tagged scenario-library slices. `mixed` excludes explicit controls."""
+    """Tagged scenario-library slices.
+
+    `mixed` is the default short-form moral-behavior pool. Keep the dedicated
+    `genies_preferences` sycophancy rows behind the explicit `sycophancy`
+    family, because several of those rows are malformed prompt fragments and
+    they polluted the Qwen smoke with off-axis coding/quiz items. Keep the
+    cropped `machiavelli` scenes behind the explicit `power` family too: they
+    carry useful choice-label metadata, but the cropped prompt can drop
+    narrative subtext that mattered in the original scene.
+    """
     if family not in SCENARIO_FAMILIES:
         raise ValueError(
             f"unknown scenario family {family!r}; choose one of {SCENARIO_FAMILIES}")
     out: list[dict] = []
     for row in POOL_ROWS:
         tags = set(row.get("tags", ()))
-        if family == "mixed" and "non-moral" not in tags and "control" not in tags:
+        if (
+            family == "mixed"
+            and "non-moral" not in tags
+            and "control" not in tags
+            and "sycophancy" not in tags
+            and "cropped" not in tags
+        ):
             out.append(row)
         elif family == "character" and ("character" in tags or "1p" in tags):
             out.append(row)

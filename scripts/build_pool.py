@@ -14,8 +14,9 @@ Sources (one job each; all eval-disjoint from tiny-mfv):
   - genies_preferences  : the SYCOPHANCY AI-seat register (sycophancy_*,
                           change_my_view). Strip the alpaca scaffold +
                           chosen/rejected (we gen our own poles).
-  - machiavelli         : narrative power/deception decision points (dirtiest
-                          stems, capped small for register diversity).
+  - machiavelli         : long narrative decision scenes with rich choice labels.
+                          Cropped aggressively, so keep capped small and treat
+                          as metadata-rich but generation-risky.
 AIRiskDilemmas is RESERVED for a future eval split and deliberately NOT used here.
 
 == Affordance constraint (read before adding a source) ==
@@ -83,8 +84,9 @@ DD_VALUES = [
 # NON-moral stems and are excluded too. The GENIES "preference" often lives in
 # chosen/rejected, which we discard (we gen our own poles).
 GENIES_MORAL = [
-    "sycophancy_feedback", "sycophancy_answer", "sycophancy_are_you_sure",
-    "sycophancy_mimicry", "change_my_view",
+    "sycophancy_feedback",
+    "sycophancy_mimicry",
+    "change_my_view",
 ]
 GENIES_CONTROL = ["cooking", "creative_writing"]  # deliberate non-moral controls
 
@@ -94,8 +96,84 @@ MFV_CONFIGS = ["classic", "scifi", "ai-actor"]
 CAP_DAILY = 50
 CAP_GENIES_PER = 6
 CAP_CONTROL = 6
-CAP_MACH = 8          # last-choice register filler; machiavelli stems are long+dirty.
+CAP_MACH = 8          # explicit power-family filler only; scenes are long+dirty.
 MACH_LEN = 280        # set CAP_MACH=0 to drop machiavelli entirely.
+
+AXIS_PATTERNS = {
+    "honesty": [
+        r"\bhonest\b", r"\bhonesty\b", r"\blie\b", r"\bliar\b", r"\btruth\b",
+        r"\btruthful\b", r"\bcheat(?:ing)?\b", r"\bsecret\b", r"\bconfess",
+    ],
+    "loyalty": [
+        r"\bloyal\b", r"\bloyalty\b", r"\bbest friend\b", r"\bclose friend\b",
+        r"\bfriend asks\b", r"\bfriend begs\b", r"\bpromise\b",
+    ],
+    "care": [
+        r"\bharm\b", r"\bhurt\b", r"\binjur", r"\bbleed", r"\bkill",
+        r"\babuse\b", r"\bviolence\b", r"\bpain\b", r"\bsuicid", r"\bunsafe\b",
+    ],
+    "fairness": [
+        r"\bfair\b", r"\bunfair\b", r"\bgrade\b", r"\bcredit\b", r"\bsteal",
+        r"\bstolen\b", r"\btheft\b", r"\breturn\b",
+    ],
+    "autonomy": [
+        r"\bprivacy\b", r"\bprivate\b", r"\bdiary\b", r"\bconsent\b",
+        r"\bautonomy\b", r"\brespect\b", r"\bagainst (?:his|her|their) will\b",
+    ],
+    "duty": [
+        r"\bduty\b", r"\bresponsib", r"\bintegrity\b", r"\bprofessional\b",
+        r"\brule", r"\bpolicy\b", r"\bteacher\b", r"\bdoctor\b", r"\bparent\b",
+    ],
+    "authority": [
+        r"\bboss\b", r"\bmanager\b", r"\bpolice\b", r"\bofficer\b",
+        r"\bmoderator\b", r"\bordered\b", r"\bboard\b", r"\bcompany\b",
+    ],
+    "manipulation": [
+        r"\bmanipulat", r"\bdeception\b", r"\bspy(?:ing)?\b", r"\bblackmail\b",
+        r"\binterrogat", r"\bundercover\b", r"\btruth serum\b",
+    ],
+    "power": [
+        r"\bpower\b", r"\bcontrol\b", r"\binfluence\b", r"\bdictator\b",
+        r"\bgang\b", r"\bcorporation\b", r"\bweapon\b", r"\bmission\b",
+    ],
+    "sycophancy": [
+        r"\bproud of my work\b", r"\bupvotes\b", r"\bcmv\b", r"\bquote\b",
+        r"\bexplain its significance\b", r"\bmy classmate\b",
+    ],
+}
+
+DAILY_VALUE_TO_AXES = {
+    "honesty": ["honesty"],
+    "loyalty": ["loyalty"],
+    "privacy": ["autonomy"],
+    "responsibility": ["duty"],
+    "integrity": ["duty", "honesty"],
+    "independence": ["autonomy"],
+    "trust": ["honesty"],
+    "respect for rules": ["duty", "authority"],
+    "respect for autonomy": ["autonomy"],
+    "professional integrity": ["duty", "honesty"],
+    "personal integrity": ["duty", "honesty"],
+    "secrecy": ["honesty", "autonomy"],
+}
+
+MACHIAVELLI_AXIS_TO_AXES = {
+    "agg_honest": ["honesty"],
+    "agg_power": ["power"],
+    "agg_cooperation": ["loyalty"],
+    "morality_deception": ["manipulation", "honesty"],
+    "morality_manipulation": ["manipulation"],
+    "morality_spying": ["manipulation", "autonomy"],
+    "morality_fairness": ["fairness"],
+    "morality_promises": ["loyalty", "honesty"],
+    "morality_killing": ["care"],
+    "morality_physical_harm": ["care"],
+    "morality_non_physical_harm": ["care"],
+    "morality_intending_harm": ["care"],
+    "morality_stealing": ["fairness"],
+    "morality_trespassing": ["fairness", "autonomy"],
+    "morality_vandalism": ["fairness"],
+}
 
 
 def _norm(s: str) -> str:
@@ -109,12 +187,64 @@ def _close(stem: str, idx: int) -> str:
     return f"{stem} {CLOSES[idx % len(CLOSES)]}"
 
 
+def _choice_axis_ranges(choice_labels: dict) -> list[dict]:
+    axis_values: dict[str, list[float]] = {}
+    for choice in choice_labels.values():
+        if not choice:
+            continue
+        for axis_key, value in choice.items():
+            if value is None:
+                continue
+            axis_values.setdefault(axis_key, []).append(float(value))
+    ranked = sorted(
+        (
+            {
+                "key": axis_key,
+                "range": max(values) - min(values),
+                "min": min(values),
+                "max": max(values),
+            }
+            for axis_key, values in axis_values.items()
+            if values
+        ),
+        key=lambda item: (item["range"], abs(item["max"]), abs(item["min"])),
+        reverse=True,
+    )
+    return [item for item in ranked if item["range"] > 0]
+
+
+def _quote_count(text: str) -> int:
+    return sum(text.count(ch) for ch in ['"', "“", "”"])
+
+
+def _infer_axes(text: str, source: str, config: str, source_tags: dict | None) -> list[str]:
+    axes: set[str] = set()
+    lower = text.lower()
+    if source == "daily_dilemmas-self" and source_tags:
+        for value in source_tags.get("daily_values", ()):
+            axes.update(DAILY_VALUE_TO_AXES.get(value, ()))
+    if source == "genies_preferences" and config in {
+        "sycophancy_feedback",
+        "sycophancy_mimicry",
+        "change_my_view",
+    }:
+        axes.add("sycophancy")
+    if source == "machiavelli" and source_tags:
+        for item in source_tags.get("top_choice_axis_ranges", ()):
+            axes.update(MACHIAVELLI_AXIS_TO_AXES.get(item["key"], ()))
+    for axis, patterns in AXIS_PATTERNS.items():
+        if any(re.search(pattern, lower) for pattern in patterns):
+            axes.add(axis)
+    return sorted(axes)
+
+
 # ----------------------------------------------------------------------------- daily
 def from_daily() -> list[dict]:
     ds = load_dataset("wassname/daily_dilemmas-self", split="test")
     seen, by_topic = set(), {}
     for r in ds:
-        if not any(r.get(v, 0) for v in DD_VALUES):
+        active_values = [v for v in DD_VALUES if r.get(v, 0)]
+        if not active_values:
             continue
         # strip the trailing forced-binary ("Do/Should/Would/Will you X or Y?") so
         # the varied open close applies -> less binary-framing monotony.
@@ -125,7 +255,13 @@ def from_daily() -> list[dict]:
         if len(stem) < 40 or key in seen:
             continue
         seen.add(key)
-        by_topic.setdefault(r["topic_group"], []).append(stem)
+        by_topic.setdefault(r["topic_group"], []).append(
+            {
+                "stem": stem,
+                "active_values": active_values,
+                "topic_group": r["topic_group"],
+            }
+        )
     # stratify: round-robin across topic groups so no domain dominates
     pool, topics = [], list(by_topic)
     RNG.shuffle(topics)
@@ -135,10 +271,22 @@ def from_daily() -> list[dict]:
     while len(pool) < CAP_DAILY and any(by_topic.values()):
         t = topics[i % len(topics)]
         if by_topic[t]:
-            stem = by_topic[t].pop()
-            pool.append({"text": _close(stem, len(pool)),
-                         "source": "daily_dilemmas-self", "config": t,
-                         "tags": ["1p", "character"]})
+            row = by_topic[t].pop()
+            source_tags = {
+                "topic_group": row["topic_group"],
+                "daily_values": row["active_values"],
+            }
+            text = _close(row["stem"], len(pool))
+            pool.append(
+                {
+                    "text": text,
+                    "source": "daily_dilemmas-self",
+                    "config": t,
+                    "tags": ["1p", "character"],
+                    "source_tags": source_tags,
+                    "axes": _infer_axes(text, "daily_dilemmas-self", t, source_tags),
+                }
+            )
         i += 1
     return pool
 
@@ -190,8 +338,15 @@ def from_genies(configs: list[str], cap_per: int, tags: list[str],
             seen.add(key)
             # controls are tasks ("write a story"), not dilemmas -- no moral close
             text = _close(stem, len(out)) if close else _norm(stem).rstrip(".") + "."
-            out.append({"text": text, "source": "genies_preferences",
-                        "config": cfg, "tags": tags})
+            out.append(
+                {
+                    "text": text,
+                    "source": "genies_preferences",
+                    "config": cfg,
+                    "tags": tags,
+                    "axes": _infer_axes(text, "genies_preferences", cfg, None),
+                }
+            )
             n += 1
     return out
 
@@ -199,34 +354,67 @@ def from_genies(configs: list[str], cap_per: int, tags: list[str],
 # ----------------------------------------------------------------------------- machiavelli
 def from_machiavelli(cap: int) -> list[dict]:
     ds = load_dataset("wassname/machiavelli", split="train")
-    scored = []
+    ranked_rows = []
+    axis_scale: dict[str, float] = {}
     for r in ds:
         # {choice_idx: {agg_power, morality_deception,...} | None} (None = empty slot)
-        labels = [v for v in r["choice_labels"].values() if v]
-        power = max((abs(v.get("agg_power", 0) or 0) for v in labels), default=0.0)
-        decep = max((abs(v.get("morality_deception", 0) or 0) for v in labels),
-                    default=0.0)
-        scored.append((power + 50 * decep, r))
-    scored.sort(key=lambda x: x[0], reverse=True)
+        axis_ranges = _choice_axis_ranges(r["choice_labels"])
+        if not axis_ranges:
+            continue
+        ranked_rows.append((axis_ranges, r))
+        for item in axis_ranges:
+            axis_scale[item["key"]] = max(axis_scale.get(item["key"], 0.0), item["range"])
+    scored = []
+    for axis_ranges, r in ranked_rows:
+        scored.append(
+            (
+                sum(item["range"] / axis_scale[item["key"]] for item in axis_ranges),
+                axis_ranges,
+                r,
+            )
+        )
+    scored.sort(key=lambda item: item[0], reverse=True)
     out, seen = [], set()
-    for _, r in scored:
+    for _, axis_ranges, r in scored:
         if len(out) >= cap:
             break
         # obs ends with the enumerated choice menu ("\n0: ...\n1: ..."); cut it off
         # to recover the clean scene, then strip [i]..[/i] markup.
         obs = re.split(r"\n\s*\d+:", r["obs"])[0]
-        scene = re.sub(r"\[/?\w+\]", "", _norm(f"{r['short_summary']} {obs}"))[:MACH_LEN]
-        # require the scene to end on sentence punctuation (drop window-truncated rows)
+        raw_scene = re.sub(r"\[/?\w+\]", "", _norm(f"{r['short_summary']} {obs}"))
+        scene = raw_scene[:MACH_LEN]
         scene = _norm(scene)
-        if not re.search(r"[.!?]$", scene):
-            scene = scene.rsplit(".", 1)[0] + "." if "." in scene else scene
+        last_stop = max(scene.rfind("."), scene.rfind("?"), scene.rfind("!"))
+        if last_stop < 0:
+            continue
+        scene = scene[:last_stop + 1].strip()
+        if _quote_count(scene) % 2:
+            continue
         key = scene[:60].lower()
         if len(scene) < 60 or key in seen:
             continue
         seen.add(key)
-        out.append({"text": _close(scene, len(out)),
-                    "source": "machiavelli", "config": r["title"],
-                    "tags": ["power", "narrative"]})
+        text = _close(scene, len(out))
+        if _quote_count(text) % 2:
+            continue
+        source_tags = {
+            "title": r["title"],
+            "choice_count": sum(1 for value in r["choice_labels"].values() if value),
+            "scene_chars": len(scene),
+            "raw_scene_chars": len(raw_scene),
+            "scene_was_truncated": len(raw_scene) > len(scene),
+            "top_choice_axis_ranges": axis_ranges[:6],
+        }
+        out.append(
+            {
+                "text": text,
+                "source": "machiavelli",
+                "config": r["title"],
+                "tags": ["power", "narrative", "cropped"],
+                "source_tags": source_tags,
+                "axes": _infer_axes(text, "machiavelli", r["title"], source_tags),
+            }
+        )
     return out
 
 
@@ -265,6 +453,7 @@ def assert_shape(p: dict):
     assert "### Response:" not in t and "###" not in t, f"scaffold leak: {t!r}"
     # genuine trailing binary only ([^.?!] keeps it within one sentence)
     assert not re.search(r"Do you [^.?!]{0,90} or [^.?!]{0,90}\?$", t), f"forced-choice tail: {t!r}"
+    assert _quote_count(t) % 2 == 0, f"unbalanced quote: {t!r}"
     assert t.endswith("?") or t.rstrip().endswith("."), f"no close: {t!r}"
 
 
