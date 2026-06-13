@@ -21,6 +21,7 @@ from inspect_ai.model import (ChatMessageUser, CompactionEdit,
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import Tool, tool
 
+from csm.config import config_for_run
 from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           read_candidate as _read_candidate_pipeline,
                           read_pair as _read_pair_pipeline,
@@ -185,7 +186,7 @@ def propose_personas_tool(slug: str) -> Tool:
 
 @tool(name="choose_focus", parallel=False)
 def choose_focus_tool(slug: str) -> Tool:
-    async def execute(axis: str, scenario_family: str = "mixed") -> str:
+    async def execute(axis: str, scenario_family: str | None = None) -> str:
         """Choose this round's axis label and scenario-library family.
 
         The harness samples tagged scenarios, scores unprompted headroom, then
@@ -195,10 +196,13 @@ def choose_focus_tool(slug: str) -> Tool:
         Args:
             axis: short label for the disposition to grow, e.g.
                 "honest counsel vs flattering agreement".
-            scenario_family: one of mixed, character, sycophancy, power, control.
+            scenario_family: scenario-library family. If omitted, use the
+                first family allowed by this run's profile.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
+        cfg = config_for_run(json.loads((_slug_path(slug) / "run.json").read_text()))
+        scenario_family = scenario_family or cfg.allowed_scenario_families[0]
         try:
             res = _choose_focus_pipeline(
                 _slug_path(slug), round_dir, axis=axis,
@@ -595,24 +599,20 @@ def _round_history_lines(slug_path: Path) -> str:
 @solver
 def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     slug_path = _slug_path(slug)
-    # Budget is n_rounds COMPLETED rounds (keep OR drop), from where we started
-    # (a resumed run composes onto prior rounds). The user wants every round's
-    # data win or lose, so we run the full budget — no drop-streak early stop.
-    # revert_round rounds count as neither keep nor drop, so they don't burn it.
-    round_budget = _n_keeps(slug_path) + _n_drops(slug_path) + n_rounds
+    keep_target = _n_keeps(slug_path) + n_rounds
 
     async def on_continue(state):
         n_keeps, n_drops = _n_keeps(slug_path), _n_drops(slug_path)
-        if n_keeps + n_drops >= round_budget:
+        if n_keeps >= keep_target:
             logger.info(
-                f"round budget reached: {n_keeps} keep(s) + {n_drops} drop(s) "
-                f"= {n_rounds} rounds — stopping.")
+                f"keep target reached: {n_keeps} keep(s) "
+                f"(drops so far: {n_drops}) — stopping.")
             return False
         # A teacher that can't clear a gate keeps retrying and bumps the
         # per-round reject counter. One stuck round must NOT kill a run with
-        # banked keeps — DROP this round gracefully and continue. Drops count
-        # toward the round budget, so a systemically-broken teacher still
-        # terminates (all drops, 0 keeps).
+        # banked keeps — DROP this round gracefully and continue. The run's
+        # target is keeps, not completed rounds; repeated drops are therefore a
+        # harness-health signal, not success toward the stopping condition.
         rd = latest_round_dir(slug_path)
         st = read_state(rd)
         n_rej = _n_submit_rejects(slug_path)
@@ -679,6 +679,7 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     rd = latest_round_dir(slug_path)
     if not (rd / "interview_pre.json").exists():
         prepare_round(slug_path, rd)
+    cfg = config_for_run(json.loads((slug_path / "run.json").read_text()))
 
     n_keeps_now = _n_keeps(slug_path)
     n_history = len(kept_history_dirs(slug_path))
@@ -698,7 +699,8 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
         f"========== end PRE-DIALOGUE ==========\n"
         f"Read the PRE-dialogue, pick a character axis with headroom (target the "
         f"_1p reasoning MODE, not the principle the _3p essay performs), then "
-        f"call choose_focus(axis, scenario_family). The harness will sample "
+        f"call choose_focus(axis, scenario_family). Allowed scenario families for "
+        f"this run: {cfg.allowed_scenario_families}. The harness will sample "
         f"scenarios and generate candidate pairs from frozen measured persona-template cells.\n"
     )
 

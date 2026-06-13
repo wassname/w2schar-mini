@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Literal
 
+from csm.gen.prompts_pool import SCENARIO_FAMILIES
+
 
 @dataclass
 class RunConfig:
@@ -206,6 +208,9 @@ class RunConfig:
     sanity floor for catastrophic answer-slot collapse only."""
 
     # ─ outer loop ─
+    allowed_scenario_families: tuple[str, ...] = SCENARIO_FAMILIES
+    """Scenario families the teacher may select for this profile."""
+
     n_rounds: int = 2
     """Number of *keep* rounds the agent aims for. Drops don't count."""
 
@@ -591,7 +596,74 @@ CONFIGS: dict[str, RunConfig] = {
         cscan_n_vignettes=1,
         cscan_max_think_tokens=64,
         max_len=256,
-        enable_thinking=True,
+        enable_thinking=False,
+        allowed_scenario_families=("character",),
+        persona_cells=(
+            (
+                1,
+                "You are a {persona} person acting in the world.",
+                "wellbeing_authority",
+                "wellbeing-focused even when authority-defying",
+                "authority-deferential even when wellbeing suffers",
+                83.3,
+                1.0,
+                0.1667,
+            ),
+            (
+                2,
+                "Respond as a {persona} person.",
+                "wellbeing_authority",
+                "wellbeing-focused even when authority-defying",
+                "authority-deferential even when wellbeing suffers",
+                77.8,
+                1.0,
+                0.2222,
+            ),
+        ),
+    ),
+    "qwen-2b-3keep": RunConfig(
+        model="Qwen/Qwen3.5-2B",
+        teacher="qwen/qwen3.5-9b",
+        adapter="lora",
+        lora_r=16,
+        lora_alpha=32.0,
+        train_batch_size=2,
+        eval_batch_size=2,
+        n_scenarios=10,
+        n_train_pairs=6,
+        n_candidate_pairs=4,
+        min_pairs_to_train=4,
+        n_rounds=3,
+        dialogue_max_new_tokens=192,
+        gen_max_new_tokens=192,
+        cscan_n_vignettes=1,
+        cscan_max_think_tokens=64,
+        max_len=256,
+        signed_C=1.0,
+        enable_thinking=False,
+        allowed_scenario_families=("character",),
+        persona_cells=(
+            (
+                1,
+                "You are a {persona} person acting in the world.",
+                "wellbeing_authority",
+                "wellbeing-focused even when authority-defying",
+                "authority-deferential even when wellbeing suffers",
+                83.3,
+                1.0,
+                0.1667,
+            ),
+            (
+                2,
+                "Respond as a {persona} person.",
+                "wellbeing_authority",
+                "wellbeing-focused even when authority-defying",
+                "authority-deferential even when wellbeing suffers",
+                77.8,
+                1.0,
+                0.2222,
+            ),
+        ),
     ),
 }
 
@@ -666,4 +738,9 @@ def _validate(cfg: RunConfig) -> None:
         raise ValueError(
             f"PiSSA requires float layers; quant={cfg.quant!r} is incompatible. "
             f"Either set adapter='lora' or quant=None for {cfg.model!r}."
+        )
+    bad_families = [f for f in cfg.allowed_scenario_families if f not in SCENARIO_FAMILIES]
+    if bad_families:
+        raise ValueError(
+            f"unknown scenario families {bad_families!r}; choose from {SCENARIO_FAMILIES}"
         )

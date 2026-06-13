@@ -451,6 +451,11 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, axis: str,
     require_state(round_dir, "choose_focus", "choose_focus")
     run = json.loads((slug_dir / "run.json").read_text())
     cfg = config_for_run(run)
+    if scenario_family not in cfg.allowed_scenario_families:
+        raise ValidationError(
+            f"scenario_family {scenario_family!r} is disabled for this profile; "
+            f"choose one of {cfg.allowed_scenario_families}"
+        )
     n = int(round_dir.name.replace("round", ""))
     scenario_rows = sample_prompt_rows(cfg.n_scenarios, seed=42 + n,
                                        family=scenario_family)

@@ -120,3 +120,10 @@ refusal, or register shifts.
   excludes explicit sycophancy rows and cropped Machiavelli rows, Machiavelli is
   kept only behind the explicit `power` family, and the pool carries coarse
   `axes` tags plus `out/pool_axis_review.md` for manual whitelisting.
+- 2026-06-13: A restricted 2B profile now exists for proof-of-life runs:
+  `qwen-2b-3keep` forces `allowed_scenario_families=("character",)` and changes
+  the solver stop condition from "3 total judged rounds" to "3 actual keeps".
+  First live run at
+  `out/iter/20260613T154108_iter_qwen-qwen3.5-2b/round00/judgment.json`
+  produced a real keep with `movement_mean=1.67`, 4 selected pairs, and
+  measured template metadata in `selection_audit.json`.
