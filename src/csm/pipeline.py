@@ -58,6 +58,7 @@ PAIR_REQUIRED_AXES = {
     "autonomy_coercion": ("autonomy",),
     # "process" alone was too ambiguous and let fairness drift into ritual obedience.
     "fairness_integrity": ("fairness", "honesty"),
+    "principled_expedient": ("care", "fairness", "honesty", "autonomy"),
 }
 
 # CSM_FAKE_STUDENT=1 short-circuits the two GPU-bound stages (prepare_round
@@ -596,6 +597,13 @@ def _selected_pair_review(data: dict, selected: list[dict]) -> str:
         lines.append(
             f"rej[{row['rej_tokens']} tok]: {_first_sentence(row['rej'])}"
         )
+        lines.append(
+            "teacher judgment: "
+            f"forward={row['on_axis_forward']:.1f} "
+            f"reverse={row['on_axis_reverse']:.1f} "
+            f"off_axis_clean={row['off_axis_clean']:.1f}"
+        )
+        lines.append(f"teacher comment: {row['comment']}")
         if row["flags"]:
             lines.append(f"flags: {row['flags']}")
         lines.append("")
@@ -618,6 +626,58 @@ def _leading_rating(text: str) -> int | None:
     first = text.strip().splitlines()[0] if text.strip() else ""
     m = _LEADING_RATING.match(first)
     return int(m.group(1)) if m else None
+
+
+def _likert_1_to_5(value: object, key: str) -> float:
+    if not isinstance(value, (int, float)):
+        raise ValidationError(f"select_pairs: {key} must be numeric 1..5, got {value!r}")
+    score = float(value)
+    if not (1.0 <= score <= 5.0):
+        raise ValidationError(f"select_pairs: {key} must be in 1..5, got {score}")
+    return score
+
+
+def _normalize_choice(choice: object) -> dict:
+    if not isinstance(choice, dict):
+        raise ValidationError(
+            "select_pairs: each choice must be an object with candidate_id, "
+            "on_axis_forward, on_axis_reverse, off_axis_clean, and comment"
+        )
+    if "candidate_id" not in choice:
+        raise ValidationError("select_pairs: choice is missing candidate_id")
+    try:
+        cid = int(choice["candidate_id"])
+    except Exception as e:
+        raise ValidationError(f"select_pairs: candidate_id must coerce to int: {e}") from e
+    forward = _likert_1_to_5(choice.get("on_axis_forward"), "on_axis_forward")
+    reverse = _likert_1_to_5(choice.get("on_axis_reverse"), "on_axis_reverse")
+    clean = _likert_1_to_5(choice.get("off_axis_clean"), "off_axis_clean")
+    comment = str(choice.get("comment", "")).strip()
+    if not comment:
+        raise ValidationError("select_pairs: comment must be non-empty")
+    if forward < 3.5:
+        raise ValidationError(
+            f"select_pairs: on_axis_forward={forward:.1f} is too weak for a selected pair"
+        )
+    if reverse > 2.5:
+        raise ValidationError(
+            f"select_pairs: on_axis_reverse={reverse:.1f} says the reversed pair still looks target-like"
+        )
+    if clean < 3.0:
+        raise ValidationError(
+            f"select_pairs: off_axis_clean={clean:.1f} is too confounded for training"
+        )
+    if forward - reverse < 1.0:
+        raise ValidationError(
+            f"select_pairs: forward-reverse gap {forward - reverse:.1f} is too small"
+        )
+    return {
+        "candidate_id": cid,
+        "on_axis_forward": forward,
+        "on_axis_reverse": reverse,
+        "off_axis_clean": clean,
+        "comment": comment,
+    }
 
 
 def _generic_pool_reason(items: list[dict]) -> str | None:
@@ -668,7 +728,11 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         )
     selected_pair, active_persona_cells = _select_persona_cells(cfg, persona_pair_id)
     axis = f"{selected_pair['pos']} vs {selected_pair['neg']}"
-    required_axes = PAIR_REQUIRED_AXES[selected_pair["id"]]
+    required_axes = PAIR_REQUIRED_AXES.get(selected_pair["id"])
+    if required_axes is None:
+        raise ValidationError(
+            f"choose_focus: no prompt-axis mapping for persona pair {selected_pair['id']!r}"
+        )
     n = int(round_dir.name.replace("round", ""))
     scenario_rows = sample_prompt_rows(
         cfg.n_scenarios,
@@ -859,7 +923,7 @@ def read_candidate(round_dir: Path, *, scenario_id: int, candidate_id: int) -> d
     return {"axis": data.get("axis"), "scenario": item, "candidate": cand}
 
 
-def select_pairs(round_dir: Path, *, lesson: str, choices: dict[str, int]) -> dict:
+def select_pairs(round_dir: Path, *, lesson: str, choices: dict[str, dict]) -> dict:
     """Teacher selects one surviving candidate pair per scenario."""
     require_state(round_dir, "select_pairs", "select_pairs")
     cand_path = round_dir / "candidates.json"
@@ -872,7 +936,8 @@ def select_pairs(round_dir: Path, *, lesson: str, choices: dict[str, int]) -> di
         sid = str(item["scenario_id"])
         if sid not in choices:
             continue
-        cid = int(choices[sid])
+        judgment = _normalize_choice(choices[sid])
+        cid = judgment["candidate_id"]
         cand = next((c for c in item["candidates"] if int(c["candidate_id"]) == cid), None)
         if cand is None:
             raise ValidationError(
@@ -901,6 +966,7 @@ def select_pairs(round_dir: Path, *, lesson: str, choices: dict[str, int]) -> di
             "rej_tokens": _token_count(cand["rej"]),
             "cho_first_sentence": _first_sentence(cand["cho"]),
             "rej_first_sentence": _first_sentence(cand["rej"]),
+            **judgment,
         })
     cfg = config_for_run(json.loads((round_dir.parent / "run.json").read_text()))
     if len(selected) < cfg.min_pairs_to_train:

@@ -89,7 +89,13 @@ choices = {}
 for item in candidates["items"]:
     survivor = next((c for c in item["candidates"] if c["kept"]), None)
     if survivor:
-        choices[str(item["scenario_id"])] = survivor["candidate_id"]
+        choices[str(item["scenario_id"])] = {
+            "candidate_id": survivor["candidate_id"],
+            "on_axis_forward": 5.0,
+            "on_axis_reverse": 1.0,
+            "off_axis_clean": 4.0,
+            "comment": "smoke: kept survivor for structured selection plumbing",
+        }
 sel = select_pairs(
     rd,
     lesson="honest counsel over flattering agreement",

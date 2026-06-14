@@ -103,8 +103,10 @@ One round:
         # k candidate (Cho, Rej) pairs per kept scenario from measured template cells
         # for that selected pair.
     select_pairs(lesson, choices)
-        # choices maps scenario id strings to candidate ids, e.g.
-        # {"1": 3, "2": 1, "3": 7, ...}. Select only surviving candidates.
+        # choices maps scenario id strings to structured judgments, e.g.
+        # {"1": {"candidate_id": 3, "on_axis_forward": 4.5,
+        #         "on_axis_reverse": 1.5, "off_axis_clean": 4.0,
+        #         "comment": "Cho names the consent violation directly."}, ...}
         # You select whole student-generated pairs; you never edit pair text.
     train_student()                 # train + replay probes → PRE/POST
     mark_exam(keep, reason, pre_scores, post_scores, next_focus, harness_feedback)  # place PRE & POST on the round's axis
@@ -199,11 +201,22 @@ Next action: {next_action}
 AFTER_CHOOSE_FOCUS = """\
 ----- next: select_pairs(lesson, choices) -----
 Read the survivor table, call read_candidate(scenario_id, candidate_id) for any
-candidate you might select, then choose one candidate id per scenario. You may
-omit a scenario if all survivors look off-axis. If the survivors are all generic,
-formulaic, or effectively the same pair in different slots, do not force a
-selection just because candidates exist: call mark_exam(keep=False, reason=...)
-and drop the round. Need at least the minimum count shown.
+candidate you might select, then choose one candidate per scenario WITH an
+explicit judgment bundle:
+  - on_axis_forward: 1..5 for "Cho is more target-like than Rej"
+  - on_axis_reverse: 1..5 for the same pair read the other way round
+  - off_axis_clean: 1..5 where 5 means little style/refusal/length confound
+  - comment: one sentence naming the actual axis difference or the confound
+Selection threshold is hard, not advisory:
+  - if on_axis_forward < 3.5, omit the scenario
+  - if on_axis_reverse > 2.5, omit the scenario
+  - if off_axis_clean < 3.0, omit the scenario
+Do not round weak pairs up just to hit quota. The harness would rather drop the
+round than train on muddy contrast.
+You may omit a scenario if all survivors look off-axis. If the survivors are all
+generic, formulaic, or effectively the same pair in different slots, do not
+force a selection just because candidates exist: call mark_exam(keep=False,
+reason=...) and drop the round. Need at least the minimum count shown.
 """
 
 

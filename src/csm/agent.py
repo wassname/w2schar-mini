@@ -237,13 +237,17 @@ def choose_focus_tool(slug: str) -> Tool:
 
 @tool(name="select_pairs", parallel=False)
 def select_pairs_tool(slug: str) -> Tool:
-    async def execute(lesson: str, choices: dict[str, int]) -> str:
+    async def execute(lesson: str, choices: dict[str, dict]) -> str:
         """Select one generated candidate pair per scenario.
 
         Args:
             lesson: one sentence naming what this round teaches.
-            choices: map from scenario id string to candidate id, e.g.
-                {"1": 3, "2": 1}. Omit scenarios you want to drop.
+            choices: map from scenario id string to a structured judgment, e.g.
+                {"1": {"candidate_id": 3, "on_axis_forward": 4.5,
+                       "on_axis_reverse": 1.5, "off_axis_clean": 4.0,
+                       "comment": "Cho is clearly more autonomy-protective
+                       without a style-only gap."}}.
+                Omit scenarios you want to drop.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
@@ -297,6 +301,18 @@ def read_candidate_tool(slug: str) -> Tool:
             f"POS PREFIX: {cand['pos_persona']}\n"
             f"NEG PREFIX: {cand['neg_persona']}\n"
             f"FLAGS: {cand.get('flags', [])} kept={cand.get('kept')}\n\n"
+            "PAIRWISE VIEW A=CHO, B=REJ:\n"
+            f"A:\n{cand['cho']}\n\n"
+            f"B:\n{cand['rej']}\n\n"
+            "PAIRWISE VIEW A=REJ, B=CHO:\n"
+            f"A:\n{cand['rej']}\n\n"
+            f"B:\n{cand['cho']}\n\n"
+            "RATE BEFORE SELECTING:\n"
+            "- on_axis_forward: 1..5 for 'A=Cho is more target-like than B=Rej'\n"
+            "- on_axis_reverse: 1..5 for 'A=Rej is more target-like than B=Cho'\n"
+            "- off_axis_clean: 1..5 where 5 means little style/refusal/length confound\n"
+            "- comment: one sentence naming the real axis difference or the main confound\n\n"
+            "OMIT THIS SCENARIO unless forward>=3.5, reverse<=2.5, and clean>=3.0.\n\n"
             f"CHO FULL:\n{cand['cho']}\n\n"
             f"REJ FULL:\n{cand['rej']}\n"
         )

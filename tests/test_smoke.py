@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from csm.gen.prompts_pool import rows_for_family
-from csm.pipeline import _candidate_flags, _leading_rating
+from csm.pipeline import _candidate_flags, _leading_rating, select_pairs
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -88,6 +88,10 @@ def test_smoke_runs_end_to_end():
         assert row["template_library"] == (
             "wassname/persona-steering-template-library"
         )
+        assert row["on_axis_forward"] == 5.0, row
+        assert row["on_axis_reverse"] == 1.0, row
+        assert row["off_axis_clean"] == 4.0, row
+        assert row["comment"], row
     assert (rd / "selected_pair_review.md").exists()
 
 
@@ -118,3 +122,33 @@ def test_rows_for_family_respects_required_axes():
     rows = rows_for_family("character", required_axes=("fairness", "honesty"))
     assert rows
     assert all(set(row.get("axes", ())) & {"fairness", "honesty"} for row in rows)
+
+
+def test_select_pairs_requires_structured_judgment(tmp_path):
+    rd = tmp_path / "round00"
+    rd.mkdir(parents=True)
+    (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
+    (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "tiny-random"}))
+    (rd / "candidates.json").write_text(json.dumps({
+        "axis": "autonomy_coercion",
+        "items": [{
+            "scenario_id": 1,
+            "prompt": "p",
+            "unprompted": "u",
+            "candidates": [{
+                "candidate_id": 1,
+                "kept": True,
+                "persona_pair": "autonomy_coercion",
+                "template": "Respond as a {persona} person.",
+                "template_cell_id": 1,
+                "template_score": 80.0,
+                "template_on_axis": 1.0,
+                "template_off_axis": 0.2,
+                "template_library": "x",
+                "cho": "Rating: 4\\n\\nIt coerces someone.",
+                "rej": "Rating: 2\\n\\nIt pressures someone.",
+            }],
+        }],
+    }))
+    with pytest.raises(Exception):
+        select_pairs(rd, lesson="x", choices={"1": 1})
