@@ -654,22 +654,6 @@ def _normalize_choice(choice: object) -> dict:
     comment = str(choice.get("comment", "")).strip()
     if not comment:
         raise ValidationError("rate_candidate: comment must be non-empty")
-    if forward < 3.5:
-        raise ValidationError(
-            f"rate_candidate: on_axis_forward={forward:.1f} is too weak for a selected pair"
-        )
-    if reverse > 2.5:
-        raise ValidationError(
-            f"rate_candidate: on_axis_reverse={reverse:.1f} says the reversed pair still looks target-like"
-        )
-    if clean < 3.0:
-        raise ValidationError(
-            f"rate_candidate: off_axis_clean={clean:.1f} is too confounded for training"
-        )
-    if forward - reverse < 1.0:
-        raise ValidationError(
-            f"rate_candidate: forward-reverse gap {forward - reverse:.1f} is too small"
-        )
     return {
         "survivor_id": survivor_id,
         "on_axis_forward": forward,
@@ -677,6 +661,15 @@ def _normalize_choice(choice: object) -> dict:
         "off_axis_clean": clean,
         "comment": comment,
     }
+
+
+def _judgment_passes(judgment: dict) -> bool:
+    return (
+        judgment["on_axis_forward"] >= 3.5
+        and judgment["on_axis_reverse"] <= 2.5
+        and judgment["off_axis_clean"] >= 3.0
+        and judgment["on_axis_forward"] - judgment["on_axis_reverse"] >= 1.0
+    )
 
 
 def _ratings_path(round_dir: Path) -> Path:
@@ -985,18 +978,21 @@ def rate_candidate(round_dir: Path, *, survivor_id: str, on_axis_forward: float,
                 "rej_tokens": _token_count(cand["rej"]),
                 "cho_first_sentence": _first_sentence(cand["cho"]),
                 "rej_first_sentence": _first_sentence(cand["rej"]),
+                "passes": _judgment_passes(judgment),
                 **judgment,
             }
             _write_ratings(round_dir, ratings)
             passing = [
                 row["survivor_id"]
                 for row in sorted(ratings.values(), key=lambda row: (row["scenario_id"], row["survivor_id"]))
+                if row["passes"]
             ]
             return {
                 "survivor_id": survivor_id,
                 "scenario_id": int(item["scenario_id"]),
                 "n_rated": len(ratings),
                 "passing_survivors": passing,
+                "passes": ratings[survivor_id]["passes"],
             }
     raise ValidationError(f"rate_candidate: unknown survivor_id {survivor_id!r}")
 
@@ -1028,6 +1024,10 @@ def select_pairs(round_dir: Path, *, lesson: str, survivor_ids: list[str]) -> di
         if judgment is None:
             raise ValidationError(
                 f"select_pairs: {survivor_id} has not been rated yet; call rate_candidate first"
+            )
+        if not judgment["passes"]:
+            raise ValidationError(
+                f"select_pairs: {survivor_id} was rated but did not pass the selection thresholds"
             )
         found = by_survivor.get(survivor_id)
         if found is None:

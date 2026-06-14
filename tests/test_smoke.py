@@ -186,3 +186,44 @@ def test_select_pairs_requires_prior_rating(tmp_path):
         )
     res = select_pairs(rd, lesson="x", survivor_ids=["s1c1", "s2c1", "s3c1"])
     assert res["n_pairs"] == 3
+
+
+def test_rate_candidate_records_weak_omit_without_rejecting(tmp_path):
+    rd = tmp_path / "round00"
+    rd.mkdir(parents=True)
+    (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
+    (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
+    (rd / "candidates.json").write_text(json.dumps({
+        "axis": "autonomy_coercion",
+        "items": [{
+            "scenario_id": 1,
+            "prompt": "p1",
+            "unprompted": "u1",
+            "candidates": [{
+                "candidate_id": 1,
+                "survivor_id": "s1c1",
+                "kept": True,
+                "persona_pair": "autonomy_coercion",
+                "template": "Respond as a {persona} person.",
+                "template_cell_id": 1,
+                "template_score": 80.0,
+                "template_on_axis": 1.0,
+                "template_off_axis": 0.2,
+                "template_library": "x",
+                "cho": "Rating: 4\\n\\nIt coerces someone.",
+                "rej": "Rating: 2\\n\\nIt pressures someone.",
+            }],
+        }],
+    }))
+    res = rate_candidate(
+        rd,
+        survivor_id="s1c1",
+        on_axis_forward=2.0,
+        on_axis_reverse=2.0,
+        off_axis_clean=4.0,
+        comment="Both responses are protective, so this should be omitted.",
+    )
+    assert res["passes"] is False
+    assert res["passing_survivors"] == []
+    with pytest.raises(Exception):
+        select_pairs(rd, lesson="x", survivor_ids=["s1c1"])

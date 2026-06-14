@@ -217,6 +217,8 @@ Selection threshold is hard, not advisory:
   - if on_axis_forward < 3.5, omit the scenario
   - if on_axis_reverse > 2.5, omit the scenario
   - if off_axis_clean < 3.0, omit the scenario
+Weak ratings are allowed and should be recorded honestly; they simply do not
+enter the passing survivor list.
 Do not round weak pairs up just to hit quota. The harness would rather drop the
 round than train on muddy contrast.
 You may omit a scenario if all survivors look off-axis. If the survivors are all

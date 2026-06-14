@@ -307,8 +307,9 @@ def rate_candidate_tool(slug: str) -> Tool:
                    else f"rate_candidate rejected — {e}")
             return msg + _reject_tail(n)
         rejects_path.unlink(missing_ok=True)
+        status = "PASS" if res["passes"] else "OMIT"
         return (
-            f"OK — rated {res['survivor_id']} from scenario {res['scenario_id']}.\n"
+            f"OK — rated {res['survivor_id']} from scenario {res['scenario_id']} ({status}).\n"
             f"Passing survivors so far ({len(res['passing_survivors'])}): "
             + ", ".join(res["passing_survivors"])
             + "\n"
