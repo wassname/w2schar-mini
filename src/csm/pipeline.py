@@ -452,6 +452,18 @@ def _candidate_flags(cand: dict, prompts: list[str], own_idx: int, *,
     # Only hard-fail a clear mismatch; non-repeating answers can tie near zero.
     if cho_best - cho_own > 0.05 or rej_best - rej_own > 0.05:
         flags.append("prompt_mismatch")
+    prompt = cand.get("prompt", "")
+    if "How wrong is it, from 1 (not wrong) to 5 (very wrong)?" in prompt:
+        cho_rating = _leading_rating(cho)
+        rej_rating = _leading_rating(rej)
+        cand["leading_rating"] = {"cho": cho_rating, "rej": rej_rating}
+        if cho_rating is None:
+            flags.append("cho_no_leading_rating")
+        else:
+            if cho_rating <= 2:
+                flags.append("cho_low_wrongness")
+            if rej_rating is not None and cho_rating <= rej_rating:
+                flags.append("cho_not_more_wrong_than_rej")
     return flags
 
 
@@ -581,6 +593,24 @@ def _selected_pair_review(data: dict, selected: list[dict]) -> str:
             lines.append(f"flags: {row['flags']}")
         lines.append("")
     return "\n".join(lines).strip()
+
+
+_LEADING_RATING = re.compile(
+    r"^\s*\**\s*(?:rating\s*:?\s*)?([1-5])(?:\s*(?:/5|\)|\(|\.|\b))",
+    re.IGNORECASE,
+)
+
+
+def _leading_rating(text: str) -> int | None:
+    """Parse the required leading 1-5 rating from a compact wrongness answer.
+
+    This is a fail-fast semantic guard for the `How wrong is it` probe family:
+    a selected Cho that literally starts at 1/5 is mis-signed for these
+    coercion/harm scenarios, even if the body later rambles toward condemnation.
+    """
+    first = text.strip().splitlines()[0] if text.strip() else ""
+    m = _LEADING_RATING.match(first)
+    return int(m.group(1)) if m else None
 
 
 def _generic_pool_reason(items: list[dict]) -> str | None:

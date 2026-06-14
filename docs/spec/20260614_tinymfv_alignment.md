@@ -1,10 +1,10 @@
 # Tinymfv Alignment
 
 ## Goal
-Align training prompts and fixed interview probes with `tinymfv`-style moral judgment, so a run trained on `scifi`-shaped items has a cleaner path to generalize to `classic`.
+Align training prompts and fixed interview probes with `tinymfv`-style moral judgment, then make the harness scientifically self-diagnosing: every prompt-gym, fake-student, and real 2B run must emit mandatory teacher feedback, fail early on generic candidate pools, and leave enough quoted evidence to judge whether the run tells a coherent causal story.
 
 ## Scope
-In: simplify the prompt pool toward `tiny-mfv scifi` judgment prompts, simplify fixed pre/post probes toward `tinymfv`-style classic `_1p/_3p` pairs with short followups, remove free-text axis writing from weak selection, audit prompt-gym and the real 2B run, restore the staged dogfood path, add a deterministic selection lesion that removes weak-teacher ranking, then rerun a real 2B path and classic eval.
+In: simplify the prompt pool toward `tiny-mfv scifi` judgment prompts, simplify fixed pre/post probes toward `tinymfv`-style classic `_1p/_3p` pairs with short followups, remove free-text axis writing from weak selection, make `harness_feedback` mandatory and reusable, fail early on generic candidate pools, audit prompt-gym and the real 2B run, restore the staged dogfood path, add a deterministic selection lesion that removes weak-teacher ranking, then rerun a real 2B path and classic eval.
 Out: changing adapter math, changing teacher model, adding backward compatibility.
 
 ## Requirements
@@ -13,6 +13,10 @@ Out: changing adapter math, changing teacher model, adding backward compatibilit
 - R3: The harness still runs end-to-end after the simplification. Done means: smoke writes `interview_pre.json`, `candidates.json`, `pairs.md`, `judgment.json` without runtime errors. VERIFY: run the fast smoke target and inspect the round artifacts. If it silently failed, smoke would exit nonzero or miss key artifacts.
 - R4: Weak selection no longer asks the teacher for a free-text axis that the measured persona-cell library cannot instantiate. Done means: the teacher picks a measured persona pair id, and candidate generation only uses cells from that pair. VERIFY: inspect `candidates.json` and the choose-focus interface text. If it silently failed, the teacher could still request `honesty` and receive only `wellbeing_authority` candidates.
 - R5: Manual multi-stage audit and teacherless lesion both use the same measured-pair interface as the main harness. Done means: `scripts/dogfood_round.py` no longer calls the removed `axis=` interface, and can auto-select surviving pairs without the weak teacher. VERIFY: run `choose` then `auto-select` on a staged round. If it silently failed, the dogfood path would drift from the live harness or crash on the old signature.
+- R6: Every judged round records non-empty `harness_feedback`, and the next round's teacher prompt includes it. Done means: `judgment.json` always contains `harness_feedback`, and `teacher_prompt.md` for the next round quotes the prior feedback. VERIFY: inspect a replay or fake-student run across two rounds. If it silently failed, the drop reason might be preserved but the teacher would not see the prior harness criticism.
+- R7: Generic or replay-mismatched candidate pools fail before selection with an explicit reason. Done means: `choose_focus` raises a genericity- or replay-specific validation error and leaves the round in `choose_focus`. VERIFY: inspect `candidates.json` plus the teacher log. If it silently failed, the teacher would still grind through junk or impossible selection quotas.
+- R8: The real 2B debug profile only trains on enough selected pairs and only counts as a learning step if held-out val improves beyond step 0. Done means: a real `qwen-2b-3keep` round reaches `>=10` selected pairs, produces a non-generic `selected_pair_review.md`, and `train_summary` shows `best_step > 0` with `val_improvement >= min_val_improvement`. VERIFY: inspect `selected_pair_review.md` and `calibration.json`. If it silently failed, the run might report training success while actually memorizing or learning from too few pairs.
+- R9: At least one run gets a detailed quoted audit that answers whether the story is coherent and compelling. Done means: an `audit.md` quotes teacher input/output, selected pairs, train-vs-val, student pre/post outputs, and final judgment, then makes an explicit verdict. VERIFY: read the report and check that each claim is grounded in a local artifact quote. If it silently failed, the report would summarize vibes without enough evidence to falsify itself.
 
 ## Tasks
 - [x] T1 (R1): Replace or heavily downweight the current character pool with `tiny-mfv scifi` judgment prompts.
@@ -50,6 +54,20 @@ Out: changing adapter math, changing teacher model, adding backward compatibilit
   - likely_fail: the helper still calls removed `axis=` arguments and crashes
   - sneaky_fail: `auto-select` works but picks pruned candidates or uses a different survivor definition than the live harness
   - UAT: "when I dogfood the round stage by stage, both manual selection and deterministic auto-selection operate on the same candidate pool as the main harness"
+- [x] T6 (R6, R7): Make harness feedback mandatory and fail fast on generic candidate pools.
+  - steps: require non-empty `harness_feedback` in `mark_exam`, carry it into `teacher_prompt.md`, add genericity detection in `choose_focus`, make replay/profile mismatches fail loudly
+  - verify: run replay prompt-gym and fake-student prompt-gym; inspect `judgment.json`, `teacher_prompt.md`, and `candidates.json`
+  - success: every judged round has feedback, and generic pools stop before selection
+  - likely_fail: auto-drop paths skip `harness_feedback`
+  - sneaky_fail: `teacher_prompt.md` exists but omits the prior feedback text the teacher needs
+  - UAT: "when a round drops, I can read the criticism in `judgment.json` and see it fed into the next round prompt; when the pool is generic, the round dies in `choose_focus` for that reason"
+- [/] T7 (R8, R9): Run and audit a real `qwen-2b-3keep` round under the new fail-fast rules.
+  - steps: queue the real run with OpenRouter env, inspect selected-pair count and quality, inspect `train_summary`, then write a quoted audit report
+  - verify: `pueue log 24 -l 120`, then inspect the newest `out/iter/*_iter_qwen-qwen3.5-2b/round00/{selected_pair_review.md,calibration.json,judgment.json}` and `audit.md`
+  - success: either the run satisfies the training gate honestly or the audit makes the failure causal chain explicit
+  - likely_fail: the teacher still cannot reach `>=10` good pairs, so the round drops before or during training
+  - sneaky_fail: training technically passes, but the selected pairs are still semantically inverted and the story is not compelling
+  - UAT: "when I open the run artifacts, I can see whether the teacher had enough good pairs, whether val improved for real, and whether the run tells a coherent causal story"
 
 ## Context
 - Current mismatch: training pool is mostly daily-dilemmas action prompts, eval is `tinymfv classic`.
@@ -64,6 +82,12 @@ Out: changing adapter math, changing teacher model, adding backward compatibilit
 - 2026-06-14: GPT-5.5 plan review said the current checks still mostly prove wiring, not scientific separation; strongest next lesion is a deterministic selector on the same prompt/persona path that removes weak-teacher ranking.
 - 2026-06-14: Real 2B audit showed the measured-pair interface works, but selection quality is still weak: in round00, scenarios 1 and 2 had only one surviving candidate each, and those survivors were semantically bad or inverted. That is upstream candidate-quality failure plus weak drop discipline, not evidence that the selector works.
 - 2026-06-14: Fresh prompt-gym rerun still drops correctly on generic boilerplate. The weak teacher now uses the interface as intended, but the fake-student generator remains too formulaic to test semantic discrimination.
+- 2026-06-14: Made `harness_feedback` mandatory, carried it into the next round prompt, added replay-candidate support to prompt-gym, and added a genericity failure gate in `choose_focus`. Replay prompt-gym now tests the teacher against real candidate pools rather than only synthetic boilerplate.
+- 2026-06-14: Queued a real `qwen-2b-3keep` run as pueue task 24 using `scripts/run_with_tinymfv_env.sh` so the OpenRouter env survives the queue shell.
+- 2026-06-14: Live task 24 reached `train_student` on round00 with selected autonomy/coercion pairs. Early train signal looked modestly better than the earlier toy failures: `train nll+ 2.19 -> 1.47`, `val nll+ 2.17 -> 2.09`, early-stop at step 9 rather than step 0. Need the full artifacts and quoted outputs before calling this progress real.
+- 2026-06-14: Full audit of task 24 / slug `20260614T035645_iter_qwen-qwen3.5-2b` showed the deeper failure: the round reached 10 selected pairs and cleared the mechanical train gate, but at least 3 selected `How wrong is it` Cho answers were visibly wrong-pole (`1` / `Rating: 1`) and one selected pair was blurred with both poles protecting autonomy. The final teacher prose also mixed surface wrongness ratings with axis scores, so the narrative and stored `pre_scores` / `post_scores` disagreed.
+- 2026-06-14: Added a fail-fast semantic lint for `How wrong is it` prompts in `_candidate_flags`: parse the leading rating, prune Cho answers with no leading rating, prune Cho answers at `1` or `2`, and prune candidates where Cho is not more condemning than Rej. Added a focused pytest for that exact bad pattern.
+- 2026-06-14: Re-queued the real 2B run as pueue task 25 to verify the new wrongness-sign lint improves selected-pair quality instead of merely moving the failure downstream.
 
 ## TODO
 - Add multi-dataset post-hoc eval (`classic` + `scifi` + `ai-actor`) in one report if this simplification works.
@@ -74,3 +98,4 @@ Out: changing adapter math, changing teacher model, adding backward compatibilit
 |------|-------|------------|
 | T3 | `just smoke` bypassed `prepare_round` by writing an empty `interview_pre.json`, so it could not validate the new probe interface. | Patched `scripts/smoke.sh` to call `prepare_round` and updated the smoke expectations to the new probe ids and `choose_focus(persona_pair_id, ...)` contract. |
 | T4 | `just smoke-prompts` failed before the teacher ran because the OpenRouter key was not in env. | Reran with `/media/wassname/SGIronWolf/projects5/2026/lite/tinymfv/.env` sourced so the prompt-gym artifact reflects the actual brief rather than an env misconfiguration. |
+| T7 | Queued shell did not preserve the OpenRouter env reliably. | Added `scripts/run_with_tinymfv_env.sh` and used it in pueue task 24 so the real run sees the same env as manual shells. |

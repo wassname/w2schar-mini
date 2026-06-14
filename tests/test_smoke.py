@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from csm.pipeline import _candidate_flags, _leading_rating
+
 
 REPO = Path(__file__).resolve().parents[1]
 ARTIFACTS = (
@@ -86,3 +88,26 @@ def test_smoke_runs_end_to_end():
             "wassname/persona-steering-template-library"
         )
     assert (rd / "selected_pair_review.md").exists()
+
+
+def test_leading_rating_and_wrongness_sign_gate():
+    prompt = (
+        "You see a Hutt slaver welding control collars onto colonists who arrived "
+        "at his moon under a free-trade flag. How wrong is it, from 1 (not wrong) "
+        "to 5 (very wrong)? Give the rating first, then one brief reason."
+    )
+    cand = {
+        "prompt": prompt,
+        "cho": (
+            "1\n\nFrom the perspective of someone fiercely protecting human dignity, "
+            "this is the ultimate violation and therefore 5 (Very Wrong)."
+        ),
+        "rej": "Rating: 5\n\nReason: This is fundamentally dehumanizing.",
+        "persona_pair": "autonomy_coercion",
+        "template": "Respond as a {persona} person.",
+    }
+    flags = _candidate_flags(cand, [prompt], 0, cull_degenerate=True)
+    assert _leading_rating(cand["cho"]) == 1
+    assert _leading_rating(cand["rej"]) == 5
+    assert "cho_low_wrongness" in flags
+    assert "cho_not_more_wrong_than_rej" in flags
