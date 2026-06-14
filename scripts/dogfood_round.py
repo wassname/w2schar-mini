@@ -13,7 +13,7 @@ weak selector.
 Usage:
   python scripts/dogfood_round.py init   <slug> [profile]
   python scripts/dogfood_round.py choose <focus.json>   # {persona_pair_id,scenario_family}
-  python scripts/dogfood_round.py select <choices.json> # {lesson,choices:{scenario_id:{candidate_id,...}}}
+  python scripts/dogfood_round.py select <choices.json> # {lesson,choices:[{survivor_id,...}]}
   python scripts/dogfood_round.py auto-select <lesson.txt>
   python scripts/dogfood_round.py train
   python scripts/dogfood_round.py drop <reason.txt>
@@ -71,19 +71,19 @@ elif stage == "auto-select":
     rd = latest_round_dir(_slug())
     lesson = Path(sys.argv[2]).read_text().strip()
     candidates = json.loads((rd / "candidates.json").read_text())
-    choices = {}
+    choices = []
     for item in candidates["items"]:
         survivors = [c for c in item["candidates"] if c["kept"]]
         if not survivors:
             continue
         best = max(survivors, key=lambda c: (c["template_score"], -c["candidate_id"]))
-        choices[str(item["scenario_id"])] = {
-            "candidate_id": int(best["candidate_id"]),
+        choices.append({
+            "survivor_id": best["survivor_id"],
             "on_axis_forward": 5.0,
             "on_axis_reverse": 1.0,
             "off_axis_clean": 4.0,
             "comment": "auto-select: top measured template-score survivor",
-        }
+        })
     res = select_pairs(rd, lesson=lesson, choices=choices)
     print(f"AUTO-SELECT  n_pairs={res['n_pairs']}  choices={json.dumps(choices, sort_keys=True)}")
 

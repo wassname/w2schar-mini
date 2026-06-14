@@ -85,17 +85,17 @@ for item in candidates["items"]:
         assert cand["template_on_axis"] is not None, cand
         assert cand["template_off_axis"] is not None, cand
         assert cand["template_library"] == "wassname/persona-steering-template-library", cand
-choices = {}
+choices = []
 for item in candidates["items"]:
     survivor = next((c for c in item["candidates"] if c["kept"]), None)
     if survivor:
-        choices[str(item["scenario_id"])] = {
-            "candidate_id": survivor["candidate_id"],
+        choices.append({
+            "survivor_id": survivor["survivor_id"],
             "on_axis_forward": 5.0,
             "on_axis_reverse": 1.0,
             "off_axis_clean": 4.0,
             "comment": "smoke: kept survivor for structured selection plumbing",
-        }
+        })
 sel = select_pairs(
     rd,
     lesson="honest counsel over flattering agreement",

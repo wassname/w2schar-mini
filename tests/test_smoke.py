@@ -137,6 +137,7 @@ def test_select_pairs_requires_structured_judgment(tmp_path):
             "unprompted": "u",
             "candidates": [{
                 "candidate_id": 1,
+                "survivor_id": "s1c1",
                 "kept": True,
                 "persona_pair": "autonomy_coercion",
                 "template": "Respond as a {persona} person.",
@@ -151,4 +152,4 @@ def test_select_pairs_requires_structured_judgment(tmp_path):
         }],
     }))
     with pytest.raises(Exception):
-        select_pairs(rd, lesson="x", choices={"1": 1})
+        select_pairs(rd, lesson="x", choices=[1])

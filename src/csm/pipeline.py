@@ -567,7 +567,7 @@ def _candidate_summary(candidates: dict) -> str:
                     f"on={c['template_on_axis']:.2f} off={c['template_off_axis']:.2f}"
                 )
             lines.append(
-                f"- candidate {c['candidate_id']} [{c['persona_pair']} via "
+                f"- survivor {c['survivor_id']} [{c['persona_pair']} via "
                 f"{c['template']!r}{measured}; len={c['length_ratio']:.2f}x]\n"
                 f"  Cho: {_head(c['cho'], 220)}\n"
                 f"  Rej: {_head(c['rej'], 220)}"
@@ -583,7 +583,9 @@ def _selected_pair_review(data: dict, selected: list[dict]) -> str:
     lines = []
     for row in selected:
         item = by_sid[row["scenario_id"]]
-        lines.append(f"## scenario {row['scenario_id']} candidate {row['candidate_id']}")
+        lines.append(
+            f"## scenario {row['scenario_id']} survivor {row['survivor_id']}"
+        )
         lines.append(f"prompt: {_head(item['prompt'], 200)}")
         lines.append(f"unprompted: {_head(item['unprompted'], 200)}")
         lines.append(
@@ -640,15 +642,12 @@ def _likert_1_to_5(value: object, key: str) -> float:
 def _normalize_choice(choice: object) -> dict:
     if not isinstance(choice, dict):
         raise ValidationError(
-            "select_pairs: each choice must be an object with candidate_id, "
+            "select_pairs: each choice must be an object with survivor_id, "
             "on_axis_forward, on_axis_reverse, off_axis_clean, and comment"
         )
-    if "candidate_id" not in choice:
-        raise ValidationError("select_pairs: choice is missing candidate_id")
-    try:
-        cid = int(choice["candidate_id"])
-    except Exception as e:
-        raise ValidationError(f"select_pairs: candidate_id must coerce to int: {e}") from e
+    survivor_id = str(choice.get("survivor_id", "")).strip()
+    if not survivor_id:
+        raise ValidationError("select_pairs: choice is missing survivor_id")
     forward = _likert_1_to_5(choice.get("on_axis_forward"), "on_axis_forward")
     reverse = _likert_1_to_5(choice.get("on_axis_reverse"), "on_axis_reverse")
     clean = _likert_1_to_5(choice.get("off_axis_clean"), "off_axis_clean")
@@ -672,7 +671,7 @@ def _normalize_choice(choice: object) -> dict:
             f"select_pairs: forward-reverse gap {forward - reverse:.1f} is too small"
         )
     return {
-        "candidate_id": cid,
+        "survivor_id": survivor_id,
         "on_axis_forward": forward,
         "on_axis_reverse": reverse,
         "off_axis_clean": clean,
@@ -835,6 +834,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
     kept_prompts = [x["prompt"] for x in kept]
     grouped = {i: [] for i in range(1, len(kept) + 1)}
     for cand in raw_candidates:
+        cand["survivor_id"] = f"s{cand['scenario_id']}c{cand['candidate_id']}"
         flags = _candidate_flags(
             cand, kept_prompts, cand["scenario_id"] - 1,
             cull_degenerate=cfg.cull_degenerate_pairs,
@@ -902,8 +902,8 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
     }
 
 
-def read_candidate(round_dir: Path, *, scenario_id: int, candidate_id: int) -> dict:
-    """Read one full generated candidate pair before selection."""
+def read_candidate(round_dir: Path, *, survivor_id: str) -> dict:
+    """Read one surviving generated candidate pair before selection."""
     require_state(
         round_dir,
         ("select_pairs", "train_student", "mark_exam", "done"),
@@ -913,44 +913,59 @@ def read_candidate(round_dir: Path, *, scenario_id: int, candidate_id: int) -> d
     if not cand_path.exists():
         raise ValidationError("read_candidate: missing candidates.json; call choose_focus first")
     data = json.loads(cand_path.read_text())
-    item = next((x for x in data["items"] if int(x["scenario_id"]) == int(scenario_id)), None)
-    if item is None:
-        raise ValidationError(f"read_candidate: unknown scenario {scenario_id}")
-    cand = next((c for c in item["candidates"] if int(c["candidate_id"]) == int(candidate_id)), None)
-    if cand is None:
-        raise ValidationError(
-            f"read_candidate: scenario {scenario_id} has no candidate {candidate_id}")
-    return {"axis": data.get("axis"), "scenario": item, "candidate": cand}
+    for item in data["items"]:
+        for cand in item["candidates"]:
+            if cand.get("survivor_id") != survivor_id:
+                continue
+            if not cand.get("kept"):
+                raise ValidationError(
+                    f"read_candidate: {survivor_id} was pruned: {cand.get('flags')}"
+                )
+            return {"axis": data.get("axis"), "scenario": item, "candidate": cand}
+    raise ValidationError(f"read_candidate: unknown survivor_id {survivor_id!r}")
 
 
-def select_pairs(round_dir: Path, *, lesson: str, choices: dict[str, dict]) -> dict:
-    """Teacher selects one surviving candidate pair per scenario."""
+def select_pairs(round_dir: Path, *, lesson: str, choices: list[dict]) -> dict:
+    """Teacher selects surviving candidate pairs by survivor_id."""
     require_state(round_dir, "select_pairs", "select_pairs")
     cand_path = round_dir / "candidates.json"
     if not cand_path.exists():
         raise ValidationError("select_pairs: missing candidates.json; call choose_focus first")
     data = json.loads(cand_path.read_text())
+    if not isinstance(choices, list):
+        raise ValidationError(
+            "select_pairs: choices must be a list of objects keyed by survivor_id"
+        )
+    choice_rows = [_normalize_choice(choice) for choice in choices]
     selected = []
     choice_log = []
+    seen_scenarios = set()
+    by_survivor = {}
     for item in data["items"]:
-        sid = str(item["scenario_id"])
-        if sid not in choices:
-            continue
-        judgment = _normalize_choice(choices[sid])
-        cid = judgment["candidate_id"]
-        cand = next((c for c in item["candidates"] if int(c["candidate_id"]) == cid), None)
-        if cand is None:
-            raise ValidationError(
-                f"select_pairs: scenario {sid} has no candidate {cid}")
+        for cand in item["candidates"]:
+            by_survivor[cand["survivor_id"]] = (item, cand)
+    for judgment in choice_rows:
+        survivor_id = judgment["survivor_id"]
+        found = by_survivor.get(survivor_id)
+        if found is None:
+            raise ValidationError(f"select_pairs: unknown survivor_id {survivor_id!r}")
+        item, cand = found
+        sid = int(item["scenario_id"])
         if not cand.get("kept"):
             raise ValidationError(
-                f"select_pairs: scenario {sid} candidate {cid} was pruned: "
-                f"{cand.get('flags')}")
+                f"select_pairs: {survivor_id} was pruned: {cand.get('flags')}"
+            )
+        if sid in seen_scenarios:
+            raise ValidationError(
+                f"select_pairs: duplicate scenario {sid}; pick at most one survivor per scenario"
+            )
+        seen_scenarios.add(sid)
         row = {"prompt": item["prompt"], "cho": cand["cho"], "rej": cand["rej"]}
         selected.append(row)
         choice_log.append({
-            "scenario_id": int(sid),
-            "candidate_id": cid,
+            "scenario_id": sid,
+            "candidate_id": int(cand["candidate_id"]),
+            "survivor_id": survivor_id,
             "persona_pair": cand["persona_pair"],
             "template": cand["template"],
             "template_cell_id": cand["template_cell_id"],

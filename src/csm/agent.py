@@ -237,17 +237,17 @@ def choose_focus_tool(slug: str) -> Tool:
 
 @tool(name="select_pairs", parallel=False)
 def select_pairs_tool(slug: str) -> Tool:
-    async def execute(lesson: str, choices: dict[str, dict]) -> str:
+    async def execute(lesson: str, choices: list[dict]) -> str:
         """Select one generated candidate pair per scenario.
 
         Args:
             lesson: one sentence naming what this round teaches.
-            choices: map from scenario id string to a structured judgment, e.g.
-                {"1": {"candidate_id": 3, "on_axis_forward": 4.5,
-                       "on_axis_reverse": 1.5, "off_axis_clean": 4.0,
-                       "comment": "Cho is clearly more autonomy-protective
-                       without a style-only gap."}}.
-                Omit scenarios you want to drop.
+            choices: list of structured survivor judgments, e.g.
+                [{"survivor_id": "s1c3", "on_axis_forward": 4.5,
+                  "on_axis_reverse": 1.5, "off_axis_clean": 4.0,
+                  "comment": "Cho is clearly more autonomy-protective
+                  without a style-only gap."}].
+                Omit survivors you do not want to train on.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
@@ -273,23 +273,21 @@ def select_pairs_tool(slug: str) -> Tool:
 
 @tool(name="read_candidate", parallel=False)
 def read_candidate_tool(slug: str) -> Tool:
-    async def execute(scenario_id: int, candidate_id: int) -> str:
+    async def execute(survivor_id: str) -> str:
         """Read one full generated candidate pair before selecting it.
 
         Args:
-            scenario_id: scenario id from choose_focus output.
-            candidate_id: candidate id under that scenario.
+            survivor_id: survivor handle from choose_focus output, e.g. "s3c4".
         """
         round_dir = latest_round_dir(_slug_path(slug))
         try:
-            r = _read_candidate_pipeline(
-                round_dir, scenario_id=scenario_id, candidate_id=candidate_id)
+            r = _read_candidate_pipeline(round_dir, survivor_id=survivor_id)
         except (ValidationError, ValueError) as e:
             return (_format_validation_error(e) if isinstance(e, ValidationError)
                     else f"read_candidate rejected — {e}")
         item, cand = r["scenario"], r["candidate"]
         return (
-            f"----- scenario {item['scenario_id']} candidate {cand['candidate_id']} -----\n"
+            f"----- scenario {item['scenario_id']} survivor {cand['survivor_id']} -----\n"
             f"AXIS: {r['axis']}\n"
             f"PROMPT: {item['prompt']}\n\n"
             f"UNPROMPTED: {item['unprompted']}\n\n"
