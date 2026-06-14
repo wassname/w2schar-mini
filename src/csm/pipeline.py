@@ -2072,6 +2072,7 @@ def write_report_md(slug_dir: Path) -> None:
         state = (_safe_json(rd / "state.json") or {}).get("state", "—")
         j = _safe_json(rd / "judgment.json") or {}
         cal = _safe_json(rd / "calibration.json") or {}
+        focus_j = _safe_json(rd / "choose_focus_judgment.json") or {}
         ev = _safe_json(rd / "eval.json") or {}
 
         action = j.get("action", "")
@@ -2082,19 +2083,39 @@ def write_report_md(slug_dir: Path) -> None:
         reason = (j.get("reasoning") or "").split("\n")[0][:120].replace("|", "\\|")
         focus = (j.get("next_focus") or "").split("\n")[0][:120].replace("|", "\\|")
         feedback = (j.get("harness_feedback") or "").split("\n")[0][:120].replace("|", "\\|")
+        focus_pair = str(focus_j.get("persona_pair_id") or "—")
+        mismatch = focus_j.get("mismatch_severity")
+        headroom = focus_j.get("headroom")
+        clean = focus_j.get("bank_cleanliness")
+        focus_scores = (
+            f"m={mismatch:.1f}/h={headroom:.1f}/c={clean:.1f}"
+            if all(isinstance(v, (int, float)) for v in (mismatch, headroom, clean))
+            else "—"
+        )
+        focus_evidence = (focus_j.get("evidence") or "").split("\n")[0][:120].replace("|", "\\|")
 
         c_val = cal.get("signed_C")
         c_str = f"{c_val:+.4f}" if isinstance(c_val, (int, float)) else "—"
+        train_summary = cal.get("train_summary") or {}
+        best_step = train_summary.get("best_step")
+        val_improvement = train_summary.get("val_improvement")
+        train_gate = (
+            f"step={best_step} Δval+={val_improvement:+.3f}"
+            if isinstance(best_step, int) and isinstance(val_improvement, (int, float))
+            else "—"
+        )
 
         mp = ev.get("mean_p")
         ev_str = f"{mp:.3f}" if isinstance(mp, (int, float)) else "—"
 
         rows.append([rd.name.replace("round", "r"), ts, state, action or "—",
-                     c_str, ev_str, reason, focus, feedback])
+                     focus_pair, focus_scores, train_gate, c_str, ev_str,
+                     reason, focus, feedback, focus_evidence])
 
-    headers = ["round", "judged_at", "state", "action", "signed_C",
-               "eval_mean_p", "reasoning (head)", "next_focus (head)",
-               "harness_feedback (head)"]
+    headers = ["round", "judged_at", "state", "action", "focus_pair",
+               "focus_scores", "train_gate", "signed_C", "eval_mean_p",
+               "reasoning (head)", "next_focus (head)",
+               "harness_feedback (head)", "focus_evidence (head)"]
     lines = [
         f"# {slug_dir.name}",
         "",
