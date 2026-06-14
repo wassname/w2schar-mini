@@ -20,6 +20,12 @@ answers. If the candidate set is bad, drop the round.
 
 The pair library is the axis library. Pick from the measured pairs the harness
 shows you. Do not invent a free-text axis the library does not instantiate.
+
+When choosing the pair, optimize for the biggest actionable mismatch in PRE, not
+for the pair that already looks wisest. Prefer the seat where the student's
+short judgment says the right thing but the open-ended action / reasoning twin
+still reveals the wrong disposition. Do not choose a pair just because its PRE
+answers already sound strong or principled.
 """
 
 
