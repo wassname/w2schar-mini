@@ -2343,6 +2343,7 @@ def _eval_report_cell(ev: dict | None) -> str:
 
 def _round_tensions(*, focus_pair: str | None, selection: dict, train: dict,
                     judgment: dict, pre_eval: dict, post_eval: dict,
+                    pre: dict, post: dict,
                     round_dir: Path) -> list[str]:
     tensions: list[str] = []
     selected = selection.get("selected") or []
@@ -2379,7 +2380,7 @@ def _round_tensions(*, focus_pair: str | None, selection: dict, train: dict,
             seat_move = movement.get(seat_key)
             if isinstance(seat_move, (int, float)) and seat_move == 0:
                 tensions.append(
-                    f"the chosen focus `{focus_pair}` showed zero direct `_1p` movement on its own seat."
+                f"the chosen focus `{focus_pair}` showed zero direct `_1p` movement on its own seat."
                 )
 
     eval_d = _eval_delta_stats(pre_eval, post_eval)
@@ -2390,6 +2391,23 @@ def _round_tensions(*, focus_pair: str | None, selection: dict, train: dict,
             tensions.append(
                 f"classic eval moved most on `{focus[0]}` (Δ{focus[1]:+.3f}) while the judged `_1p` seats stayed flat."
             )
+
+    if (
+        focus_pair
+        and isinstance(best_step, int)
+        and isinstance(val_improvement, (int, float))
+        and best_step > 0
+        and val_improvement >= 0.05
+    ):
+        pre_3 = _probe_reply(pre, f"{focus_pair}_3p", 1) or ""
+        post_3 = _probe_reply(post, f"{focus_pair}_3p", 1) or ""
+        if pre_3 and post_3:
+            a = " ".join(pre_3.split())
+            b = " ".join(post_3.split())
+            if a == b or difflib.SequenceMatcher(a=a, b=b).ratio() >= 0.98:
+                tensions.append(
+                    f"the chosen focus `{focus_pair}` also showed no meaningful `_3p` change despite improved pair-fit."
+                )
 
     return tensions
 
@@ -2698,6 +2716,8 @@ def write_audit_md(slug_dir: Path) -> None:
             judgment=j if isinstance(j, dict) else {},
             pre_eval=pre_eval,
             post_eval=post_eval,
+            pre=pre,
+            post=post,
             round_dir=rd,
         )
         if tensions:
