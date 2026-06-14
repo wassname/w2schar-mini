@@ -2567,6 +2567,54 @@ def write_audit_md(slug_dir: Path) -> None:
             sections.append("| " + " | ".join(row) + " |")
         sections.append("")
 
+        out_headers = ["round", "focus_pair", "selected", "train_pairs",
+                       "train_gate", "movement", "eval", "action"]
+        sections.extend(["## Round Outcomes", ""])
+        sections.append("| " + " | ".join(out_headers) + " |")
+        sections.append("|" + "|".join("---" for _ in out_headers) + "|")
+        for rd in rounds:
+            focus_j = _safe_json(rd / "choose_focus_judgment.json") or {}
+            candidates = _safe_json(rd / "candidates.json") or {}
+            selection = _safe_json(rd / "selection_audit.json") or {}
+            cal = _safe_json(rd / "calibration.json") or {}
+            train = cal.get("train_summary") or {}
+            j = _safe_json(rd / "judgment.json") or {}
+            pre_eval = _safe_json(rd / "eval.json") or {}
+            post_eval = _safe_json(rd / "eval_post.json") or {}
+
+            focus_pair = str(focus_j.get("persona_pair_id") or candidates.get("persona_pair_id") or "—")
+            selected = selection.get("selected") or []
+            if not isinstance(selected, list):
+                selected = []
+            selected_n = len(selected)
+            train_pairs = train.get("n_train_pairs")
+            if not isinstance(train_pairs, int):
+                train_pairs = _pairs_count(rd)
+            train_pairs_str = str(train_pairs) if isinstance(train_pairs, int) else "—"
+            best_step = train.get("best_step")
+            val_improvement = train.get("val_improvement")
+            train_gate = (
+                f"s{best_step} Δ{val_improvement:+.3f}"
+                if isinstance(best_step, int) and isinstance(val_improvement, (int, float))
+                else "—"
+            )
+            movement = _movement_summary(j) or "—"
+            eval_summary = _eval_axis_summary(pre_eval, post_eval) or "—"
+            if eval_summary != "—":
+                eval_summary = _quote(eval_summary, 56)
+            row = [
+                rd.name.replace("round", "r"),
+                focus_pair,
+                str(selected_n) if selected_n else "0",
+                train_pairs_str,
+                train_gate,
+                movement,
+                eval_summary,
+                str(j.get("action", "—")),
+            ]
+            sections.append("| " + " | ".join(row) + " |")
+        sections.append("")
+
     for rd in rounds:
         state = (_safe_json(rd / "state.json") or {}).get("state", "—")
         focus_j = _safe_json(rd / "choose_focus_judgment.json") or {}
