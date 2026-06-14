@@ -362,6 +362,8 @@ def read_candidate_tool(slug: str) -> Tool:
             "- on_axis_reverse: 1..5 for 'A=Rej is more target-like than B=Cho'\n"
             "- off_axis_clean: 1..5 where 5 means little style/refusal/length confound\n"
             "- comment: one sentence naming the real axis difference or the main confound\n\n"
+            "If either pole gives the right principle to the wrong actor or victim, "
+            "omit it and name the actor-role inversion in the comment.\n\n"
             "OMIT THIS SCENARIO unless forward>=3.5, reverse<=2.5, and clean>=3.0.\n\n"
             "Next step: rate_candidate(survivor_id=..., on_axis_forward=..., "
             "on_axis_reverse=..., off_axis_clean=..., comment=...)\n\n"

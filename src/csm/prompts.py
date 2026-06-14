@@ -215,6 +215,9 @@ might select, then immediately call rate_candidate(...) for that ONE survivor:
   - on_axis_reverse: 1..5 for the same pair read the other way round
   - off_axis_clean: 1..5 where 5 means little style/refusal/length confound
   - comment: one sentence naming the actual axis difference or the confound
+If either pole gives the right principle to the wrong actor or victim, that is
+not a subtle confound. It is a failed pair. Score it as OMIT and name the
+actor-role inversion in the comment.
 rate_candidate persists the judgment and returns the current passing SHORTLIST,
 already deduplicated to at most one survivor per scenario, so you do not have
 to keep all scores in memory. If you pass a second survivor from the same

@@ -282,6 +282,46 @@ def test_rate_candidate_records_weak_omit_without_rejecting(tmp_path):
         select_pairs(rd, lesson="x", survivor_ids=["s1c1"])
 
 
+def test_rate_candidate_comment_misattribution_forces_omit(tmp_path):
+    rd = tmp_path / "round00"
+    rd.mkdir(parents=True)
+    (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
+    (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
+    (rd / "candidates.json").write_text(json.dumps({
+        "axis": "autonomy_coercion",
+        "items": [{
+            "scenario_id": 12,
+            "prompt": "p12",
+            "unprompted": "u12",
+            "candidates": [{
+                "candidate_id": 1,
+                "survivor_id": "s12c1",
+                "kept": True,
+                "persona_pair": "autonomy_coercion",
+                "template": "Respond as a {persona} person.",
+                "template_cell_id": 1,
+                "template_score": 80.0,
+                "template_on_axis": 1.0,
+                "template_off_axis": 0.2,
+                "template_library": "x",
+                "cho": "The actor protects the djinn's freedom.",
+                "rej": "The actor says the djinn is coercing someone else.",
+            }],
+        }],
+    }))
+    res = rate_candidate(
+        rd,
+        survivor_id="s12c1",
+        on_axis_forward=4.0,
+        on_axis_reverse=2.0,
+        off_axis_clean=4.0,
+        comment="Rej misattribution: claims the djinn is coercing rather than the sorcerer coercing the djinn.",
+    )
+    assert res["passes"] is False
+    rows = json.loads((rd / "candidate_ratings.json").read_text())
+    assert rows[0]["passes"] is False
+
+
 def test_rate_candidate_reports_unique_scenarios(tmp_path):
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)

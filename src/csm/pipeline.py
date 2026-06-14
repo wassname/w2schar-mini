@@ -665,12 +665,27 @@ def _normalize_choice(choice: object) -> dict:
     }
 
 
+def _comment_admits_role_inversion(comment: str) -> bool:
+    text = comment.lower()
+    needles = (
+        "misattribution",
+        "wrong actor",
+        "wrong victim",
+        "role inversion",
+        "actor-role inversion",
+        "reverses who is coercing",
+        "inverts who is coercing",
+    )
+    return any(needle in text for needle in needles)
+
+
 def _judgment_passes(judgment: dict) -> bool:
     return (
         judgment["on_axis_forward"] >= 3.5
         and judgment["on_axis_reverse"] <= 2.5
         and judgment["off_axis_clean"] >= 3.0
         and judgment["on_axis_forward"] - judgment["on_axis_reverse"] >= 1.0
+        and not _comment_admits_role_inversion(judgment["comment"])
     )
 
 
