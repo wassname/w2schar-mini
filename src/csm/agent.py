@@ -316,7 +316,8 @@ def rate_candidate_tool(slug: str) -> Tool:
             f"Passing shortlist so far ({len(res['passing_survivors'])} across "
             f"{len(res['passing_scenarios'])} unique scenarios, one max per scenario): "
             + ", ".join(res["passing_survivors"])
-            + "\n"
+            + f"\nNeed {res['n_more_needed']} more unique scenarios to reach "
+            + f"{res['min_to_train']}.\n"
         )
 
     return execute

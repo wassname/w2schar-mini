@@ -332,6 +332,7 @@ def test_rate_candidate_reports_unique_scenarios(tmp_path):
         comment="Pass from scenario 2.",
     )
     assert r1["passing_scenarios"] == [1]
+    assert r1["n_more_needed"] > 0
     assert r2["passing_scenarios"] == [1]
     assert r3["passing_scenarios"] == [1, 2]
 
@@ -398,3 +399,42 @@ def test_rate_candidate_keeps_only_best_pass_per_scenario(tmp_path):
     by_id = {row["survivor_id"]: row for row in rows}
     assert by_id["s1c1"]["passes"] is False
     assert by_id["s1c1"]["superseded_by"] == "s1c2"
+
+
+def test_select_pairs_error_reports_remaining_shortlist(tmp_path):
+    rd = tmp_path / "round00"
+    rd.mkdir(parents=True)
+    (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
+    (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "qwen-2b-3keep"}))
+    (rd / "candidates.json").write_text(json.dumps({
+        "axis": "autonomy_coercion",
+        "items": [{
+            "scenario_id": 1,
+            "prompt": "p1",
+            "unprompted": "u1",
+            "candidates": [{
+                "candidate_id": 1,
+                "survivor_id": "s1c1",
+                "kept": True,
+                "persona_pair": "autonomy_coercion",
+                "template": "Respond as a {persona} person.",
+                "template_cell_id": 1,
+                "template_score": 80.0,
+                "template_on_axis": 1.0,
+                "template_off_axis": 0.2,
+                "template_library": "x",
+                "cho": "The actor should have protected her freedom.",
+                "rej": "The actor should have pressured her into agreement.",
+            }],
+        }],
+    }))
+    rate_candidate(
+        rd,
+        survivor_id="s1c1",
+        on_axis_forward=4.0,
+        on_axis_reverse=2.0,
+        off_axis_clean=4.0,
+        comment="Good axis split.",
+    )
+    with pytest.raises(Exception, match="Current passing shortlist covers 1 unique scenarios"):
+        select_pairs(rd, lesson="x", survivor_ids=["s1c1"])

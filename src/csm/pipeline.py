@@ -1025,6 +1025,7 @@ def rate_candidate(round_dir: Path, *, survivor_id: str, on_axis_forward: float,
             _write_ratings(round_dir, ratings)
             passing = _passing_survivors(ratings)
             passing_scenarios = _passing_scenario_ids(ratings)
+            cfg = config_for_run(json.loads((round_dir.parent / "run.json").read_text()))
             return {
                 "survivor_id": survivor_id,
                 "scenario_id": int(item["scenario_id"]),
@@ -1033,6 +1034,8 @@ def rate_candidate(round_dir: Path, *, survivor_id: str, on_axis_forward: float,
                 "passing_scenarios": passing_scenarios,
                 "passes": row["passes"],
                 "superseded_by": row.get("superseded_by"),
+                "min_to_train": cfg.min_pairs_to_train,
+                "n_more_needed": max(0, cfg.min_pairs_to_train - len(passing_scenarios)),
             }
     raise ValidationError(f"rate_candidate: unknown survivor_id {survivor_id!r}")
 
@@ -1108,9 +1111,14 @@ def select_pairs(round_dir: Path, *, lesson: str, survivor_ids: list[str]) -> di
         })
     cfg = config_for_run(json.loads((round_dir.parent / "run.json").read_text()))
     if len(selected) < cfg.min_pairs_to_train:
+        shortlist = _passing_survivors(ratings)
+        shortlist_scenarios = _passing_scenario_ids(ratings)
         raise ValidationError(
             f"select_pairs: only {len(selected)} selected pairs, need "
-            f"≥{cfg.min_pairs_to_train}. Pick more survivor candidates or drop.")
+            f"≥{cfg.min_pairs_to_train}. Current passing shortlist covers "
+            f"{len(shortlist_scenarios)} unique scenarios, so you still need "
+            f"{max(0, cfg.min_pairs_to_train - len(shortlist_scenarios))} more. "
+            f"Shortlist={shortlist}. Pick more survivor candidates or drop.")
     pairs_path = round_dir / "pairs.md"
     write_gen_pairs(pairs_path, selected, lesson=lesson or data.get("axis") or LESSON_TODO)
     shutil.copy(pairs_path, round_dir / "pairs.md.bak")
