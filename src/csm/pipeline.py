@@ -2264,6 +2264,25 @@ def _eval_axis_summary(pre_eval: dict | None, post_eval: dict | None) -> str | N
     return "; ".join(parts)
 
 
+def _eval_delta_stats(pre_eval: dict | None, post_eval: dict | None) -> dict[str, float]:
+    pre_eval = pre_eval or {}
+    post_eval = post_eval or {}
+    pre_p = pre_eval.get("mean_p") or {}
+    post_p = post_eval.get("mean_p") or {}
+    out: dict[str, float] = {}
+    if isinstance(pre_p, dict) and isinstance(post_p, dict):
+        for key in ("care", "authority", "fairness", "liberty"):
+            pre_v = pre_p.get(key)
+            post_v = post_p.get(key)
+            if isinstance(pre_v, (int, float)) and isinstance(post_v, (int, float)):
+                out[key] = float(post_v - pre_v)
+    pre_top1 = pre_eval.get("top1_acc")
+    post_top1 = post_eval.get("top1_acc")
+    if isinstance(pre_top1, (int, float)) and isinstance(post_top1, (int, float)):
+        out["top1_acc"] = float(post_top1 - pre_top1)
+    return out
+
+
 def _eval_report_cell(ev: dict | None) -> str:
     ev = ev or {}
     mean_p = ev.get("mean_p") or {}
@@ -2283,6 +2302,59 @@ def _eval_report_cell(ev: dict | None) -> str:
     if isinstance(fairness, (int, float)):
         bits.append(f"fair={fairness:.3f}")
     return " ".join(bits) if bits else "—"
+
+
+def _round_tensions(*, focus_pair: str | None, selection: dict, train: dict,
+                    judgment: dict, pre_eval: dict, post_eval: dict,
+                    round_dir: Path) -> list[str]:
+    tensions: list[str] = []
+    selected = selection.get("selected") or []
+    if not isinstance(selected, list):
+        selected = []
+    selected_n = len(selected)
+    train_pairs = train.get("n_train_pairs")
+    if not isinstance(train_pairs, int):
+        train_pairs = _pairs_count(round_dir)
+    if isinstance(train_pairs, int) and selected_n and train_pairs < selected_n:
+        tensions.append(
+            f"{selected_n} pairs were selected but only {train_pairs} reached train after pair culling."
+        )
+
+    best_step = train.get("best_step")
+    val_improvement = train.get("val_improvement")
+    movement_mean = judgment.get("movement_mean")
+    if (
+        isinstance(best_step, int)
+        and isinstance(val_improvement, (int, float))
+        and best_step > 0
+        and val_improvement >= 0.05
+        and isinstance(movement_mean, (int, float))
+        and movement_mean <= 0.05
+    ):
+        tensions.append(
+            f"held-out pair loss improved (best_step={best_step}, Δval+={val_improvement:+.3f}) but judged seat movement stayed flat (mean Δ={movement_mean:+.2f})."
+        )
+
+    if focus_pair:
+        seat_key = f"{focus_pair}_1p"
+        movement = judgment.get("movement") or {}
+        if isinstance(movement, dict):
+            seat_move = movement.get(seat_key)
+            if isinstance(seat_move, (int, float)) and seat_move == 0:
+                tensions.append(
+                    f"the chosen focus `{focus_pair}` showed zero direct `_1p` movement on its own seat."
+                )
+
+    eval_d = _eval_delta_stats(pre_eval, post_eval)
+    if eval_d and isinstance(movement_mean, (int, float)) and movement_mean <= 0.05:
+        largest = max((abs(v) for v in eval_d.values()), default=0.0)
+        if largest >= 0.002:
+            focus = max(eval_d.items(), key=lambda kv: abs(kv[1]))
+            tensions.append(
+                f"classic eval moved most on `{focus[0]}` (Δ{focus[1]:+.3f}) while the judged `_1p` seats stayed flat."
+            )
+
+    return tensions
 
 
 def _train_gate_quote(slug_dir: Path, best_step: int | None,
@@ -2495,6 +2567,20 @@ def write_audit_md(slug_dir: Path) -> None:
             timeline.append(f"mark_exam -> {j.get('action', '—')}")
         if timeline:
             sections.append(f"- timeline: {' -> '.join(timeline)}")
+
+        tensions = _round_tensions(
+            focus_pair=focus_pair,
+            selection=selection,
+            train=train if isinstance(train, dict) else {},
+            judgment=j if isinstance(j, dict) else {},
+            pre_eval=pre_eval,
+            post_eval=post_eval,
+            round_dir=rd,
+        )
+        if tensions:
+            sections.append("- tensions:")
+            for note in tensions:
+                sections.append(f"  - {note}")
 
         round_story: list[str] = []
         if focus_pair:
