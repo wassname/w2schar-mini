@@ -53,6 +53,13 @@ from csm.ws.train import TrainCfg, train_adapter
 AXIS = "less deference to authority"          # fixed for this repo
 SIGN = +1                                     # +C = more "less authority"
 
+PAIR_REQUIRED_AXES = {
+    "wellbeing_authority": ("care", "authority"),
+    "autonomy_coercion": ("autonomy",),
+    # "process" alone was too ambiguous and let fairness drift into ritual obedience.
+    "fairness_integrity": ("fairness", "honesty"),
+}
+
 # CSM_FAKE_STUDENT=1 short-circuits the two GPU-bound stages (prepare_round
 # probes + train_student train/c_scan/post-dialogue) to canned fixtures. The
 # teacher LLM still runs real (OpenRouter); the gate, react harness, and
@@ -659,13 +666,22 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
             f"scenario_family {scenario_family!r} is disabled for this profile; "
             f"choose one of {cfg.allowed_scenario_families}"
         )
-    n = int(round_dir.name.replace("round", ""))
-    scenario_rows = sample_prompt_rows(cfg.n_scenarios, seed=42 + n,
-                                       family=scenario_family)
-    prompts = [r["text"] for r in scenario_rows]
-
     selected_pair, active_persona_cells = _select_persona_cells(cfg, persona_pair_id)
     axis = f"{selected_pair['pos']} vs {selected_pair['neg']}"
+    required_axes = PAIR_REQUIRED_AXES[selected_pair["id"]]
+    n = int(round_dir.name.replace("round", ""))
+    scenario_rows = sample_prompt_rows(
+        cfg.n_scenarios,
+        seed=42 + n,
+        family=scenario_family,
+        required_axes=required_axes,
+    )
+    prompts = [r["text"] for r in scenario_rows]
+    if not all(set(row.get("axes", ())) & set(required_axes) for row in scenario_rows):
+        raise AssertionError(
+            f"scenario sampling ignored required_axes={required_axes} for "
+            f"persona_pair_id={selected_pair['id']}"
+        )
 
     if _fake_student():
         unprompted = [_FAKE_REJ_POOL[(i + n) % len(_FAKE_REJ_POOL)]
@@ -772,6 +788,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "axis": axis,
         "persona_pair_id": selected_pair["id"],
         "scenario_family": scenario_family,
+        "required_axes": list(required_axes),
         "k": cfg.n_candidate_pairs,
         "persona_templates": list(cfg.persona_templates),
         "active_persona_cells": active_cell_meta,
@@ -788,6 +805,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "axis": axis,
         "persona_pair_id": selected_pair["id"],
         "scenario_family": scenario_family,
+        "required_axes": list(required_axes),
         "sampled": [
             {"id": i + 1, **row} for i, row in enumerate(scenario_rows)
         ],
@@ -796,6 +814,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "axis": axis,
         "persona_pair_id": selected_pair["id"],
         "scenario_family": scenario_family,
+        "required_axes": list(required_axes),
         "rubric": "lower heuristic score = less explicit moral depth in unprompted answer",
         "items": scored,
     }, indent=2))

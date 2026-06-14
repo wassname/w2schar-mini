@@ -181,8 +181,9 @@ def sample_prompts(n: int, *, seed: int) -> list[str]:
             else [rng.choice(POOL) for _ in range(n)])
 
 
-def sample_prompt_rows(n: int, *, seed: int, family: str) -> list[dict]:
-    rows = rows_for_family(family)
+def sample_prompt_rows(n: int, *, seed: int, family: str,
+                       required_axes: tuple[str, ...] = ()) -> list[dict]:
+    rows = rows_for_family(family, required_axes=required_axes)
     rng = random.Random(seed)
     return (rng.sample(rows, n) if n <= len(rows)
             else [rng.choice(rows) for _ in range(n)])

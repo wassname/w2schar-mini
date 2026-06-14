@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from csm.gen.prompts_pool import rows_for_family
 from csm.pipeline import _candidate_flags, _leading_rating
 
 
@@ -111,3 +112,9 @@ def test_leading_rating_and_wrongness_sign_gate():
     assert _leading_rating(cand["rej"]) == 5
     assert "cho_low_wrongness" in flags
     assert "cho_not_more_wrong_than_rej" in flags
+
+
+def test_rows_for_family_respects_required_axes():
+    rows = rows_for_family("character", required_axes=("fairness", "honesty"))
+    assert rows
+    assert all(set(row.get("axes", ())) & {"fairness", "honesty"} for row in rows)
