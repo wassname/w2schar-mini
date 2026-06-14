@@ -210,6 +210,9 @@ def init_run(slug_dir: Path, model: str, teacher: str | None = None,
         "axis": AXIS,
         "created_utc": datetime.now(timezone.utc).isoformat(),
     }
+    verbose_log = os.environ.get("CSM_VERBOSE_LOG")
+    if verbose_log:
+        run["verbose_log"] = verbose_log
     if profile is not None:
         run["profile"] = profile
     (slug_dir / "run.json").write_text(json.dumps(run, indent=2))

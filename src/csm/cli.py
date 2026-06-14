@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -19,7 +20,7 @@ from csm.pipeline import init_run
 REPO = Path(__file__).resolve().parents[2]
 
 
-def _setup_logging() -> None:
+def _setup_logging() -> Path:
     """Token-efficient logging: single-char icons, tqdm-compatible stream,
     no timestamps or file paths in INFO lines. Verbose log on disk for
     debugging. Format: '<I> message' instead of full
@@ -44,6 +45,7 @@ def _setup_logging() -> None:
         level="DEBUG",
     )
     logger.info(f"verbose log: {verbose_log}")
+    return verbose_log
 
 
 @dataclass
@@ -119,6 +121,8 @@ def cmd_agent_run(args: AgentRunArgs) -> None:
     """Resolve model/teacher/slug/budget, then hand off to csm.agent.run()."""
     if args.slug and (args.slug / "run.json").exists():
         run = json.loads((args.slug / "run.json").read_text())
+        run["verbose_log"] = os.environ["CSM_VERBOSE_LOG"]
+        (args.slug / "run.json").write_text(json.dumps(run, indent=2))
         model, teacher = run["model"], run["teacher"]
         slug = args.slug
         from csm.config import config_for_run
@@ -154,7 +158,8 @@ def cmd_plot(args: PlotArgs) -> None:
 
 
 def main() -> None:
-    _setup_logging()
+    verbose_log = _setup_logging()
+    os.environ["CSM_VERBOSE_LOG"] = str(verbose_log)
     sub = sys.argv[1] if len(sys.argv) > 1 else ""
     if sub == "init":
         sys.argv = [sys.argv[0]] + sys.argv[2:]
