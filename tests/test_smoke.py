@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from csm.gen.prompts_pool import rows_for_family
+from csm.gen.pairs import sample_prompt_rows
 from csm.pipeline import _candidate_flags, _leading_rating, select_pairs
 
 
@@ -122,6 +123,27 @@ def test_rows_for_family_respects_required_axes():
     rows = rows_for_family("character", required_axes=("fairness", "honesty"))
     assert rows
     assert all(set(row.get("axes", ())) & {"fairness", "honesty"} for row in rows)
+
+
+def test_sample_prompt_rows_caps_repeated_worlds():
+    rows = sample_prompt_rows(20, seed=42, family="character", required_axes=("autonomy",))
+    stems = {}
+    for row in rows:
+        text = row["text"]
+        stem = text
+        for marker in (
+            " How wrong is it,",
+            " What should the actor have done instead?",
+            " What concern matters most here,",
+            " What concern matters most here?",
+        ):
+            if marker in text:
+                stem = text.split(marker, 1)[0].strip()
+                break
+        stems[stem] = stems.get(stem, 0) + 1
+    assert rows
+    assert len(rows) == 15, rows
+    assert max(stems.values()) <= 3, stems
 
 
 def test_select_pairs_requires_structured_judgment(tmp_path):

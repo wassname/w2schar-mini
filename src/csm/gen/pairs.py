@@ -185,8 +185,37 @@ def sample_prompt_rows(n: int, *, seed: int, family: str,
                        required_axes: tuple[str, ...] = ()) -> list[dict]:
     rows = rows_for_family(family, required_axes=required_axes)
     rng = random.Random(seed)
-    return (rng.sample(rows, n) if n <= len(rows)
-            else [rng.choice(rows) for _ in range(n)])
+    rng.shuffle(rows)
+    picked: list[dict] = []
+    stem_counts: dict[str, int] = {}
+    for row in rows:
+        stem = _scenario_stem(row["text"])
+        if stem_counts.get(stem, 0) >= 3:
+            continue
+        picked.append(row)
+        stem_counts[stem] = stem_counts.get(stem, 0) + 1
+        if len(picked) == min(n, len(rows)):
+            break
+    return picked[:n]
+
+
+def _scenario_stem(text: str) -> str:
+    """Collapse question variants onto the same underlying world-event.
+
+    The prompt bank often carries the same scene as multiple judgment forms:
+    wrongness, concern, and what-should-have-done. The weak teacher needs
+    contrastive breadth more than six variants of the same Hutt/elemental
+    world, so cap repeats by this normalized stem during round sampling.
+    """
+    for marker in (
+        " How wrong is it,",
+        " What should the actor have done instead?",
+        " What concern matters most here,",
+        " What concern matters most here?",
+    ):
+        if marker in text:
+            return text.split(marker, 1)[0].strip()
+    return text.strip()
 
 
 def write_gen_pairs(path: Path, rows: list[dict], *, lesson: str) -> None:
