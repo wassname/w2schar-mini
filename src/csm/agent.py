@@ -886,4 +886,10 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     )
     if any(log.status != "success" for log in logs):
         raise RuntimeError(f"inspect eval failed: {[log.status for log in logs]}")
+    if os.environ.get("CSM_FAKE_STUDENT") != "1":
+        from csm.eval import eval_slug
+        from csm.pipeline import write_audit_md, write_report_md
+        eval_slug(slug_path, name="classic", max_think_tokens=64)
+        write_report_md(slug_path)
+        write_audit_md(slug_path)
     print(f"agent-run: done. logs={logs}")
