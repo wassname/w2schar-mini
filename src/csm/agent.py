@@ -186,16 +186,18 @@ def propose_personas_tool(slug: str) -> Tool:
 
 @tool(name="choose_focus", parallel=False)
 def choose_focus_tool(slug: str) -> Tool:
-    async def execute(axis: str, scenario_family: str | None = None) -> str:
-        """Choose this round's axis label and scenario-library family.
+    async def execute(persona_pair_id: str | None = None,
+                      scenario_family: str | None = None) -> str:
+        """Choose this round's measured persona pair and scenario-library family.
 
         The harness samples tagged scenarios, scores unprompted headroom, then
         generates candidate (Cho, Rej) pairs from frozen measured persona-template cells. You
-        do not write scenarios or personas.
+        do not write scenarios, personas, or free-text axis labels.
 
         Args:
-            axis: short label for the disposition to grow, e.g.
-                "honest counsel vs flattering agreement".
+            persona_pair_id: measured persona pair id from the listed library,
+                e.g. "wellbeing_authority". If omitted and only one pair is
+                active for the profile, the harness uses that pair.
             scenario_family: scenario-library family. If omitted, use the
                 first family allowed by this run's profile.
         """
@@ -205,7 +207,8 @@ def choose_focus_tool(slug: str) -> Tool:
         scenario_family = scenario_family or cfg.allowed_scenario_families[0]
         try:
             res = _choose_focus_pipeline(
-                _slug_path(slug), round_dir, axis=axis,
+                _slug_path(slug), round_dir,
+                persona_pair_id=persona_pair_id,
                 scenario_family=scenario_family)
         except (ValidationError, ValueError) as e:
             n = _bump_reject(rejects_path)
@@ -221,7 +224,7 @@ def choose_focus_tool(slug: str) -> Tool:
             )
         rejects_path.unlink(missing_ok=True)
         return (
-            f"OK — sampled {res['n_scenarios']} scenarios, kept "
+            f"OK — pair {res['persona_pair_id']} ({res['axis']}); sampled {res['n_scenarios']} scenarios, kept "
             f"{res['n_headroom']} by headroom, and found "
             f"{res['n_with_survivor']} with candidate survivors.\n"
             f"----- candidate survivor summary -----\n{res['summary']}\n"
@@ -689,19 +692,29 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     prior_focus = _last_next_focus(slug_path, exclude=rd)
     focus_block = (f"\nPRIOR ROUND'S `next_focus`:\n  {prior_focus}\n"
                    if prior_focus else "")
+    pair_rows = []
+    seen = set()
+    for cell in cfg.persona_cells:
+        pair_id = cell[2]
+        if pair_id in seen:
+            continue
+        seen.add(pair_id)
+        pair_rows.append(f"  - {pair_id}: {cell[3]} vs {cell[4]}")
+    pair_block = ("Measured persona pairs for this run:\n" + "\n".join(pair_rows) + "\n"
+                  if pair_rows else "")
     initial = INITIAL_TASK.format(
         round_n=n_keeps_now + 1, target_n=n_keeps_now + n_rounds,
         round_dir=str(rd.relative_to(REPO)), model=model,
         n_history=n_history,
-    ) + focus_block + (
+    ) + focus_block + pair_block + (
         f"\n========== PRE-DIALOGUE (c=0, base+history) ==========\n"
         f"{pre_text}\n"
         f"========== end PRE-DIALOGUE ==========\n"
-        f"Read the PRE-dialogue, pick a character axis with headroom (target the "
-        f"_1p reasoning MODE, not the principle the _3p essay performs), then "
-        f"call choose_focus(axis, scenario_family). Allowed scenario families for "
-        f"this run: {cfg.allowed_scenario_families}. The harness will sample "
-        f"scenarios and generate candidate pairs from frozen measured persona-template cells.\n"
+        f"Read the PRE-dialogue, pick the measured persona pair with the clearest "
+        f"headroom on these probes, then call choose_focus(persona_pair_id, "
+        f"scenario_family). Allowed scenario families for this run: "
+        f"{cfg.allowed_scenario_families}. The harness will sample scenarios and "
+        f"generate candidate pairs from the measured template cells for that pair.\n"
     )
 
     teacher_model = _inspect_model_name(teacher)

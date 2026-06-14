@@ -1,16 +1,15 @@
 {
-  "total": 75,
+  "total": 101,
   "by_source": {
-    "daily_dilemmas-self": 50,
     "genies_preferences": 17,
-    "machiavelli": 8
+    "tiny-mfv": 84
   },
-  "build_commit": "ea234fe",
+  "build_commit": "da40fc5",
   "licenses": {
-    "daily_dilemmas-self": "CC-BY-4.0 (Chiu et al, daily_dilemmas)",
-    "genies_preferences": "see hf wassname/genies_preferences (GENIES)",
-    "machiavelli": "MIT (Pan et al 2023, MACHIAVELLI)"
+    "tiny-mfv": "see hf wassname/tiny-mfv (Clifford-style moral vignettes)",
+    "genies_preferences": "see hf wassname/genies_preferences (GENIES)"
   },
-  "eval_disjoint_from": "tiny-mfv ['classic', 'scifi', 'ai-actor'] (10-word shingle dedup)",
+  "eval_disjoint_from": "tiny-mfv ['classic', 'ai-actor'] (10-word shingle dedup)",
+  "training_backbone": "tiny-mfv scifi",
   "reserved_for_eval": "AIRiskDilemmas (not used in this pool)"
 }

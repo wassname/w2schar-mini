@@ -11,13 +11,11 @@ echo "smoke: profile=$PROFILE model=$M slug=$SLUG"
 
 INSPECT_AGENT_DRY_RUN=1 uv run python -c "
 from csm.agent import run
-from csm.pipeline import init_run
+from csm.pipeline import init_run, prepare_round
 from pathlib import Path
 slug = Path('$SLUG')
 init_run(slug, '$M', profile='$PROFILE')
-# run() reads interview_pre.json for the initial task (the teacher picks the
-# axis off it); pairs.md is created later by select_pairs, not at task start.
-(slug / 'round00' / 'interview_pre.json').write_text('{\"id\": \"pre\", \"probes\": []}')
+prepare_round(slug, slug / 'round00')
 run(model='$M', teacher='qwen/qwen3.5-9b', slug=slug, n_rounds=1)
 "
 echo "SHOULD: dry-run printed 'DRY_RUN PASS' above."
@@ -63,7 +61,7 @@ assert not (rd / "pairs.md").exists(), "pairs.md must not exist before select_pa
 print("\n-- choose_focus (library scenarios + frozen template/persona candidates) --")
 res = choose_focus(
     slug, rd,
-    axis="honest-counsel vs flattering-agreement",
+    persona_pair_id="wellbeing_authority",
     scenario_family="mixed",
 )
 print(f"   scenarios={res['n_scenarios']}  headroom={res['n_headroom']}  "
@@ -72,11 +70,13 @@ assert res["enough"], f"too few survivor candidates: {res}"
 assert (rd / "scenarios.json").exists()
 assert (rd / "headroom.json").exists()
 assert (rd / "candidates.json").exists()
+assert res["persona_pair_id"] == "wellbeing_authority", res
 
 print("\n-- select_pairs (teacher selects whole student-generated candidate pairs) --")
 candidates = json.loads((rd / "candidates.json").read_text())
 assert candidates["active_persona_cells"], candidates
-assert candidates["persona_cell_selection"] == "top_measured_cells_no_axis_filter"
+assert candidates["persona_cell_selection"] == "measured_cells_for_selected_pair"
+assert candidates["persona_pair_id"] == "wellbeing_authority", candidates
 for item in candidates["items"]:
     for cand in item["candidates"]:
         assert cand["template_cell_id"] is not None, cand
@@ -117,12 +117,12 @@ print(f"   signed_C={r['signed_C']:+.4f}  n_trained={r['n_pairs_trained']}")
 print("\n-- mark_exam (keep needs PRE & POST axis positions per _1p seat) --")
 mark_exam(rd, keep=True,
           reason="smoke: all stages ran end-to-end on tiny-random",
-          pre_scores={"equity_split_1p": -1, "growth_deck_1p": 0, "burn_bridges_1p": 0},
-          post_scores={"equity_split_1p": 0, "growth_deck_1p": 0, "burn_bridges_1p": 1},
+          pre_scores={"care_subway_1p": -1, "fairness_exam_1p": 0, "liberty_party_1p": 0},
+          post_scores={"care_subway_1p": 0, "fairness_exam_1p": 0, "liberty_party_1p": 1},
           next_focus="smoke: nothing")
 _j = json.loads((rd / "judgment.json").read_text())
-assert _j["movement"] == {"equity_split_1p": 1, "growth_deck_1p": 0,
-                          "burn_bridges_1p": 1}, _j
+assert _j["movement"] == {"care_subway_1p": 1, "fairness_exam_1p": 0,
+                          "liberty_party_1p": 1}, _j
 assert abs(_j["movement_mean"] - 2/3) < 1e-9, _j
 
 for fname in ("state.json", "pairs.md", "scenarios.json", "headroom.json",

@@ -2,9 +2,10 @@
 
   choose_focus → select_pairs → train_student → mark_exam → done
 
-The teacher chooses a scenario family + axis label. The harness samples tagged
-scenarios, generates candidate (cho, rej) pairs from frozen persona templates,
-and the teacher selects whole pairs. No teacher-authored pair prose.
+The teacher chooses a scenario family + measured persona pair. The harness
+samples tagged scenarios, generates candidate (cho, rej) pairs from the
+measured template cells for that pair, and the teacher selects whole pairs.
+No teacher-authored pair prose.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ State = Literal[
 def allowed_after(state: State) -> str:
     """Hint for the next action in the live weak-select loop."""
     if state == "choose_focus":
-        return "choose_focus(axis, scenario_family)"
+        return "choose_focus(persona_pair_id, scenario_family)"
     if state == "select_pairs":
         return "select_pairs(lesson, choices)"
     if state == "propose_personas":

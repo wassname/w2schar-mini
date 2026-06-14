@@ -1,22 +1,25 @@
-"""Build the persona-sampling prompt pool from real datasets (reproducible).
+"""Build the persona-sampling prompt pool from measured moral-judgment datasets.
 
 Why (read before editing): the hand-authored POOL was diverse in DOMAIN but
 monotone in STRUCTURE -- every item was "a principal asks you a questionable
 thing -- what do you do?". Under one persona the student then emits a single
 canned scaffold per pole across every prompt (task-62: 13 near-identical
 "### The Stakes" essays -> the adapter memorises the format, val nll+ 0.95->4.7).
-Drawing stems from several real datasets with genuinely different registers and
-framings is the upstream fix: varied prompts -> varied gens -> less memorising.
+Drawing stems from datasets with genuinely different registers and framings is
+the upstream fix: varied prompts -> varied gens -> less memorising.
 
-Sources (one job each; all eval-disjoint from tiny-mfv):
-  - daily_dilemmas-self : first-person character/honesty dilemmas, value-filtered.
-                          The clean backbone. CC-BY (Chiu daily_dilemmas).
+Sources:
+  - tiny-mfv scifi      : the CHARACTER backbone. Third-person judgment prompts
+                          derived from sci-fi Clifford-MFV vignettes, shaped to
+                          afford a short committed judgment plus brief reasoning.
+                          This is the closest training-task match to eval while
+                          leaving `classic` held out.
   - genies_preferences  : the SYCOPHANCY AI-seat register (sycophancy_*,
                           change_my_view). Strip the alpaca scaffold +
                           chosen/rejected (we gen our own poles).
-  - machiavelli         : long narrative decision scenes with rich choice labels.
-                          Cropped aggressively, so keep capped small and treat
-                          as metadata-rich but generation-risky.
+Controls:
+  - genies_preferences creative/cooking: deliberate non-moral controls so the
+                          student does not learn "every prompt is the ethics exam."
 AIRiskDilemmas is RESERVED for a future eval split and deliberately NOT used here.
 
 == Affordance constraint (read before adding a source) ==
@@ -36,8 +39,9 @@ them:
     interview seats. (Why the genies authority/power/illegal configs were removed;
     sycophancy stems stay -- they afford a real flatter-vs-level-with-them axis.)
 
-Eval-leak guard: no pool stem may share a >=10-word shingle with any tiny-mfv
-item (configs classic/scifi/ai-actor) -- train/eval stay disjoint.
+Eval-leak guard: no pool stem may share a >=10-word shingle with held-out
+tiny-mfv eval configs (`classic`, `ai-actor`). `scifi` is now a TRAINING source
+on purpose, so it is excluded from the leak guard.
 
 Run:  uv run python scripts/build_pool.py
 Out:  src/csm/gen/pool.jsonl  +  src/csm/gen/pool_manifest.json
@@ -68,13 +72,6 @@ CLOSES = [
     "What is your call, and why?",
 ]
 
-# daily_dilemmas value columns that signal authority/character/integrity content.
-DD_VALUES = [
-    "honesty", "loyalty", "privacy", "responsibility", "integrity",
-    "independence", "trust", "respect for rules", "respect for autonomy",
-    "professional integrity", "personal integrity", "secrecy",
-]
-
 # Sycophancy/change-my-view configs only: the stem itself poses a flatter-vs-
 # level-with-them choice that affords an in-character axis (see affordance
 # constraint above). The authority/power/illegal configs (relinquish_power,
@@ -90,14 +87,19 @@ GENIES_MORAL = [
 ]
 GENIES_CONTROL = ["cooking", "creative_writing"]  # deliberate non-moral controls
 
-MFV_CONFIGS = ["classic", "scifi", "ai-actor"]
+MFV_TRAIN_CONFIG = "scifi"
+MFV_EVAL_GUARD_CONFIGS = ["classic", "ai-actor"]
 
-# per-source caps -> total ~90, no single source dominates
-CAP_DAILY = 50
+# per-source caps -> total ~100, with tiny-mfv scifi as the clear backbone
+CAP_MFV_PER_FOUNDATION = 4
 CAP_GENIES_PER = 6
 CAP_CONTROL = 6
-CAP_MACH = 8          # explicit power-family filler only; scenes are long+dirty.
-MACH_LEN = 280        # set CAP_MACH=0 to drop machiavelli entirely.
+
+MFV_PROMPT_TEMPLATES = (
+    "{text} How wrong is it, from 1 (not wrong) to 5 (very wrong)? Give the rating first, then one brief reason.",
+    "{text} What concern matters most here, and why in one or two sentences?",
+    "{text} What should the actor have done instead? Answer in one or two sentences.",
+)
 
 AXIS_PATTERNS = {
     "honesty": [
@@ -142,19 +144,14 @@ AXIS_PATTERNS = {
     ],
 }
 
-DAILY_VALUE_TO_AXES = {
-    "honesty": ["honesty"],
+FOUNDATION_TO_AXES = {
+    "care": ["care"],
+    "fairness": ["fairness"],
     "loyalty": ["loyalty"],
-    "privacy": ["autonomy"],
-    "responsibility": ["duty"],
-    "integrity": ["duty", "honesty"],
-    "independence": ["autonomy"],
-    "trust": ["honesty"],
-    "respect for rules": ["duty", "authority"],
-    "respect for autonomy": ["autonomy"],
-    "professional integrity": ["duty", "honesty"],
-    "personal integrity": ["duty", "honesty"],
-    "secrecy": ["honesty", "autonomy"],
+    "authority": ["authority"],
+    "sanctity": ["duty"],
+    "liberty": ["autonomy"],
+    "social": ["duty"],
 }
 
 MACHIAVELLI_AXIS_TO_AXES = {
@@ -220,75 +217,71 @@ def _quote_count(text: str) -> int:
 def _infer_axes(text: str, source: str, config: str, source_tags: dict | None) -> list[str]:
     axes: set[str] = set()
     lower = text.lower()
-    if source == "daily_dilemmas-self" and source_tags:
-        for value in source_tags.get("daily_values", ()):
-            axes.update(DAILY_VALUE_TO_AXES.get(value, ()))
+    if source == "tiny-mfv" and source_tags:
+        axes.update(FOUNDATION_TO_AXES.get(source_tags["foundation_coarse"].lower(), ()))
     if source == "genies_preferences" and config in {
         "sycophancy_feedback",
         "sycophancy_mimicry",
         "change_my_view",
     }:
         axes.add("sycophancy")
-    if source == "machiavelli" and source_tags:
-        for item in source_tags.get("top_choice_axis_ranges", ()):
-            axes.update(MACHIAVELLI_AXIS_TO_AXES.get(item["key"], ()))
     for axis, patterns in AXIS_PATTERNS.items():
         if any(re.search(pattern, lower) for pattern in patterns):
             axes.add(axis)
     return sorted(axes)
 
 
-# ----------------------------------------------------------------------------- daily
-def from_daily() -> list[dict]:
-    ds = load_dataset("wassname/daily_dilemmas-self", split="test")
-    seen, by_topic = set(), {}
-    for r in ds:
-        active_values = [v for v in DD_VALUES if r.get(v, 0)]
-        if not active_values:
-            continue
-        # strip the trailing forced-binary ("Do/Should/Would/Will you X or Y?") so
-        # the varied open close applies -> less binary-framing monotony.
-        stem = re.split(r"\s*(?:Do|Should|Would|Will) you ",
-                        r["dilemma_situation"], flags=re.I)[0]
-        stem = _norm(stem)
-        key = stem[:60].lower()
-        if len(stem) < 40 or key in seen:
-            continue
-        seen.add(key)
-        by_topic.setdefault(r["topic_group"], []).append(
-            {
-                "stem": stem,
-                "active_values": active_values,
-                "topic_group": r["topic_group"],
-            }
-        )
-    # stratify: round-robin across topic groups so no domain dominates
-    pool, topics = [], list(by_topic)
-    RNG.shuffle(topics)
-    for t in topics:
-        RNG.shuffle(by_topic[t])
-    i = 0
-    while len(pool) < CAP_DAILY and any(by_topic.values()):
-        t = topics[i % len(topics)]
-        if by_topic[t]:
-            row = by_topic[t].pop()
-            source_tags = {
-                "topic_group": row["topic_group"],
-                "daily_values": row["active_values"],
-            }
-            text = _close(row["stem"], len(pool))
-            pool.append(
+# ----------------------------------------------------------------------------- tiny-mfv scifi
+def from_tinymfv_scifi() -> list[dict]:
+    ds = load_dataset("wassname/tiny-mfv", MFV_TRAIN_CONFIG)
+    assert set(ds.keys()) == {"other_violate", "self_violate"}, ds
+    rows = list(ds["other_violate"])
+    expected = {
+        "id", "foundation", "foundation_coarse", "wrong", "text",
+        "ai_Care", "ai_Fairness", "ai_Loyalty", "ai_Authority",
+        "ai_Sanctity", "ai_Liberty", "ai_SocialNorms",
+        "human_Care", "human_Fairness", "human_Loyalty", "human_Authority",
+        "human_Sanctity", "human_Liberty", "human_SocialNorms",
+    }
+    assert expected <= set(rows[0].keys()), rows[0].keys()
+
+    by_foundation: dict[str, list[dict]] = {}
+    for row in rows:
+        by_foundation.setdefault(row["foundation_coarse"], []).append(row)
+    for foundation_rows in by_foundation.values():
+        RNG.shuffle(foundation_rows)
+
+    selected: list[dict] = []
+    foundations = sorted(by_foundation)
+    for i in range(CAP_MFV_PER_FOUNDATION):
+        for foundation in foundations:
+            foundation_rows = by_foundation[foundation]
+            if i < len(foundation_rows):
+                selected.append(foundation_rows[i])
+
+    out = []
+    for row in selected:
+        source_tags = {
+            "id": row["id"],
+            "foundation": row["foundation"],
+            "foundation_coarse": row["foundation_coarse"],
+            "wrong": row["wrong"],
+            "split": "other_violate",
+            "set": MFV_TRAIN_CONFIG,
+        }
+        for template_idx, template in enumerate(MFV_PROMPT_TEMPLATES, start=1):
+            text = _norm(template.format(text=row["text"]))
+            out.append(
                 {
                     "text": text,
-                    "source": "daily_dilemmas-self",
-                    "config": t,
-                    "tags": ["1p", "character"],
-                    "source_tags": source_tags,
-                    "axes": _infer_axes(text, "daily_dilemmas-self", t, source_tags),
+                    "source": "tiny-mfv",
+                    "config": MFV_TRAIN_CONFIG,
+                    "tags": ["3p", "character", "judgment"],
+                    "source_tags": {**source_tags, "template_id": template_idx},
+                    "axes": _infer_axes(text, "tiny-mfv", MFV_TRAIN_CONFIG, source_tags),
                 }
             )
-        i += 1
-    return pool
+    return out
 
 
 # ----------------------------------------------------------------------------- genies
@@ -351,73 +344,6 @@ def from_genies(configs: list[str], cap_per: int, tags: list[str],
     return out
 
 
-# ----------------------------------------------------------------------------- machiavelli
-def from_machiavelli(cap: int) -> list[dict]:
-    ds = load_dataset("wassname/machiavelli", split="train")
-    ranked_rows = []
-    axis_scale: dict[str, float] = {}
-    for r in ds:
-        # {choice_idx: {agg_power, morality_deception,...} | None} (None = empty slot)
-        axis_ranges = _choice_axis_ranges(r["choice_labels"])
-        if not axis_ranges:
-            continue
-        ranked_rows.append((axis_ranges, r))
-        for item in axis_ranges:
-            axis_scale[item["key"]] = max(axis_scale.get(item["key"], 0.0), item["range"])
-    scored = []
-    for axis_ranges, r in ranked_rows:
-        scored.append(
-            (
-                sum(item["range"] / axis_scale[item["key"]] for item in axis_ranges),
-                axis_ranges,
-                r,
-            )
-        )
-    scored.sort(key=lambda item: item[0], reverse=True)
-    out, seen = [], set()
-    for _, axis_ranges, r in scored:
-        if len(out) >= cap:
-            break
-        # obs ends with the enumerated choice menu ("\n0: ...\n1: ..."); cut it off
-        # to recover the clean scene, then strip [i]..[/i] markup.
-        obs = re.split(r"\n\s*\d+:", r["obs"])[0]
-        raw_scene = re.sub(r"\[/?\w+\]", "", _norm(f"{r['short_summary']} {obs}"))
-        scene = raw_scene[:MACH_LEN]
-        scene = _norm(scene)
-        last_stop = max(scene.rfind("."), scene.rfind("?"), scene.rfind("!"))
-        if last_stop < 0:
-            continue
-        scene = scene[:last_stop + 1].strip()
-        if _quote_count(scene) % 2:
-            continue
-        key = scene[:60].lower()
-        if len(scene) < 60 or key in seen:
-            continue
-        seen.add(key)
-        text = _close(scene, len(out))
-        if _quote_count(text) % 2:
-            continue
-        source_tags = {
-            "title": r["title"],
-            "choice_count": sum(1 for value in r["choice_labels"].values() if value),
-            "scene_chars": len(scene),
-            "raw_scene_chars": len(raw_scene),
-            "scene_was_truncated": len(raw_scene) > len(scene),
-            "top_choice_axis_ranges": axis_ranges[:6],
-        }
-        out.append(
-            {
-                "text": text,
-                "source": "machiavelli",
-                "config": r["title"],
-                "tags": ["power", "narrative", "cropped"],
-                "source_tags": source_tags,
-                "axes": _infer_axes(text, "machiavelli", r["title"], source_tags),
-            }
-        )
-    return out
-
-
 # ----------------------------------------------------------------------------- eval-leak guard
 def _shingles(text: str, k: int = 10) -> set[str]:
     w = re.findall(r"\w+", text.lower())
@@ -427,7 +353,7 @@ def _shingles(text: str, k: int = 10) -> set[str]:
 def eval_leak_filter(pool: list[dict]) -> list[dict]:
     eval_sh: set[str] = set()
     n_eval = 0
-    for cfg in MFV_CONFIGS:
+    for cfg in MFV_EVAL_GUARD_CONFIGS:
         ds = load_dataset("wassname/tiny-mfv", cfg)
         for split in ds:
             for r in ds[split]:
@@ -460,15 +386,17 @@ def assert_shape(p: dict):
 # ----------------------------------------------------------------------------- main
 def main():
     pool = []
-    pool += from_daily()
+    pool += from_tinymfv_scifi()
     pool += from_genies(GENIES_MORAL, CAP_GENIES_PER, ["ai-seat", "sycophancy"])
     pool += from_genies(GENIES_CONTROL, CAP_CONTROL // len(GENIES_CONTROL),
                         ["control", "non-moral"], close=False)
-    if CAP_MACH:  # last-choice register filler
-        pool += from_machiavelli(CAP_MACH)
     for p in pool:
         assert_shape(p)
     pool = eval_leak_filter(pool)
+    by_source_pre_shuffle = Counter(p["source"] for p in pool)
+    assert by_source_pre_shuffle["tiny-mfv"] > by_source_pre_shuffle["genies_preferences"], (
+        "tiny-mfv scifi should be the dominant source in the simplified pool"
+    )
     RNG.shuffle(pool)
 
     OUT.write_text("\n".join(json.dumps(p, ensure_ascii=False) for p in pool) + "\n")
@@ -480,11 +408,11 @@ def main():
         "by_source": dict(by_src),
         "build_commit": commit,
         "licenses": {
-            "daily_dilemmas-self": "CC-BY-4.0 (Chiu et al, daily_dilemmas)",
+            "tiny-mfv": "see hf wassname/tiny-mfv (Clifford-style moral vignettes)",
             "genies_preferences": "see hf wassname/genies_preferences (GENIES)",
-            "machiavelli": "MIT (Pan et al 2023, MACHIAVELLI)",
         },
-        "eval_disjoint_from": f"tiny-mfv {MFV_CONFIGS} (10-word shingle dedup)",
+        "eval_disjoint_from": f"tiny-mfv {MFV_EVAL_GUARD_CONFIGS} (10-word shingle dedup)",
+        "training_backbone": f"tiny-mfv {MFV_TRAIN_CONFIG}",
         "reserved_for_eval": "AIRiskDilemmas (not used in this pool)",
     }
     MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
