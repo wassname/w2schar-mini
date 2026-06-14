@@ -2131,6 +2131,17 @@ def _rating_quotes(ratings: list[dict], *, want_pass: bool, limit: int = 3) -> l
     return out
 
 
+def _movement_summary(judgment: dict) -> str | None:
+    movement = judgment.get("movement") or {}
+    if not movement:
+        return None
+    bits = [f"{k}={v:+.1f}" for k, v in movement.items()]
+    mean = judgment.get("movement_mean")
+    if isinstance(mean, (int, float)):
+        bits.append(f"mean={mean:+.2f}")
+    return ", ".join(bits)
+
+
 def _train_gate_quote(slug_dir: Path, best_step: int | None,
                       val_improvement: float | None) -> str | None:
     run = _safe_json(slug_dir / "run.json") or {}
@@ -2327,6 +2338,50 @@ def write_audit_md(slug_dir: Path) -> None:
             timeline.append(f"mark_exam -> {j.get('action', '—')}")
         if timeline:
             sections.append(f"- timeline: {' -> '.join(timeline)}")
+
+        round_story: list[str] = []
+        if focus_pair:
+            story = f"PRE suggested `{focus_pair}`"
+            if focus_j.get("evidence"):
+                story += f" because {_quote(str(focus_j['evidence']), 120)}"
+            round_story.append(story + ".")
+        if selection:
+            picked = selection.get("selected", [])
+            if picked:
+                first = picked[0]
+                sid = first.get("survivor_id") or first.get("candidate_id") or "?"
+                round_story.append(
+                    f"Selection kept {len(picked)} pairs; first kept example was `{sid}` with "
+                    f"{_quote(str(first.get('comment') or first.get('teacher_comment') or 'no comment'), 110)}."
+                )
+        if isinstance(ratings, list) and ratings:
+            omitted = _rating_quotes(ratings, want_pass=False, limit=1)
+            if omitted:
+                round_story.append(f"Triage also omitted at least one candidate: {omitted[0]}.")
+        if train:
+            best_step = train.get("best_step")
+            val_improvement = train.get("val_improvement")
+            if isinstance(best_step, int) and isinstance(val_improvement, (int, float)):
+                round_story.append(
+                    f"Training reached best_step={best_step} with held-out Δval+={val_improvement:+.3f}."
+                )
+        if isinstance(cal.get("signed_C"), (int, float)):
+            round_story.append(f"Calibration baked signed_C={cal['signed_C']:+.4f}.")
+        if j:
+            move = _movement_summary(j)
+            reason = _quote(str(j.get("reasoning") or "no judgment reason"), 120)
+            if move:
+                round_story.append(
+                    f"Judgment was `{j.get('action', '—')}` because {reason} Movement: {move}."
+                )
+            else:
+                round_story.append(
+                    f"Judgment was `{j.get('action', '—')}` because {reason}."
+                )
+        if round_story:
+            sections.append("- round story:")
+            for note in round_story:
+                sections.append(f"  - {note}")
 
         for probe_id in _P1_PROBE_IDS:
             pre_1 = _probe_reply(pre, probe_id, 1)
