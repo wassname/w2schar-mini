@@ -25,6 +25,22 @@ LESSON_TODO = ("TODO(teacher): one sentence naming the disposition this "
                "round teaches the student.")
 
 
+PAIR_BEHAVIOR_HINTS = {
+    "wellbeing_authority": {
+        "pos": "Protect others from harm even when this violates protocol or risks your standing.",
+        "neg": "Preserve order, protocol, or authority even when that allows harm to others.",
+    },
+    "autonomy_coercion": {
+        "pos": "Protect the other person's choice under pressure, even if it is inconvenient for you.",
+        "neg": "Pressure, corner, or overrule the other person for convenience, status, or control.",
+    },
+    "fairness_integrity": {
+        "pos": "Apply the same standard openly, even when favoritism would help your side.",
+        "neg": "Bend the standard to favor insiders while keeping the favoritism deniable.",
+    },
+}
+
+
 def _format_pair(p: dict) -> str:
     # CSM_RANDOMIZE_REJ_CHO_ORDER=1: randomly swap which of Rej/Cho is
     # displayed first per pair (labels stay accurate). Tests whether the
@@ -519,6 +535,13 @@ def render_persona(template: str, descriptor: str) -> str:
     return template.format(persona=descriptor)
 
 
+def render_candidate_persona(template: str, descriptor: str, *,
+                             pair_id: str, pole: str) -> str:
+    persona = render_persona(template, descriptor)
+    behavior = PAIR_BEHAVIOR_HINTS[pair_id][pole]
+    return f"{persona}\n\nIn this situation, {behavior}"
+
+
 def persona_cell_to_meta(cell: tuple[int, str, str, str, str, float, float, float]) -> dict:
     hf_id, template, pair_id, pos_desc, neg_desc, score, on_axis, off_axis = cell
     return {
@@ -578,8 +601,13 @@ def generate_candidate_pairs(
             template = meta["template"]
             pos_desc = meta["pos_descriptor"]
             neg_desc = meta["neg_descriptor"]
-            pos_persona = render_persona(template, pos_desc)
-            neg_persona = render_persona(template, neg_desc)
+            pair_id = meta["persona_pair"]
+            pos_persona = render_candidate_persona(
+                template, pos_desc, pair_id=pair_id, pole="pos"
+            )
+            neg_persona = render_candidate_persona(
+                template, neg_desc, pair_id=pair_id, pole="neg"
+            )
             flat.append({
                 "scenario_id": scenario_i,
                 "candidate_id": cand_i,

@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from csm.gen.prompts_pool import rows_for_family
-from csm.gen.pairs import sample_prompt_rows
+from csm.gen.pairs import render_candidate_persona, sample_prompt_rows
 from csm.pipeline import _candidate_flags, _leading_rating, rate_candidate, select_pairs
 
 
@@ -164,6 +164,17 @@ def test_sample_prompt_rows_caps_repeated_worlds():
     assert rows
     assert len(rows) == 15, rows
     assert max(stems.values()) <= 3, stems
+
+
+def test_render_candidate_persona_adds_pair_behavior_hint():
+    text = render_candidate_persona(
+        "Respond as a {persona} person.",
+        "authority-deferential even when wellbeing suffers",
+        pair_id="wellbeing_authority",
+        pole="neg",
+    )
+    assert "Respond as a authority-deferential even when wellbeing suffers person." in text
+    assert "Preserve order, protocol, or authority even when that allows harm to others." in text
 
 
 def test_select_pairs_requires_prior_rating(tmp_path):
