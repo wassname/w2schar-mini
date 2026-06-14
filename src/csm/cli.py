@@ -102,6 +102,13 @@ class PlotArgs:
     """Override output path. Default: <slug>/index.html."""
 
 
+@dataclass
+class AuditArgs:
+    """Build <slug>/audit.md from existing round artifacts and verbose log."""
+    slug: Path
+    """Path to the run slug dir."""
+
+
 def _default_slug(model: str) -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     return REPO / "out" / "iter" / f"{ts}_iter_{model.replace('/', '-').lower()}"
@@ -157,6 +164,13 @@ def cmd_plot(args: PlotArgs) -> None:
     plot_main(Cfg(slug=args.slug.resolve(), out=args.out))
 
 
+def cmd_audit(args: AuditArgs) -> None:
+    from csm.pipeline import write_audit_md, write_report_md
+    slug = args.slug.resolve()
+    write_report_md(slug)
+    write_audit_md(slug)
+
+
 def main() -> None:
     verbose_log = _setup_logging()
     os.environ["CSM_VERBOSE_LOG"] = str(verbose_log)
@@ -173,8 +187,11 @@ def main() -> None:
     elif sub == "plot":
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         cmd_plot(tyro.cli(PlotArgs))
+    elif sub == "audit":
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+        cmd_audit(tyro.cli(AuditArgs))
     else:
-        print("csm <init | agent-run | eval | plot>  [--help]", file=sys.stderr)
+        print("csm <init | agent-run | eval | plot | audit>  [--help]", file=sys.stderr)
         sys.exit(1)
 
 

@@ -2060,6 +2060,172 @@ def _safe_json(path: Path) -> dict | None:
         return None
 
 
+def _safe_text(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    try:
+        return path.read_text()
+    except OSError:
+        return None
+
+
+def _quote(text: str, n: int = 160) -> str:
+    flat = " ".join(text.strip().split())
+    if len(flat) <= n:
+        return flat
+    return flat[: n - 3].rstrip() + "..."
+
+
+def _probe_reply(interview: dict, probe_id: str, turn_idx: int) -> str | None:
+    for probe in interview.get("probes", []):
+        if probe.get("id") != probe_id:
+            continue
+        turns = probe.get("turns", [])
+        if turn_idx >= len(turns):
+            return None
+        return turns[turn_idx].get("text")
+    return None
+
+
+def _selection_quotes(selection: dict) -> list[str]:
+    quotes: list[str] = []
+    for row in selection.get("selected", [])[:3]:
+        sid = row.get("survivor_id") or row.get("candidate_id") or "?"
+        comment = str(row.get("comment") or row.get("teacher_comment") or "").strip()
+        cho = str(row.get("cho") or "").strip()
+        rej = str(row.get("rej") or "").strip()
+        bits = [str(sid)]
+        if comment:
+            bits.append(_quote(comment, 110))
+        if cho:
+            bits.append(f"Cho: {_quote(cho, 90)}")
+        if rej:
+            bits.append(f"Rej: {_quote(rej, 90)}")
+        quotes.append(" | ".join(bits))
+    return quotes
+
+
+def _train_gate_quote(slug_dir: Path, best_step: int | None,
+                      val_improvement: float | None) -> str | None:
+    run = _safe_json(slug_dir / "run.json") or {}
+    verbose_log = run.get("verbose_log")
+    if isinstance(verbose_log, str):
+        log_text = _safe_text(Path(verbose_log))
+        if log_text is not None:
+            for line in reversed(log_text.splitlines()):
+                if "early-stop:" in line:
+                    return _quote(line, 180)
+    if isinstance(best_step, int) and isinstance(val_improvement, (int, float)):
+        return f"best_step={best_step}, val_improvement={val_improvement:+.3f}"
+    return None
+
+
+def write_audit_md(slug_dir: Path) -> None:
+    rounds = sorted(p for p in slug_dir.glob("round*") if p.is_dir())
+    judged = [rd for rd in rounds if (rd / "judgment.json").exists()]
+    if not rounds:
+        (slug_dir / "audit.md").write_text(f"# Audit: {slug_dir.name}\n\nNo round artifacts yet.\n")
+        return
+
+    keeps = drops = 0
+    train_passes = 0
+    eval_rounds = 0
+    sections = [f"# Audit: {slug_dir.name}", ""]
+    if not judged:
+        sections.extend(["## Verdict", "", "No judged rounds yet.", ""])
+    else:
+        for rd in judged:
+            j = _safe_json(rd / "judgment.json") or {}
+            keeps += j.get("action") == "keep"
+            drops += j.get("action") == "drop"
+            train = ((_safe_json(rd / "calibration.json") or {}).get("train_summary") or {})
+            if isinstance(train.get("best_step"), int) and isinstance(train.get("val_improvement"), (int, float)):
+                train_passes += train["best_step"] > 0 and train["val_improvement"] >= 0.05
+            if (rd / "eval.json").exists() or (rd / "eval_post.json").exists():
+                eval_rounds += 1
+        coherent = all((rd / "choose_focus_judgment.json").exists() for rd in judged)
+        coherent = coherent and all(bool((_safe_json(rd / "judgment.json") or {}).get("harness_feedback")) for rd in judged)
+        compelling = (
+            len(judged) >= 3 and keeps >= 1 and train_passes >= 1 and eval_rounds >= 1
+        )
+        verdict = []
+        verdict.append(f"Coherent story: {'yes' if coherent else 'no'}.")
+        verdict.append(f"Compelling result: {'probably' if compelling else 'not yet'}.")
+        verdict.append(
+            f"Judged rounds={len(judged)}, keeps={keeps}, drops={drops}, "
+            f"train-gate passes={train_passes}, eval rounds={eval_rounds}."
+        )
+        sections.extend(["## Verdict", "", *verdict, ""])
+
+    for rd in rounds:
+        state = (_safe_json(rd / "state.json") or {}).get("state", "—")
+        focus_j = _safe_json(rd / "choose_focus_judgment.json") or {}
+        j = _safe_json(rd / "judgment.json") or {}
+        cal = _safe_json(rd / "calibration.json") or {}
+        train = cal.get("train_summary") or {}
+        pre = _safe_json(rd / "interview_pre.json") or {}
+        post = _safe_json(rd / "interview_post.json") or {}
+        selection = _safe_json(rd / "selection_audit.json") or {}
+
+        sections.extend([f"## {rd.name}", ""])
+        sections.append(f"- state: `{state}`")
+        if focus_j:
+            sections.append(
+                f"- focus: `{focus_j.get('persona_pair_id', '—')}` "
+                f"(mismatch={focus_j.get('mismatch_severity', '—')}, "
+                f"headroom={focus_j.get('headroom', '—')}, "
+                f"cleanliness={focus_j.get('bank_cleanliness', '—')})"
+            )
+            if focus_j.get("evidence"):
+                sections.append(f"- focus evidence: > {_quote(str(focus_j['evidence']))}")
+        else:
+            sections.append("- focus: not chosen yet")
+
+        for probe_id in _P1_PROBE_IDS:
+            pre_1 = _probe_reply(pre, probe_id, 1)
+            post_1 = _probe_reply(post, probe_id, 1)
+            if pre_1 or post_1:
+                sections.append(f"- {probe_id} PRE: > {_quote(pre_1 or '—')}")
+                sections.append(f"- {probe_id} POST: > {_quote(post_1 or '—')}")
+                ev = (j.get("seat_evidence") or {}).get(probe_id)
+                if ev:
+                    sections.append(f"- {probe_id} judged evidence: > {_quote(str(ev))}")
+
+        if selection:
+            picked = selection.get("selected", [])
+            sections.append(f"- selected pairs: {len(picked)}")
+            for quote in _selection_quotes(selection):
+                sections.append(f"  - {quote}")
+
+        if train:
+            best_step = train.get("best_step")
+            val_improvement = train.get("val_improvement")
+            gate = (
+                f"best_step={best_step}, val_improvement={val_improvement:+.3f}"
+                if isinstance(best_step, int) and isinstance(val_improvement, (int, float))
+                else "train summary incomplete"
+            )
+            sections.append(f"- train gate: {gate}")
+            gate_quote = _train_gate_quote(slug_dir, best_step, val_improvement)
+            if gate_quote:
+                sections.append(f"- train quote: > {gate_quote}")
+
+        if cal:
+            signed_c = cal.get("signed_C")
+            if isinstance(signed_c, (int, float)):
+                sections.append(f"- calibrated signed_C: `{signed_c:+.4f}`")
+
+        if j:
+            sections.append(f"- judgment: `{j.get('action', '—')}`")
+            if j.get("reasoning"):
+                sections.append(f"- reasoning: > {_quote(str(j['reasoning']))}")
+            if j.get("harness_feedback"):
+                sections.append(f"- harness feedback: > {_quote(str(j['harness_feedback']))}")
+        sections.append("")
+
+    (slug_dir / "audit.md").write_text("\n".join(sections).rstrip() + "\n")
+
+
 def write_report_md(slug_dir: Path) -> None:
     """Refresh <slug>/report.md from per-round artifacts. Pure-disk, no model
     forwards, safe to call after every round. Eval column is `—` when
@@ -2127,6 +2293,7 @@ def write_report_md(slug_dir: Path) -> None:
     for r in rows:
         lines.append("| " + " | ".join(r) + " |")
     (slug_dir / "report.md").write_text("\n".join(lines) + "\n")
+    write_audit_md(slug_dir)
     # Per-slug index.html with the plotly scatter + timeline. Renders with
     # placeholders when eval.json is absent so the link from the outer
     # aggregator always lands on a real HTML page.
