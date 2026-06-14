@@ -2142,6 +2142,55 @@ def _movement_summary(judgment: dict) -> str | None:
     return ", ".join(bits)
 
 
+def _eval_axis_summary(pre_eval: dict | None, post_eval: dict | None) -> str | None:
+    pre_eval = pre_eval or {}
+    post_eval = post_eval or {}
+    pre_p = pre_eval.get("mean_p") or {}
+    post_p = post_eval.get("mean_p") or {}
+    if not isinstance(pre_p, dict):
+        pre_p = {}
+    if not isinstance(post_p, dict):
+        post_p = {}
+
+    parts: list[str] = []
+    for key in ("care", "authority", "fairness", "liberty"):
+        pre_v = pre_p.get(key)
+        post_v = post_p.get(key)
+        if isinstance(pre_v, (int, float)) and isinstance(post_v, (int, float)):
+            parts.append(f"{key} {pre_v:.3f}->{post_v:.3f} (Δ{post_v - pre_v:+.3f})")
+
+    if not parts:
+        return None
+
+    pre_top1 = pre_eval.get("top1_acc")
+    post_top1 = post_eval.get("top1_acc")
+    if isinstance(pre_top1, (int, float)) and isinstance(post_top1, (int, float)):
+        parts.append(f"top1 {pre_top1:.3f}->{post_top1:.3f} (Δ{post_top1 - pre_top1:+.3f})")
+
+    return "; ".join(parts)
+
+
+def _eval_report_cell(ev: dict | None) -> str:
+    ev = ev or {}
+    mean_p = ev.get("mean_p") or {}
+    if not isinstance(mean_p, dict):
+        return "—"
+    care = mean_p.get("care")
+    authority = mean_p.get("authority")
+    fairness = mean_p.get("fairness")
+    top1 = ev.get("top1_acc")
+    bits: list[str] = []
+    if isinstance(top1, (int, float)):
+        bits.append(f"top1={top1:.3f}")
+    if isinstance(care, (int, float)):
+        bits.append(f"care={care:.3f}")
+    if isinstance(authority, (int, float)):
+        bits.append(f"auth={authority:.3f}")
+    if isinstance(fairness, (int, float)):
+        bits.append(f"fair={fairness:.3f}")
+    return " ".join(bits) if bits else "—"
+
+
 def _train_gate_quote(slug_dir: Path, best_step: int | None,
                       val_improvement: float | None) -> str | None:
     run = _safe_json(slug_dir / "run.json") or {}
@@ -2303,6 +2352,8 @@ def write_audit_md(slug_dir: Path) -> None:
         train = cal.get("train_summary") or {}
         pre = _safe_json(rd / "interview_pre.json") or {}
         post = _safe_json(rd / "interview_post.json") or {}
+        pre_eval = _safe_json(rd / "eval.json") or {}
+        post_eval = _safe_json(rd / "eval_post.json") or {}
         selection = _safe_json(rd / "selection_audit.json") or {}
         candidates = _safe_json(rd / "candidates.json") or {}
         ratings = _safe_json(rd / "candidate_ratings.json") or []
@@ -2367,6 +2418,9 @@ def write_audit_md(slug_dir: Path) -> None:
                 )
         if isinstance(cal.get("signed_C"), (int, float)):
             round_story.append(f"Calibration baked signed_C={cal['signed_C']:+.4f}.")
+        eval_story = _eval_axis_summary(pre_eval, post_eval)
+        if eval_story:
+            round_story.append(f"Classic eval moved as follows: {eval_story}.")
         if j:
             move = _movement_summary(j)
             reason = _quote(str(j.get("reasoning") or "no judgment reason"), 120)
@@ -2427,6 +2481,9 @@ def write_audit_md(slug_dir: Path) -> None:
             signed_c = cal.get("signed_C")
             if isinstance(signed_c, (int, float)):
                 sections.append(f"- calibrated signed_C: `{signed_c:+.4f}`")
+        eval_summary = _eval_axis_summary(pre_eval, post_eval)
+        if eval_summary:
+            sections.append(f"- classic eval: {eval_summary}")
 
         if j:
             sections.append(f"- judgment: `{j.get('action', '—')}`")
@@ -2484,8 +2541,7 @@ def write_report_md(slug_dir: Path) -> None:
             else "—"
         )
 
-        mp = ev.get("mean_p")
-        ev_str = f"{mp:.3f}" if isinstance(mp, (int, float)) else "—"
+        ev_str = _eval_report_cell(ev)
 
         rows.append([rd.name.replace("round", "r"), ts, state, action or "—",
                      focus_pair, focus_scores, train_gate, c_str, ev_str,
@@ -2544,9 +2600,9 @@ def write_iter_index(iter_dir: Path) -> None:
                     last_kept_c = f"{sc:+.4f}"
             elif act == "drop":
                 n_drop += 1
-            mp = (_safe_json(rd / "eval.json") or {}).get("mean_p")
-            if isinstance(mp, (int, float)):
-                last_eval_mean_p = f"{mp:.3f}"
+            ev_cell = _eval_report_cell(_safe_json(rd / "eval.json") or {})
+            if ev_cell != "—":
+                last_eval_mean_p = ev_cell
 
         last_state = "—"
         if rounds:
