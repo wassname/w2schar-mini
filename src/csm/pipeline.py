@@ -2236,6 +2236,24 @@ def _data_lineage_summary(round_dir: Path, *, pre: dict, post: dict, candidates:
     return ", ".join(bits)
 
 
+def _artifact_coverage(round_dir: Path) -> str:
+    checks = [
+        ("pre", round_dir / "interview_pre.json"),
+        ("focus", round_dir / "choose_focus_judgment.json"),
+        ("cand", round_dir / "candidates.json"),
+        ("rate", round_dir / "candidate_ratings.json"),
+        ("sel", round_dir / "selection_audit.json"),
+        ("pairs", round_dir / "pairs.md"),
+        ("adapter", round_dir / "adapter.safetensors"),
+        ("cal", round_dir / "calibration.json"),
+        ("post", round_dir / "interview_post.json"),
+        ("eval0", round_dir / "eval.json"),
+        ("eval1", round_dir / "eval_post.json"),
+        ("judge", round_dir / "judgment.json"),
+    ]
+    return " ".join(f"{name}={'Y' if path.exists() else '—'}" for name, path in checks)
+
+
 def _eval_axis_summary(pre_eval: dict | None, post_eval: dict | None) -> str | None:
     pre_eval = pre_eval or {}
     post_eval = post_eval or {}
@@ -2537,6 +2555,7 @@ def write_audit_md(slug_dir: Path) -> None:
 
         sections.extend([f"## {rd.name}", ""])
         sections.append(f"- state: `{state}`")
+        sections.append(f"- artifact coverage: {_artifact_coverage(rd)}")
         sections.append(f"- data lineage: {lineage}")
         focus_pair = focus_j.get("persona_pair_id") or candidates.get("persona_pair_id")
         scenario_family = focus_j.get("scenario_family") or candidates.get("scenario_family")
