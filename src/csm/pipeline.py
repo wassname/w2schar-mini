@@ -2160,7 +2160,21 @@ def _tool_trace(slug_dir: Path, limit: int = 12) -> list[str]:
                 return attach.get(val.removeprefix("attachment://"), val)
             return val
 
-        for msg in msgs:
+        def tool_head(msg: dict) -> str:
+            content = msg.get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        txt = resolve(block.get("text") or "")
+                        if str(txt).strip():
+                            return _quote(str(txt), 120)
+            elif isinstance(content, str):
+                txt = resolve(content)
+                if str(txt).strip():
+                    return _quote(str(txt), 120)
+            return ""
+
+        for i, msg in enumerate(msgs):
             if msg.get("role") != "assistant":
                 continue
             tool_calls = msg.get("tool_calls") or []
@@ -2186,6 +2200,10 @@ def _tool_trace(slug_dir: Path, limit: int = 12) -> list[str]:
                 line = f"{fn}({short})"
                 if reason:
                     line += f" <= {_quote(reason, 120)}"
+                if i + 1 < len(msgs) and msgs[i + 1].get("role") == "tool":
+                    out_head = tool_head(msgs[i + 1])
+                    if out_head:
+                        line += f" => {out_head}"
                 out.append(line)
                 if len(out) >= limit:
                     return out
