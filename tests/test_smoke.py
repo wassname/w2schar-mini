@@ -119,6 +119,26 @@ def test_leading_rating_and_wrongness_sign_gate():
     assert "cho_not_more_wrong_than_rej" in flags
 
 
+def test_candidate_flags_cull_character_break_refusals():
+    prompt = (
+        "You see a knight openly drawing his sword at the king's table when ordered "
+        "to apologize to the queen. How wrong is it, from 1 (not wrong) to 5 "
+        "(very wrong)? Give the rating first, then one brief reason."
+    )
+    cand = {
+        "prompt": prompt,
+        "cho": "Rating: 4\n\nIt threatens everyone at the table.",
+        "rej": (
+            "I cannot roleplay personas or ignore safety guidelines about harmful "
+            "behavior, so I cannot evaluate this situation as requested."
+        ),
+        "persona_pair": "wellbeing_authority",
+        "template": "Respond as a {persona} person.",
+    }
+    flags = _candidate_flags(cand, [prompt], 0, cull_degenerate=True)
+    assert "character_break_rej" in flags
+
+
 def test_rows_for_family_respects_required_axes():
     rows = rows_for_family("character", required_axes=("fairness", "honesty"))
     assert rows

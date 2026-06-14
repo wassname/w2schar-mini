@@ -598,13 +598,13 @@ def generate_candidate_pairs(
         model, tok, pos_inputs, [r["pos_persona"] for r in flat],
         batch_size=batch_size, max_new_tokens=max_new_tokens, label="cho-candidates",
         seed=seed, do_sample=True, temperature=temperature, top_p=top_p,
-        use_refusal_ban=False,
+        use_refusal_ban=True,
     )
     rej_texts = _generate_batched(
         model, tok, neg_inputs, [r["neg_persona"] for r in flat],
         batch_size=batch_size, max_new_tokens=max_new_tokens, label="rej-candidates",
         seed=seed + 100_000, do_sample=True, temperature=temperature, top_p=top_p,
-        use_refusal_ban=False,
+        use_refusal_ban=True,
     )
     rows = []
     for meta, cho, rej in zip(flat, cho_texts, rej_texts, strict=True):

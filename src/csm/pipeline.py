@@ -1163,11 +1163,16 @@ def _degenerate_gen(text: str) -> bool:
 # A WARNING surfaced to the judge, NOT a hard gate -- the teacher keeps agency.
 _CHARACTER_BREAK_PHRASES = (
     "as an ai", "as a language model", "as a large language model",
+    "i am not an ai",
     "i am a language model", "i am an ai", "i'm just an ai", "i am just a",
+    "i do not have feelings", "i don't have feelings",
+    "personal lives", "subjective well-being",
     "i do not have hands", "i don't have hands", "i do not have a physical",
     "i cannot perform", "i can't perform", "i cannot flip", "i cannot access",
+    "i cannot roleplay", "i can't roleplay", "i cannot evaluate this situation",
     "i do not have the ability", "i don't have the ability",
     "i am unable to", "i'm unable to", "i cannot fulfil", "i can't fulfil",
+    "safety guidelines",
     "against my programming", "i am not able to", "i'm not able to",
     "the technical capability to do so does not exist",
 )
