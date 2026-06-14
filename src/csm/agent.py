@@ -256,6 +256,7 @@ def select_pairs_tool(slug: str) -> Tool:
         rejects_path.unlink(missing_ok=True)
         return (
             f"OK — selected {res['n_pairs']} generated pairs.\n"
+            f"----- selected pair review -----\n{res['selected_pair_review']}\n"
             f"========== pairs.md ==========\n{res['pairs_md']}"
             f"========== end pairs.md ==========\n"
             f"----- per-pair confound flags -----\n{res['flags_table']}\n"
@@ -499,7 +500,8 @@ def mark_exam_tool(slug: str) -> Tool:
     async def execute(keep: bool, reason: str,
                       pre_scores: dict[str, float] | None = None,
                       post_scores: dict[str, float] | None = None,
-                      next_focus: str = "") -> str:
+                      next_focus: str = "",
+                      harness_feedback: str = "") -> str:
         """Mark the student's exam. Commits the round.
 
         Args:
@@ -527,11 +529,15 @@ def mark_exam_tool(slug: str) -> Tool:
                 adjacent disposition the kept rounds haven't touched yet.
                 Pick one ORTHOGONAL to axes already kept (a saturated axis
                 cannot move again). Shown in the next round's brief.
+            harness_feedback: one line about what in the harness made this
+                round harder than it needed to be: weak probe, bad candidates,
+                unclear axis wording, gate friction, or "" if nothing notable.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         try:
             judgment = _mark_exam_pipeline(round_dir, keep, reason, next_focus,
-                                           pre_scores, post_scores)
+                                           pre_scores, post_scores,
+                                           harness_feedback)
         except ValidationError as e:
             return _format_validation_error(e)
         return (
@@ -599,6 +605,60 @@ def _round_history_lines(slug_path: Path) -> str:
     return "History so far (one line per round):\n" + "\n".join(lines)
 
 
+def _last_harness_feedback(slug_path: Path, *, exclude: Path | None = None) -> str:
+    for rd in sorted((p for p in slug_path.glob("round*") if p.is_dir()), reverse=True):
+        if exclude is not None and rd == exclude:
+            continue
+        jp = rd / "judgment.json"
+        if not jp.exists():
+            continue
+        feedback = json.loads(jp.read_text()).get("harness_feedback", "").strip()
+        if feedback:
+            return feedback
+    return ""
+
+
+def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target: int) -> str:
+    cfg = config_for_run(json.loads((slug_path / "run.json").read_text()))
+    n_keeps_now = _n_keeps(slug_path)
+    n_history = len(kept_history_dirs(slug_path))
+    pre_text = _format_dialogue_inline(
+        json.loads((rd / "interview_pre.json").read_text())
+    )
+    prior_focus = _last_next_focus(slug_path, exclude=rd)
+    prior_feedback = _last_harness_feedback(slug_path, exclude=rd)
+    focus_block = (f"\nPRIOR ROUND'S `next_focus`:\n  {prior_focus}\n"
+                   if prior_focus else "")
+    feedback_block = (f"\nPRIOR ROUND'S `harness_feedback`:\n  {prior_feedback}\n"
+                      if prior_feedback else "")
+    pair_rows = []
+    seen = set()
+    for cell in cfg.persona_cells:
+        pair_id = cell[2]
+        if pair_id in seen:
+            continue
+        seen.add(pair_id)
+        pair_rows.append(f"  - {pair_id}: {cell[3]} vs {cell[4]}")
+    pair_block = ("Measured persona pairs for this run:\n" + "\n".join(pair_rows) + "\n"
+                  if pair_rows else "")
+    prompt = INITIAL_TASK.format(
+        round_n=n_keeps_now + 1, target_n=keep_target,
+        round_dir=str(rd.relative_to(REPO)), model=model,
+        n_history=n_history,
+    ) + focus_block + feedback_block + pair_block + (
+        f"\n========== PRE-DIALOGUE (c=0, base+history) ==========\n"
+        f"{pre_text}\n"
+        f"========== end PRE-DIALOGUE ==========\n"
+        f"Read the PRE-dialogue, pick the measured persona pair with the clearest "
+        f"headroom on these probes, then call choose_focus(persona_pair_id, "
+        f"scenario_family). Allowed scenario families for this run: "
+        f"{cfg.allowed_scenario_families}. The harness will sample scenarios and "
+        f"generate candidate pairs from the measured template cells for that pair.\n"
+    )
+    (rd / "teacher_prompt.md").write_text(prompt)
+    return prompt
+
+
 @solver
 def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     slug_path = _slug_path(slug)
@@ -634,6 +694,15 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
             rd = new_round_dir(slug_path)
             prepare_round(slug_path, rd)
             st = read_state(rd)
+            teacher_prompt = _build_teacher_prompt(
+                slug_path, rd, model=json.loads((slug_path / "run.json").read_text())["model"],
+                keep_target=keep_target,
+            )
+            return teacher_prompt + "\n" + ON_CONTINUE_NUDGE.format(
+                n_keeps=n_keeps, n_rounds=n_rounds, n_drops=n_drops,
+                history=_round_history_lines(slug_path),
+                last_state=st.state, next_action=allowed_after(st.state),
+            )
 
         return ON_CONTINUE_NUDGE.format(
             n_keeps=n_keeps, n_rounds=n_rounds, n_drops=n_drops,
@@ -682,39 +751,8 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     rd = latest_round_dir(slug_path)
     if not (rd / "interview_pre.json").exists():
         prepare_round(slug_path, rd)
-    cfg = config_for_run(json.loads((slug_path / "run.json").read_text()))
-
-    n_keeps_now = _n_keeps(slug_path)
-    n_history = len(kept_history_dirs(slug_path))
-    pre_text = _format_dialogue_inline(
-        json.loads((rd / "interview_pre.json").read_text())
-    )
-    prior_focus = _last_next_focus(slug_path, exclude=rd)
-    focus_block = (f"\nPRIOR ROUND'S `next_focus`:\n  {prior_focus}\n"
-                   if prior_focus else "")
-    pair_rows = []
-    seen = set()
-    for cell in cfg.persona_cells:
-        pair_id = cell[2]
-        if pair_id in seen:
-            continue
-        seen.add(pair_id)
-        pair_rows.append(f"  - {pair_id}: {cell[3]} vs {cell[4]}")
-    pair_block = ("Measured persona pairs for this run:\n" + "\n".join(pair_rows) + "\n"
-                  if pair_rows else "")
-    initial = INITIAL_TASK.format(
-        round_n=n_keeps_now + 1, target_n=n_keeps_now + n_rounds,
-        round_dir=str(rd.relative_to(REPO)), model=model,
-        n_history=n_history,
-    ) + focus_block + pair_block + (
-        f"\n========== PRE-DIALOGUE (c=0, base+history) ==========\n"
-        f"{pre_text}\n"
-        f"========== end PRE-DIALOGUE ==========\n"
-        f"Read the PRE-dialogue, pick the measured persona pair with the clearest "
-        f"headroom on these probes, then call choose_focus(persona_pair_id, "
-        f"scenario_family). Allowed scenario families for this run: "
-        f"{cfg.allowed_scenario_families}. The harness will sample scenarios and "
-        f"generate candidate pairs from the measured template cells for that pair.\n"
+    initial = _build_teacher_prompt(
+        slug_path, rd, model=model, keep_target=_n_keeps(slug_path) + n_rounds,
     )
 
     teacher_model = _inspect_model_name(teacher)

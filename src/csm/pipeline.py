@@ -22,6 +22,7 @@ from __future__ import annotations
 import difflib
 import gc
 import json
+import math
 import os
 import re
 import shutil
@@ -294,6 +295,15 @@ def _head(s: str, n: int = 240) -> str:
     return s[:n] + (" …" if len(s) > n else "")
 
 
+def _token_count(s: str) -> int:
+    return len(re.findall(r"\S+", s))
+
+
+def _first_sentence(s: str, n: int = 180) -> str:
+    head = re.split(r"(?<=[.!?])\s+", s.strip(), maxsplit=1)[0]
+    return _head(head, n)
+
+
 def _token_set(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z0-9]{4,}", text.lower())}
 
@@ -415,6 +425,8 @@ def _candidate_flags(cand: dict, prompts: list[str], own_idx: int, *,
         flags.append("character_break_cho")
     if _character_break(rej):
         flags.append("character_break_rej")
+    if _token_count(cho) < 10 or _token_count(rej) < 10:
+        flags.append("too_short")
     if _persona_leak(cho) or _persona_leak(rej):
         flags.append("persona_leak")
     if _persona_echo(cho, cand) or _persona_echo(rej, cand):
@@ -499,6 +511,31 @@ def _candidate_summary(candidates: dict) -> str:
     return "\n".join(lines)
 
 
+def _selected_pair_review(data: dict, selected: list[dict]) -> str:
+    by_sid = {int(item["scenario_id"]): item for item in data["items"]}
+    lines = []
+    for row in selected:
+        item = by_sid[row["scenario_id"]]
+        lines.append(f"## scenario {row['scenario_id']} candidate {row['candidate_id']}")
+        lines.append(f"prompt: {_head(item['prompt'], 200)}")
+        lines.append(f"unprompted: {_head(item['unprompted'], 200)}")
+        lines.append(
+            f"cell #{row['template_cell_id']} {row['persona_pair']} "
+            f"score={row['template_score']:.1f} on={row['template_on_axis']:.2f} "
+            f"off={row['template_off_axis']:.2f}"
+        )
+        lines.append(
+            f"cho[{row['cho_tokens']} tok]: {_first_sentence(row['cho'])}"
+        )
+        lines.append(
+            f"rej[{row['rej_tokens']} tok]: {_first_sentence(row['rej'])}"
+        )
+        if row["flags"]:
+            lines.append(f"flags: {row['flags']}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
 def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None = None,
                  scenario_family: str = "mixed") -> dict:
     """Teacher chooses only the measured persona pair and scenario family.
@@ -548,7 +585,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
                         "unprompted": ans, **h,
                     })
                 scored.sort(key=lambda x: (x["score"], x["depth_terms"]))
-                kept = scored[:cfg.n_train_pairs]
+                kept = scored[:cfg.n_headroom_prompts]
                 for j, item in enumerate(kept, start=1):
                     item["original_scenario_id"] = item["scenario_id"]
                     item["scenario_id"] = j
@@ -584,7 +621,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
                 "unprompted": ans, **h,
             })
         scored.sort(key=lambda x: (x["score"], x["depth_terms"]))
-        kept = scored[:cfg.n_train_pairs]
+        kept = scored[:cfg.n_headroom_prompts]
         for j, item in enumerate(kept, start=1):
             item["original_scenario_id"] = item["scenario_id"]
             item["scenario_id"] = j
@@ -710,6 +747,14 @@ def select_pairs(round_dir: Path, *, lesson: str, choices: dict[str, int]) -> di
             "template_on_axis": cand["template_on_axis"],
             "template_off_axis": cand["template_off_axis"],
             "template_library": cand["template_library"],
+            "flags": cand.get("flags", []),
+            "unprompted": item["unprompted"],
+            "cho": cand["cho"],
+            "rej": cand["rej"],
+            "cho_tokens": _token_count(cand["cho"]),
+            "rej_tokens": _token_count(cand["rej"]),
+            "cho_first_sentence": _first_sentence(cand["cho"]),
+            "rej_first_sentence": _first_sentence(cand["rej"]),
         })
     cfg = config_for_run(json.loads((round_dir.parent / "run.json").read_text()))
     if len(selected) < cfg.min_pairs_to_train:
@@ -724,12 +769,15 @@ def select_pairs(round_dir: Path, *, lesson: str, choices: dict[str, int]) -> di
         "choices": choices,
         "selected": choice_log,
     }, indent=2))
+    review = _selected_pair_review(data, choice_log)
+    (round_dir / "selected_pair_review.md").write_text(review + "\n")
     _, pairs = load_pairs_md(pairs_path)
     set_state(round_dir, "train_student", note=f"selected {len(pairs)} pairs")
     return {
         "n_pairs": len(pairs),
         "pairs_md": pairs_path.read_text(),
         "flags_table": pair_flags_table(pairs),
+        "selected_pair_review": review,
     }
 
 
@@ -1305,72 +1353,83 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     history = kept_history_dirs(slug_dir, before_round=int(round_dir.name.replace("round", "")))
     with mem_stage("load"):
         model, tok, hb = load_base_with_history(cfg.model, history, quant=cfg.quant)
-
-    steps = max(cfg.min_steps,
-                int(len(pairs) / cfg.train_batch_size * cfg.n_epochs))
-    tcfg = TrainCfg(
-        r=cfg.lora_r, alpha=cfg.lora_alpha, targets=cfg.targets,
-        layer_range=cfg.layer_range,
-        steps=steps, batch_size=cfg.train_batch_size, lr=cfg.lr,
-        weight_decay=cfg.weight_decay, warmup_ratio=cfg.warmup_ratio,
-        grad_clip=cfg.grad_clip,
-        max_len=cfg.max_len, kl_lambda=cfg.kl_lambda,
-    )
-    from csm.ws.adapter import ModulatedLoRA, ModulatedPiSSA
-    adapter_cls = ModulatedPiSSA if cfg.adapter == "pissa" else ModulatedLoRA
-    with mem_stage("train"):
-        lora = train_adapter(model, tok, pairs, tcfg,
-                             history_bake=hb, enable_thinking=cfg.enable_thinking,
-                             adapter_cls=adapter_cls)
-
-    # Calibrate. cfg.signed_C (1.5) is the initial probe; c_scan walks down
-    # ×2/3 until pmass_format ≥ 0.98 × baseline, no backoff. Coherent
-    # adapters bake at init; fragile ones get tamer baked coefficients.
-    # pmass_format = tinymfv format-follow mass at the JSON answer slot
-    # (sensitive to autoregressive collapse; the prior top-K surrogate
-    # missed it because it was teacher-forced on base's clean prefix).
-    with mem_stage("c_scan"):
-        signed_C, trace = c_scan(
-            model, tok, lora,
-            init_c=cfg.signed_C, gate_frac=cfg.gate_frac, sign=SIGN,
-            batch_size=cfg.eval_batch_size,
-            n_vignettes=cfg.cscan_n_vignettes,
-            max_think_tokens=cfg.cscan_max_think_tokens,
-            enable_thinking=cfg.enable_thinking,
-            probe_max_new_tokens=cfg.dialogue_max_new_tokens,
+    lora = None
+    try:
+        steps_per_epoch = max(1, math.ceil(len(pairs) / cfg.train_batch_size))
+        steps = max(1, math.ceil(steps_per_epoch * cfg.n_epochs))
+        tcfg = TrainCfg(
+            r=cfg.lora_r, alpha=cfg.lora_alpha, targets=cfg.targets,
+            layer_range=cfg.layer_range,
+            steps=steps, batch_size=cfg.train_batch_size, lr=cfg.lr,
+            weight_decay=cfg.weight_decay, warmup_ratio=cfg.warmup_ratio,
+            grad_clip=cfg.grad_clip,
+            max_len=cfg.max_len, kl_lambda=cfg.kl_lambda,
+            n_val_pairs=cfg.n_val_pairs,
+            min_val_improvement=cfg.min_val_improvement,
         )
-    lora.save(str(round_dir / "adapter.safetensors"),
-              extra_meta={"axis": AXIS, "sign": str(SIGN)})
-    (round_dir / "calibration.json").write_text(json.dumps({
-        "signed_C": signed_C,
-        "sign": SIGN,
-        "cscan_trace": trace,
-        "kl_lambda": tcfg.kl_lambda,
-        "steps": tcfg.steps,
-    }, indent=2))
+        from csm.ws.adapter import ModulatedLoRA, ModulatedPiSSA
+        adapter_cls = ModulatedPiSSA if cfg.adapter == "pissa" else ModulatedLoRA
+        with mem_stage("train"):
+            lora = train_adapter(model, tok, pairs, tcfg,
+                                 history_bake=hb, enable_thinking=cfg.enable_thinking,
+                                 adapter_cls=adapter_cls)
+        train_summary = getattr(lora, "train_summary", None)
+        if train_summary and train_summary["n_val_pairs"] > 0:
+            best_step = train_summary["best_step"]
+            improvement = train_summary["val_improvement"]
+            if best_step == 0:
+                raise ValidationError(
+                    "train_student: held-out val nll+ was best at step 0. The adapter "
+                    "did not beat the untrained checkpoint, so this round fails."
+                )
+            if improvement is None or improvement < cfg.min_val_improvement:
+                raise ValidationError(
+                    "train_student: held-out val nll+ improved by "
+                    f"{0.0 if improvement is None else improvement:.3f}, below the "
+                    f"required {cfg.min_val_improvement:.3f}. The adapter did not "
+                    "learn enough to justify deployment."
+                )
 
-    # Post-dialogue: HistoryBake's gated hook still attached (active at
-    # gate=True after train_adapter restored inference default). Bake only
-    # the current adapter into W on top → reduced per-forward overhead for
-    # the new adapter; history still routes via its (now-already-attached)
-    # hook. Cheaper than detaching HistoryBake just for 3 probes.
-    dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
-                       enable_thinking=cfg.enable_thinking)
-    if isinstance(lora, ModulatedPiSSA):
-        from csm.ws.bake import pissa_to_lora_spec
-        cur_spec = pissa_to_lora_spec(lora, default_c=signed_C)
-        lora.restore_base_W()
-    else:
-        cur_spec = AdapterSpec.from_lora(lora, default_c=signed_C)
-    with mem_stage("dialogue_post"):
-        post = dialogue(model, tok, PROBES,
-                        round_dir / "interview_post.json",
-                        hist_specs=None, current_spec=cur_spec, c=signed_C, cfg=dcfg)
+        with mem_stage("c_scan"):
+            signed_C, trace = c_scan(
+                model, tok, lora,
+                init_c=cfg.signed_C, gate_frac=cfg.gate_frac, sign=SIGN,
+                batch_size=cfg.eval_batch_size,
+                n_vignettes=cfg.cscan_n_vignettes,
+                max_think_tokens=cfg.cscan_max_think_tokens,
+                enable_thinking=cfg.enable_thinking,
+                probe_max_new_tokens=cfg.dialogue_max_new_tokens,
+            )
+        lora.save(str(round_dir / "adapter.safetensors"),
+                  extra_meta={"axis": AXIS, "sign": str(SIGN)})
+        (round_dir / "calibration.json").write_text(json.dumps({
+            "signed_C": signed_C,
+            "sign": SIGN,
+            "cscan_trace": trace,
+            "kl_lambda": tcfg.kl_lambda,
+            "steps": tcfg.steps,
+            "train_summary": train_summary,
+        }, indent=2))
 
-    del model, lora
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+        dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
+                           enable_thinking=cfg.enable_thinking)
+        if isinstance(lora, ModulatedPiSSA):
+            from csm.ws.bake import pissa_to_lora_spec
+            cur_spec = pissa_to_lora_spec(lora, default_c=signed_C)
+            lora.restore_base_W()
+        else:
+            cur_spec = AdapterSpec.from_lora(lora, default_c=signed_C)
+        with mem_stage("dialogue_post"):
+            post = dialogue(model, tok, PROBES,
+                            round_dir / "interview_post.json",
+                            hist_specs=None, current_spec=cur_spec, c=signed_C, cfg=dcfg)
+    finally:
+        del model
+        if lora is not None:
+            del lora
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     set_state(round_dir, "mark_exam", note=f"signed_C={signed_C:+.4f}")
     transcript().info(
@@ -1455,7 +1514,8 @@ def _validate_scores(scores: dict[str, float], expected_ids: list[str],
 
 def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
               pre_scores: dict[str, float] | None = None,
-              post_scores: dict[str, float] | None = None) -> dict:
+              post_scores: dict[str, float] | None = None,
+              harness_feedback: str = "") -> dict:
     # keep=True requires a trained adapter; keep=False can also fire as an
     # early abort from choose_focus/select_pairs/train_student.
     if keep:
@@ -1490,6 +1550,7 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
         "movement": movement,
         "movement_mean": mean,
         "next_focus": next_focus,
+        "harness_feedback": harness_feedback,
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     }
     (round_dir / "judgment.json").write_text(json.dumps(judgment, indent=2))
@@ -1549,6 +1610,7 @@ def write_report_md(slug_dir: Path) -> None:
         ts = (j.get("ts_utc") or "")[:19].replace("T", " ")
         reason = (j.get("reasoning") or "").split("\n")[0][:120].replace("|", "\\|")
         focus = (j.get("next_focus") or "").split("\n")[0][:120].replace("|", "\\|")
+        feedback = (j.get("harness_feedback") or "").split("\n")[0][:120].replace("|", "\\|")
 
         c_val = cal.get("signed_C")
         c_str = f"{c_val:+.4f}" if isinstance(c_val, (int, float)) else "—"
@@ -1557,10 +1619,11 @@ def write_report_md(slug_dir: Path) -> None:
         ev_str = f"{mp:.3f}" if isinstance(mp, (int, float)) else "—"
 
         rows.append([rd.name.replace("round", "r"), ts, state, action or "—",
-                     c_str, ev_str, reason, focus])
+                     c_str, ev_str, reason, focus, feedback])
 
     headers = ["round", "judged_at", "state", "action", "signed_C",
-               "eval_mean_p", "reasoning (head)", "next_focus (head)"]
+               "eval_mean_p", "reasoning (head)", "next_focus (head)",
+               "harness_feedback (head)"]
     lines = [
         f"# {slug_dir.name}",
         "",

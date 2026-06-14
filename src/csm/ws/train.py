@@ -72,6 +72,8 @@ class TrainCfg:
     weight_decay: float = 0.01
     grad_clip: float = 1.0
     max_len: int = 512
+    n_val_pairs: int = 3
+    min_val_improvement: float = 0.05
     kl_lambda: float = 0.032
     """β: coefficient on mean reverse-KL per step (nats, matches NLL units).
     0 disables. Bump up if Δnll blows past +0.02 (coherence breaks); bump
@@ -510,12 +512,11 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
     """
     torch.manual_seed(cfg.seed)
 
-    # Hold out up to 3 pairs (~25%) as an overfit canary — never trained on,
-    # never used for PiSSA calibration. Pool is ~15 so this is noisy, but it
-    # is the only window into generalization vs memorization. Skipped when the
-    # pool is too small (e.g. tiny smoke at 4 pairs → 1 val, 3 train).
+    # Hold out a small explicit val slice as the overfit canary. The user asked
+    # for fail-fast research behavior here: if the adapter does not lower held-
+    # out val nll+, the round should die loudly instead of "training" on paper.
     perm = torch.randperm(len(pairs), generator=torch.Generator().manual_seed(cfg.seed)).tolist()
-    n_val = min(3, len(pairs) // 4)
+    n_val = min(cfg.n_val_pairs, len(pairs) // 4)
     val_pairs = [pairs[i] for i in perm[:n_val]]
     pairs = [pairs[i] for i in perm[n_val:]]
 
@@ -642,9 +643,13 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
         history_bake.set_gate(lambda: True)              # restore inference default
 
     # Restore the val-nll+ minimum (overfit fix). No val (tiny pool) → keep last.
+    best_step = None
+    step0_val_pos = None
+    if val_traces:
+        best_step = min(val_traces, key=lambda t: t["val_nll+"])["step"]
+        step0_val_pos = val_traces[0]["val_nll+"]
     if best_state is not None:
         last_step = val_traces[-1]["step"]
-        best_step = min(val_traces, key=lambda t: t["val_nll+"])["step"]
         with torch.no_grad():
             for p, b in zip(params, best_state):
                 p.copy_(b)
@@ -657,6 +662,19 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
 
     _log_train_table(traces)
     _log_val_table(val_traces)
+    improvement = None
+    if step0_val_pos is not None:
+        improvement = step0_val_pos - best_val_pos
+    lora.train_summary = {
+        "n_train_pairs": len(pairs),
+        "n_val_pairs": len(val_pairs),
+        "best_step": best_step,
+        "best_val_nll_pos": None if best_val_pos == float("inf") else best_val_pos,
+        "step0_val_nll_pos": step0_val_pos,
+        "val_improvement": improvement,
+        "min_val_improvement": cfg.min_val_improvement,
+        "val_traces": val_traces,
+    }
     return lora
 
 

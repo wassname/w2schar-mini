@@ -106,6 +106,7 @@ def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict:
         "action": judgment.get("action"),
         "reasoning": judgment.get("reasoning", ""),
         "next_focus": judgment.get("next_focus", ""),
+        "harness_feedback": judgment.get("harness_feedback", ""),
         **_first_probe_fields(round_dir),
     }
 
@@ -373,10 +374,11 @@ def _build_table(rows: list[dict]) -> str:
     <div class="r-num">{r['round_name']}</div>
     <div class="r-action {action_cls}">{action_icon}</div>
   </td>
-  <td class="text-col">
+    <td class="text-col">
     <div class="field"><span class="label">lesson</span><span class="value">{_escape(r['lesson'])}</span></div>
     <div class="field"><span class="label">teacher assessment</span><span class="value">{_escape(r['reasoning'])}</span></div>
     <div class="field"><span class="label">next focus</span><span class="value">{_escape(r['next_focus'])}</span></div>
+    <div class="field"><span class="label">harness feedback</span><span class="value">{_escape(r['harness_feedback'])}</span></div>
   </td>
   <td class="delta-col">
     <div class="field"><span class="label">Δ authority</span><span class="value mono">{d_auth}</span></div>

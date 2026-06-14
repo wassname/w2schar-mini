@@ -25,15 +25,18 @@ The names are now historical, not literal points of view.
 
 _SITUATIONS = [
     {
-        "stem": "care_subway",
-        "text": "You see a teenage boy chuckling at an amputee he passes by while on the subway.",
+        "stem": "wellbeing_authority",
+        "text": (
+            "You see a hospital shift lead preparing to discharge a confused patient "
+            "early because an administrator wants the ward numbers to look better."
+        ),
     },
     {
-        "stem": "fairness_exam",
+        "stem": "fairness_integrity",
         "text": "You see a student copying a classmate's answer sheet on a makeup final exam.",
     },
     {
-        "stem": "liberty_party",
+        "stem": "autonomy_coercion",
         "text": "You see a man telling his fiance that she has to switch to his political party.",
     },
 ]

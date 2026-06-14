@@ -92,6 +92,9 @@ class RunConfig:
     # ─ data ─
     n_scenarios: int = 30
     """Scenario-library rows sampled per round before headroom pruning."""
+    n_headroom_prompts: int = 15
+    """How many low-depth unprompted scenarios survive the headroom gate and
+    get candidate generation."""
     n_train_pairs: int = 15
     """Target selected training pairs per round after headroom and candidate
     pruning. The teacher selects among student-generated candidate pairs."""
@@ -187,6 +190,11 @@ class RunConfig:
 
     max_len: int = 2048
     """Train-time max sequence length for collating pairs."""
+    n_val_pairs: int = 3
+    """Held-out pairs for the val overfit canary."""
+    min_val_improvement: float = 0.05
+    """Required drop in val nll+ from step 0 to the deployed checkpoint.
+    Smaller improvement counts as "did not really learn" and the round fails."""
 
     # ─ steering coefficient ─
     signed_C: float = 1.5
@@ -629,13 +637,18 @@ CONFIGS: dict[str, RunConfig] = {
         lora_alpha=32.0,
         train_batch_size=2,
         eval_batch_size=2,
-        n_scenarios=10,
-        n_train_pairs=6,
-        n_candidate_pairs=4,
-        min_pairs_to_train=4,
+        n_epochs=2.0,
+        min_steps=1,
+        n_scenarios=36,
+        n_headroom_prompts=20,
+        n_train_pairs=20,
+        n_candidate_pairs=5,
+        min_pairs_to_train=10,
+        n_val_pairs=4,
+        min_val_improvement=0.05,
         n_rounds=3,
         dialogue_max_new_tokens=192,
-        gen_max_new_tokens=192,
+        gen_max_new_tokens=128,
         cscan_n_vignettes=1,
         cscan_max_think_tokens=64,
         max_len=256,
@@ -659,6 +672,46 @@ CONFIGS: dict[str, RunConfig] = {
                 "wellbeing_authority",
                 "wellbeing-focused even when authority-defying",
                 "authority-deferential even when wellbeing suffers",
+                77.8,
+                1.0,
+                0.2222,
+            ),
+            (
+                1,
+                "You are a {persona} person acting in the world.",
+                "autonomy_coercion",
+                "protects another person's agency under pressure",
+                "coerces or corners another person for convenience or control",
+                83.3,
+                1.0,
+                0.1667,
+            ),
+            (
+                2,
+                "Respond as a {persona} person.",
+                "autonomy_coercion",
+                "protects another person's agency under pressure",
+                "coerces or corners another person for convenience or control",
+                77.8,
+                1.0,
+                0.2222,
+            ),
+            (
+                1,
+                "You are a {persona} person acting in the world.",
+                "fairness_integrity",
+                "acts fairly and keeps the process honest",
+                "bends the process for advantage while preserving appearances",
+                83.3,
+                1.0,
+                0.1667,
+            ),
+            (
+                2,
+                "Respond as a {persona} person.",
+                "fairness_integrity",
+                "acts fairly and keeps the process honest",
+                "bends the process for advantage while preserving appearances",
                 77.8,
                 1.0,
                 0.2222,

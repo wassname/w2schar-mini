@@ -107,7 +107,7 @@ One round:
         # {"1": 3, "2": 1, "3": 7, ...}. Select only surviving candidates.
         # You select whole student-generated pairs; you never edit pair text.
     train_student()                 # train + replay probes → PRE/POST
-    mark_exam(keep, reason, pre_scores, post_scores, next_focus)  # place PRE & POST on the round's axis
+    mark_exam(keep, reason, pre_scores, post_scores, next_focus, harness_feedback)  # place PRE & POST on the round's axis
 
 Pick `scenario_family` by the deficit you see in PRE:
   - character: first-person ordinary dilemmas.
@@ -205,13 +205,13 @@ AFTER_EDIT = ("\n----- pair updated (on the student's manifold, no leakage). nex
               " fix another pair (read_pair / replace_pair) or train_student() -----\n")
 
 
-AFTER_TRAIN = "\n----- next: mark_exam(keep, reason, pre_scores, post_scores, next_focus) -----\n" + JUDGE_GUIDE
+AFTER_TRAIN = "\n----- next: mark_exam(keep, reason, pre_scores, post_scores, next_focus, harness_feedback) -----\n" + JUDGE_GUIDE
 
 
 AFTER_MARK_EXAM = (
-    "\n----- round committed. If anything about this round was confusing or"
-    " suboptimal — axis definition unclear, probe/seat mismatch, gate fired"
-    " unexpectedly, brief gap — write one line here. Otherwise proceed. -----\n"
+    "\n----- round committed. Put any harness-improvement note into the"
+    " harness_feedback field of mark_exam itself so it is saved and shown"
+    " in the next round's brief. -----\n"
 )
 
 

@@ -30,7 +30,7 @@ def allowed_after(state: State) -> str:
     if state == "train_student":
         return "train_student()  (or mark_exam(keep=False, reason=...) to abort)"
     if state == "mark_exam":
-        return "mark_exam(keep, reason, pre_scores, post_scores, next_focus)"
+        return "mark_exam(keep, reason, pre_scores, post_scores, next_focus, harness_feedback)"
     return "(round complete — harness will allocate the next round or stop)"
 
 
