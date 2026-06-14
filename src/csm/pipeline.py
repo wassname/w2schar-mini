@@ -63,6 +63,13 @@ PAIR_REQUIRED_AXES = {
     "principled_expedient": ("care", "fairness", "honesty", "autonomy"),
 }
 
+PAIR_FORBIDDEN_AXES = {
+    # Hutt/slavery scenes are vivid, but they mostly teach harm/power conflict.
+    # That leaked into wellbeing_authority at eval time. Keep this pair on
+    # consent/coercion without the empire-control framing.
+    "autonomy_coercion": ("power",),
+}
+
 # CSM_FAKE_STUDENT=1 short-circuits the two GPU-bound stages (prepare_round
 # probes + train_student train/c_scan/post-dialogue) to canned fixtures. The
 # teacher LLM still runs real (OpenRouter); the gate, react harness, and
@@ -785,17 +792,24 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         raise ValidationError(
             f"choose_focus: no prompt-axis mapping for persona pair {selected_pair['id']!r}"
         )
+    forbidden_axes = PAIR_FORBIDDEN_AXES.get(selected_pair["id"], ())
     n = int(round_dir.name.replace("round", ""))
     scenario_rows = sample_prompt_rows(
         cfg.n_scenarios,
         seed=42 + n,
         family=scenario_family,
         required_axes=required_axes,
+        forbidden_axes=forbidden_axes,
     )
     prompts = [r["text"] for r in scenario_rows]
     if not all(set(row.get("axes", ())) & set(required_axes) for row in scenario_rows):
         raise AssertionError(
             f"scenario sampling ignored required_axes={required_axes} for "
+            f"persona_pair_id={selected_pair['id']}"
+        )
+    if forbidden_axes and any(set(row.get("axes", ())) & set(forbidden_axes) for row in scenario_rows):
+        raise AssertionError(
+            f"scenario sampling ignored forbidden_axes={forbidden_axes} for "
             f"persona_pair_id={selected_pair['id']}"
         )
 
@@ -906,6 +920,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "persona_pair_id": selected_pair["id"],
         "scenario_family": scenario_family,
         "required_axes": list(required_axes),
+        "forbidden_axes": list(forbidden_axes),
         "k": cfg.n_candidate_pairs,
         "persona_templates": list(cfg.persona_templates),
         "active_persona_cells": active_cell_meta,
@@ -923,6 +938,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "persona_pair_id": selected_pair["id"],
         "scenario_family": scenario_family,
         "required_axes": list(required_axes),
+        "forbidden_axes": list(forbidden_axes),
         "sampled": [
             {"id": i + 1, **row} for i, row in enumerate(scenario_rows)
         ],
@@ -932,6 +948,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "persona_pair_id": selected_pair["id"],
         "scenario_family": scenario_family,
         "required_axes": list(required_axes),
+        "forbidden_axes": list(forbidden_axes),
         "rubric": "lower heuristic score = less explicit moral depth in unprompted answer",
         "items": scored,
     }, indent=2))

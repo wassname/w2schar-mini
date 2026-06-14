@@ -209,9 +209,19 @@ def sample_prompts(n: int, *, seed: int) -> list[str]:
             else [rng.choice(POOL) for _ in range(n)])
 
 
-def sample_prompt_rows(n: int, *, seed: int, family: str,
-                       required_axes: tuple[str, ...] = ()) -> list[dict]:
-    rows = rows_for_family(family, required_axes=required_axes)
+def sample_prompt_rows(
+    n: int,
+    *,
+    seed: int,
+    family: str,
+    required_axes: tuple[str, ...] = (),
+    forbidden_axes: tuple[str, ...] = (),
+) -> list[dict]:
+    rows = rows_for_family(
+        family,
+        required_axes=required_axes,
+        forbidden_axes=forbidden_axes,
+    )
     rng = random.Random(seed)
     rng.shuffle(rows)
     picked: list[dict] = []

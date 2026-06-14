@@ -44,7 +44,12 @@ POOL: list[str] = [row["text"] for row in POOL_ROWS]
 SCENARIO_FAMILIES = ("mixed", "character", "sycophancy", "power", "control")
 
 
-def rows_for_family(family: str, *, required_axes: tuple[str, ...] = ()) -> list[dict]:
+def rows_for_family(
+    family: str,
+    *,
+    required_axes: tuple[str, ...] = (),
+    forbidden_axes: tuple[str, ...] = (),
+) -> list[dict]:
     """Tagged scenario-library slices.
 
     `mixed` is the default short-form moral-behavior pool. Keep the dedicated
@@ -63,6 +68,8 @@ def rows_for_family(family: str, *, required_axes: tuple[str, ...] = ()) -> list
         tags = set(row.get("tags", ()))
         axes = set(row.get("axes", ()))
         if required_axes and not (axes & set(required_axes)):
+            continue
+        if forbidden_axes and (axes & set(forbidden_axes)):
             continue
         if (
             family == "mixed"

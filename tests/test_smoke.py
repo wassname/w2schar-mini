@@ -145,6 +145,17 @@ def test_rows_for_family_respects_required_axes():
     assert all(set(row.get("axes", ())) & {"fairness", "honesty"} for row in rows)
 
 
+def test_rows_for_family_respects_forbidden_axes():
+    rows = rows_for_family(
+        "character",
+        required_axes=("autonomy",),
+        forbidden_axes=("power",),
+    )
+    assert rows
+    assert all("autonomy" in row.get("axes", ()) for row in rows)
+    assert all("power" not in row.get("axes", ()) for row in rows)
+
+
 def test_sample_prompt_rows_caps_repeated_worlds():
     rows = sample_prompt_rows(20, seed=42, family="character", required_axes=("autonomy",))
     stems = {}
