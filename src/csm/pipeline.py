@@ -65,9 +65,11 @@ PAIR_REQUIRED_AXES = {
 
 PAIR_FORBIDDEN_AXES = {
     # Hutt/slavery scenes are vivid, but they mostly teach harm/power conflict.
-    # That leaked into wellbeing_authority at eval time. Keep this pair on
-    # consent/coercion without the empire-control framing.
-    "autonomy_coercion": ("power",),
+    # That leaked into wellbeing_authority at eval time. The remaining
+    # autonomy+loyalty apprentice world kept muddying this pair into alibis and
+    # insider protection instead of clean consent/coercion, so keep the bank on
+    # pure autonomy scenes once the liberty slice is large enough.
+    "autonomy_coercion": ("power", "loyalty"),
 }
 
 # CSM_FAKE_STUDENT=1 short-circuits the two GPU-bound stages (prepare_round

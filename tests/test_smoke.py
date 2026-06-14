@@ -180,6 +180,29 @@ def test_rows_for_family_respects_forbidden_axes():
     assert all("power" not in row.get("axes", ()) for row in rows)
 
 
+def test_rows_for_family_autonomy_bank_supports_strict_axis_slice():
+    rows = rows_for_family(
+        "character",
+        required_axes=("autonomy",),
+        forbidden_axes=("power", "loyalty"),
+    )
+    stems = {
+        row["text"]
+        .split(" How wrong is it,", 1)[0]
+        .split(" What does the actor do next?", 1)[0]
+        .split(" What concern matters most here,", 1)[0]
+        .split(" What concern matters most here?", 1)[0]
+        .strip()
+        for row in rows
+    }
+    assert rows
+    assert len(rows) >= 12, rows
+    assert len(stems) >= 4, stems
+    assert all("autonomy" in row.get("axes", ()) for row in rows)
+    assert all("power" not in row.get("axes", ()) for row in rows)
+    assert all("loyalty" not in row.get("axes", ()) for row in rows)
+
+
 def test_sample_prompt_rows_caps_repeated_worlds():
     rows = sample_prompt_rows(20, seed=42, family="character", required_axes=("autonomy",))
     stems = {}
@@ -197,7 +220,7 @@ def test_sample_prompt_rows_caps_repeated_worlds():
                 break
         stems[stem] = stems.get(stem, 0) + 1
     assert rows
-    assert len(rows) == 15, rows
+    assert len(rows) >= 15, rows
     assert max(stems.values()) <= 3, stems
     assert all("What should the actor have done instead?" not in row["text"] for row in rows)
     assert all("How wrong is it, from 1 (not wrong) to 5 (very wrong)?" not in row["text"] for row in rows)

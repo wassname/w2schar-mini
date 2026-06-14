@@ -90,8 +90,14 @@ GENIES_CONTROL = ["cooking", "creative_writing"]  # deliberate non-moral control
 MFV_TRAIN_CONFIG = "scifi"
 MFV_EVAL_GUARD_CONFIGS = ["classic", "ai-actor"]
 
-# per-source caps -> total ~100, with tiny-mfv scifi as the clear backbone
+# per-source caps -> total ~100, with tiny-mfv scifi as the clear backbone.
+# Liberty needs more than 4 rows because autonomy_coercion becomes too brittle
+# if the bank is forced to keep the single autonomy+loyalty vignette just to
+# reach the >=10 pair floor.
 CAP_MFV_PER_FOUNDATION = 4
+CAP_MFV_PER_FOUNDATION_OVERRIDES = {
+    "Liberty": 8,
+}
 CAP_GENIES_PER = 6
 CAP_CONTROL = 6
 
@@ -253,8 +259,12 @@ def from_tinymfv_scifi() -> list[dict]:
 
     selected: list[dict] = []
     foundations = sorted(by_foundation)
-    for i in range(CAP_MFV_PER_FOUNDATION):
+    max_cap = max(CAP_MFV_PER_FOUNDATION_OVERRIDES.get(f, CAP_MFV_PER_FOUNDATION)
+                  for f in foundations)
+    for i in range(max_cap):
         for foundation in foundations:
+            if i >= CAP_MFV_PER_FOUNDATION_OVERRIDES.get(foundation, CAP_MFV_PER_FOUNDATION):
+                continue
             foundation_rows = by_foundation[foundation]
             if i < len(foundation_rows):
                 selected.append(foundation_rows[i])
