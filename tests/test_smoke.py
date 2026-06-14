@@ -668,3 +668,26 @@ def test_write_audit_md_includes_focus_train_and_judgment(tmp_path):
     assert "PRE condemns coercion in the rating" in audit
     assert "best_step=7, val_improvement=+0.123" in audit
     assert "POST explicitly says to stop the coercion immediately." in audit
+
+
+def test_write_audit_md_includes_tool_trace(tmp_path, monkeypatch):
+    from csm import pipeline as pl
+    slug = tmp_path / "slug"
+    round_dir = slug / "round00"
+    round_dir.mkdir(parents=True)
+    (slug / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x"}))
+    (round_dir / "state.json").write_text(json.dumps({"state": "done"}))
+    (round_dir / "judgment.json").write_text(json.dumps({
+        "action": "drop",
+        "reasoning": "No movement.",
+        "harness_feedback": "Need cleaner pairs.",
+    }))
+    monkeypatch.setattr(pl, "_tool_trace", lambda slug_dir, limit=12: [
+        "choose_focus(persona_pair_id=autonomy_coercion) <= saw the biggest PRE mismatch here",
+        "train_student() <= enough pairs looked clean",
+    ])
+    write_audit_md(slug)
+    audit = (slug / "audit.md").read_text()
+    assert "## Tool Call Flow" in audit
+    assert "choose_focus(persona_pair_id=autonomy_coercion)" in audit
+    assert "train_student() <= enough pairs looked clean" in audit

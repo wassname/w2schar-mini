@@ -31,8 +31,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
-from inspect_ai.log import transcript
+from inspect_ai.log import read_eval_log, transcript
 from loguru import logger
+
+try:
+    from inspect_ai.log._recorders.buffer.buffer import sample_buffer
+except Exception:  # pragma: no cover - inspect internals can move
+    sample_buffer = None
 
 from csm.config import config_by_model, config_for_run
 from csm.gen.dialogue import DialogueCfg, dialogue
@@ -2105,6 +2110,27 @@ def _selection_quotes(selection: dict) -> list[str]:
     return quotes
 
 
+def _rating_quotes(ratings: list[dict], *, want_pass: bool, limit: int = 3) -> list[str]:
+    out: list[str] = []
+    for row in ratings:
+        if bool(row.get("passes")) != want_pass:
+            continue
+        sid = row.get("survivor_id") or "?"
+        comment = str(row.get("comment") or "").strip()
+        score = (
+            f"fwd={row.get('on_axis_forward', '—')}, "
+            f"rev={row.get('on_axis_reverse', '—')}, "
+            f"clean={row.get('off_axis_clean', '—')}"
+        )
+        line = f"{sid} | {score}"
+        if comment:
+            line += f" | {_quote(comment, 110)}"
+        out.append(line)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _train_gate_quote(slug_dir: Path, best_step: int | None,
                       val_improvement: float | None) -> str | None:
     run = _safe_json(slug_dir / "run.json") or {}
@@ -2120,9 +2146,86 @@ def _train_gate_quote(slug_dir: Path, best_step: int | None,
     return None
 
 
+def _tool_trace(slug_dir: Path, limit: int = 12) -> list[str]:
+    task_jsons = sorted(slug_dir.glob("*_task_*.json"))
+    if not task_jsons:
+        return []
+    task_json = task_jsons[-1]
+
+    def emit(msgs: list[dict], attach: dict[str, str]) -> list[str]:
+        out: list[str] = []
+
+        def resolve(val):
+            if isinstance(val, str) and val.startswith("attachment://"):
+                return attach.get(val.removeprefix("attachment://"), val)
+            return val
+
+        for msg in msgs:
+            if msg.get("role") != "assistant":
+                continue
+            tool_calls = msg.get("tool_calls") or []
+            if not tool_calls:
+                continue
+            reason = ""
+            content = msg.get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        reason = str(resolve(block.get("text") or block.get("reasoning") or "")).strip()
+                        if reason:
+                            break
+            elif isinstance(content, str):
+                reason = str(resolve(content)).strip()
+            for tc in tool_calls:
+                fn = tc.get("function", "?")
+                args = resolve(tc.get("arguments", {}) or {})
+                if isinstance(args, dict):
+                    short = ", ".join(f"{k}={str(resolve(v))[:40]}" for k, v in list(args.items())[:4])
+                else:
+                    short = _quote(str(resolve(args)), 60)
+                line = f"{fn}({short})"
+                if reason:
+                    line += f" <= {_quote(reason, 120)}"
+                out.append(line)
+                if len(out) >= limit:
+                    return out
+        return out
+
+    if sample_buffer is not None:
+        try:
+            buf = sample_buffer(str(task_json))
+            samples = buf.get_samples()
+            if samples not in (None, "NotModified") and getattr(samples, "samples", None):
+                messages: list[dict] = []
+                attach: dict[str, str] = {}
+                for s in samples.samples:
+                    data = buf.get_sample_data(s.id, s.epoch)
+                    attach.update({a.hash: a.content for a in data.attachments})
+                    for mp in data.message_pool:
+                        msg = json.loads(mp.data) if isinstance(mp.data, str) else mp.data
+                        if isinstance(msg, dict):
+                            messages.append(msg)
+                if messages:
+                    return emit(messages, attach)
+        except Exception:
+            pass
+
+    try:
+        log = read_eval_log(str(task_json), resolve_attachments=True)
+        messages: list[dict] = []
+        attach: dict[str, str] = {}
+        for sample in log.samples or []:
+            for msg in sample.messages or []:
+                messages.append(msg if isinstance(msg, dict) else msg.model_dump())
+        return emit(messages, attach)
+    except Exception:
+        return []
+
+
 def write_audit_md(slug_dir: Path) -> None:
     rounds = sorted(p for p in slug_dir.glob("round*") if p.is_dir())
     judged = [rd for rd in rounds if (rd / "judgment.json").exists()]
+    tool_trace = _tool_trace(slug_dir)
     if not rounds:
         (slug_dir / "audit.md").write_text(f"# Audit: {slug_dir.name}\n\nNo round artifacts yet.\n")
         return
@@ -2157,6 +2260,12 @@ def write_audit_md(slug_dir: Path) -> None:
         )
         sections.extend(["## Verdict", "", *verdict, ""])
 
+    if tool_trace:
+        sections.extend(["## Tool Call Flow", ""])
+        for line in tool_trace:
+            sections.append(f"- `{line}`")
+        sections.append("")
+
     for rd in rounds:
         state = (_safe_json(rd / "state.json") or {}).get("state", "—")
         focus_j = _safe_json(rd / "choose_focus_judgment.json") or {}
@@ -2166,13 +2275,18 @@ def write_audit_md(slug_dir: Path) -> None:
         pre = _safe_json(rd / "interview_pre.json") or {}
         post = _safe_json(rd / "interview_post.json") or {}
         selection = _safe_json(rd / "selection_audit.json") or {}
+        candidates = _safe_json(rd / "candidates.json") or {}
+        ratings = _safe_json(rd / "candidate_ratings.json") or []
 
         sections.extend([f"## {rd.name}", ""])
         sections.append(f"- state: `{state}`")
-        if focus_j:
+        focus_pair = focus_j.get("persona_pair_id") or candidates.get("persona_pair_id")
+        scenario_family = focus_j.get("scenario_family") or candidates.get("scenario_family")
+        if focus_pair:
             sections.append(
-                f"- focus: `{focus_j.get('persona_pair_id', '—')}` "
-                f"(mismatch={focus_j.get('mismatch_severity', '—')}, "
+                f"- focus: `{focus_pair}`"
+                + (f" on `{scenario_family}`" if scenario_family else "")
+                + f" (mismatch={focus_j.get('mismatch_severity', '—')}, "
                 f"headroom={focus_j.get('headroom', '—')}, "
                 f"cleanliness={focus_j.get('bank_cleanliness', '—')})"
             )
@@ -2180,6 +2294,21 @@ def write_audit_md(slug_dir: Path) -> None:
                 sections.append(f"- focus evidence: > {_quote(str(focus_j['evidence']))}")
         else:
             sections.append("- focus: not chosen yet")
+
+        timeline = []
+        if focus_pair:
+            timeline.append(f"choose_focus -> {focus_pair}")
+        if selection:
+            timeline.append(f"select_pairs -> {len(selection.get('selected', []))} pairs")
+        if train:
+            best_step = train.get("best_step")
+            val_improvement = train.get("val_improvement")
+            if isinstance(best_step, int) and isinstance(val_improvement, (int, float)):
+                timeline.append(f"train_student -> best_step={best_step}, Δval+={val_improvement:+.3f}")
+        if j:
+            timeline.append(f"mark_exam -> {j.get('action', '—')}")
+        if timeline:
+            sections.append(f"- timeline: {' -> '.join(timeline)}")
 
         for probe_id in _P1_PROBE_IDS:
             pre_1 = _probe_reply(pre, probe_id, 1)
@@ -2196,6 +2325,17 @@ def write_audit_md(slug_dir: Path) -> None:
             sections.append(f"- selected pairs: {len(picked)}")
             for quote in _selection_quotes(selection):
                 sections.append(f"  - {quote}")
+        if isinstance(ratings, list) and ratings:
+            pass_quotes = _rating_quotes(ratings, want_pass=True, limit=3)
+            fail_quotes = _rating_quotes(ratings, want_pass=False, limit=2)
+            if pass_quotes:
+                sections.append("- passing rating samples:")
+                for quote in pass_quotes:
+                    sections.append(f"  - {quote}")
+            if fail_quotes:
+                sections.append("- omitted rating samples:")
+                for quote in fail_quotes:
+                    sections.append(f"  - {quote}")
 
         if train:
             best_step = train.get("best_step")
