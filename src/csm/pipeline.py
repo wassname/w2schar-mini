@@ -2142,6 +2142,100 @@ def _movement_summary(judgment: dict) -> str | None:
     return ", ".join(bits)
 
 
+def _probe_count(interview: dict) -> int:
+    probes = interview.get("probes") or []
+    return len(probes) if isinstance(probes, list) else 0
+
+
+def _pairs_count(round_dir: Path) -> int | None:
+    pairs_path = round_dir / "pairs.md"
+    if not pairs_path.exists():
+        return None
+    try:
+        _, pairs = load_pairs_md(pairs_path)
+    except Exception:
+        return None
+    return len(pairs)
+
+
+def _candidate_counts(candidates: dict) -> dict[str, int]:
+    items = candidates.get("items") or []
+    if not isinstance(items, list):
+        items = []
+    generated = 0
+    survivors = 0
+    kept_prompts = 0
+    survivor_scenarios: set[int] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("kept"):
+            kept_prompts += 1
+        cand_rows = item.get("candidates") or []
+        if not isinstance(cand_rows, list):
+            cand_rows = []
+        generated += len(cand_rows)
+        for row in cand_rows:
+            if not isinstance(row, dict):
+                continue
+            flags = row.get("flags") or []
+            kept = row.get("kept")
+            if kept or flags == []:
+                survivors += 1
+                sid = row.get("scenario_id")
+                if isinstance(sid, int):
+                    survivor_scenarios.add(sid)
+    return {
+        "prompt_rows": len(items),
+        "kept_prompts": kept_prompts,
+        "generated_pairs": generated,
+        "survivors": survivors,
+        "survivor_scenarios": len(survivor_scenarios),
+    }
+
+
+def _data_lineage_summary(round_dir: Path, *, pre: dict, post: dict, candidates: dict,
+                          ratings: list[dict], selection: dict,
+                          train: dict, pre_eval: dict, post_eval: dict) -> str:
+    cand = _candidate_counts(candidates)
+    passing = 0
+    passing_scenarios: set[int] = set()
+    if isinstance(ratings, list):
+        for row in ratings:
+            if not isinstance(row, dict) or not row.get("passes"):
+                continue
+            passing += 1
+            sid = row.get("scenario_id")
+            if isinstance(sid, int):
+                passing_scenarios.add(sid)
+    selected = selection.get("selected") or []
+    if not isinstance(selected, list):
+        selected = []
+    train_pairs = train.get("n_train_pairs")
+    if not isinstance(train_pairs, int):
+        train_pairs = _pairs_count(round_dir)
+    bits = [
+        f"pre_probes={_probe_count(pre)}",
+        f"prompt_rows={cand['prompt_rows']}",
+        f"kept_prompts={cand['kept_prompts']}",
+        f"generated_pairs={cand['generated_pairs']}",
+        f"survivors={cand['survivors']}/{cand['survivor_scenarios']}scen",
+        f"rated={len(ratings) if isinstance(ratings, list) else 0}",
+        f"passing={passing}/{len(passing_scenarios)}scen",
+        f"selected={len(selected)}",
+    ]
+    if isinstance(train_pairs, int):
+        bits.append(f"train_pairs={train_pairs}")
+    post_probe_count = _probe_count(post)
+    if post_probe_count:
+        bits.append(f"post_probes={post_probe_count}")
+    if pre_eval:
+        bits.append("eval_pre=yes")
+    if post_eval:
+        bits.append("eval_post=yes")
+    return ", ".join(bits)
+
+
 def _eval_axis_summary(pre_eval: dict | None, post_eval: dict | None) -> str | None:
     pre_eval = pre_eval or {}
     post_eval = post_eval or {}
@@ -2357,9 +2451,21 @@ def write_audit_md(slug_dir: Path) -> None:
         selection = _safe_json(rd / "selection_audit.json") or {}
         candidates = _safe_json(rd / "candidates.json") or {}
         ratings = _safe_json(rd / "candidate_ratings.json") or []
+        lineage = _data_lineage_summary(
+            rd,
+            pre=pre,
+            post=post,
+            candidates=candidates,
+            ratings=ratings if isinstance(ratings, list) else [],
+            selection=selection,
+            train=train if isinstance(train, dict) else {},
+            pre_eval=pre_eval,
+            post_eval=post_eval,
+        )
 
         sections.extend([f"## {rd.name}", ""])
         sections.append(f"- state: `{state}`")
+        sections.append(f"- data lineage: {lineage}")
         focus_pair = focus_j.get("persona_pair_id") or candidates.get("persona_pair_id")
         scenario_family = focus_j.get("scenario_family") or candidates.get("scenario_family")
         if focus_pair:
