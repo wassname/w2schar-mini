@@ -16,6 +16,8 @@ Usage:
   python scripts/dogfood_round.py select <choices.json> # {lesson,choices:{scenario_id:candidate_id}}
   python scripts/dogfood_round.py auto-select <lesson.txt>
   python scripts/dogfood_round.py train
+  python scripts/dogfood_round.py drop <reason.txt>
+  python scripts/dogfood_round.py advance
   python scripts/dogfood_round.py exam    <verdict.json>     # {keep,reason,pre,post,next_focus}
 """
 import sys, json
@@ -23,7 +25,9 @@ from pathlib import Path
 
 from csm.config import CONFIGS
 from csm.pipeline import (init_run, prepare_round, latest_round_dir,
-                          choose_focus, select_pairs, train_student, mark_exam)
+                          choose_focus, select_pairs, train_student, mark_exam,
+                          new_round_dir)
+from csm.state import read_state
 
 STATE = Path("out/iter/_dogfood_state.json")
 stage = sys.argv[1]
@@ -81,6 +85,22 @@ elif stage == "train":
     slug, rd = _slug(), latest_round_dir(_slug())
     r = train_student(slug, rd)
     print(f"TRAIN  signed_C={r['signed_C']:+.4f}  n_trained={r['n_pairs_trained']}")
+
+elif stage == "drop":
+    rd = latest_round_dir(_slug())
+    reason = Path(sys.argv[2]).read_text().strip()
+    mark_exam(rd, keep=False, reason=reason)
+    print("DROP  keep=False")
+
+elif stage == "advance":
+    slug = _slug()
+    rd = latest_round_dir(slug)
+    st = read_state(rd)
+    if st.state != "done":
+        sys.exit(f"cannot advance: {rd.name} is not done (state={st.state})")
+    nxt = new_round_dir(slug)
+    prepare_round(slug, nxt)
+    print(f"ADVANCE  new_round={nxt.name}")
 
 elif stage == "exam":
     rd = latest_round_dir(_slug())
