@@ -1913,6 +1913,7 @@ def revert_round(slug_dir: Path, round_name: str, reason: str) -> dict:
 # ---------------------------------------------------------------------------
 
 _P1_PROBE_IDS = [p["id"] for p in PROBES if p["id"].endswith("_1p")]
+_P3_PROBE_IDS = [p["id"] for p in PROBES if p["id"].endswith("_3p")]
 
 
 def _validate_unit_score(name: str, val: float, *, lo: float = 1.0,
@@ -2568,7 +2569,7 @@ def write_audit_md(slug_dir: Path) -> None:
         sections.append("")
 
         out_headers = ["round", "focus_pair", "selected", "train_pairs",
-                       "train_gate", "movement", "eval", "action"]
+                       "pair_fit_gate", "movement", "eval", "action"]
         sections.extend(["## Round Outcomes", ""])
         sections.append("| " + " | ".join(out_headers) + " |")
         sections.append("|" + "|".join("---" for _ in out_headers) + "|")
@@ -2744,6 +2745,13 @@ def write_audit_md(slug_dir: Path) -> None:
                 ev = (j.get("seat_evidence") or {}).get(probe_id)
                 if ev:
                     sections.append(f"- {probe_id} judged evidence: > {_quote(str(ev))}")
+
+        for probe_id in _P3_PROBE_IDS:
+            pre_3 = _probe_reply(pre, probe_id, 1)
+            post_3 = _probe_reply(post, probe_id, 1)
+            if pre_3 or post_3:
+                sections.append(f"- {probe_id} PRE: > {_quote(pre_3 or '—')}")
+                sections.append(f"- {probe_id} POST: > {_quote(post_3 or '—')}")
 
         if selection:
             picked = selection.get("selected", [])
