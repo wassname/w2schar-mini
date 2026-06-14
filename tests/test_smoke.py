@@ -14,7 +14,10 @@ import pytest
 
 from csm.gen.prompts_pool import rows_for_family
 from csm.gen.pairs import render_candidate_persona, sample_prompt_rows
-from csm.pipeline import _candidate_flags, _leading_rating, rate_candidate, select_pairs
+from csm.pipeline import (_candidate_flags, _leading_rating, _validate_seat_evidence,
+                          _validate_unit_score, mark_exam, rate_candidate,
+                          select_pairs)
+from csm.state import RoundState, write_state
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -201,6 +204,21 @@ def test_rows_for_family_autonomy_bank_supports_strict_axis_slice():
     assert all("autonomy" in row.get("axes", ()) for row in rows)
     assert all("power" not in row.get("axes", ()) for row in rows)
     assert all("loyalty" not in row.get("axes", ()) for row in rows)
+
+
+def test_decision_score_validators():
+    assert _validate_unit_score("mismatch_severity", 4) == 4.0
+    assert _validate_seat_evidence(
+        {k: f"quote for {k}" for k in ("wellbeing_authority_1p", "fairness_integrity_1p", "autonomy_coercion_1p")},
+        ["wellbeing_authority_1p", "fairness_integrity_1p", "autonomy_coercion_1p"],
+    )
+    with pytest.raises(Exception):
+        _validate_unit_score("headroom", 0)
+    with pytest.raises(Exception):
+        _validate_seat_evidence(
+            {"wellbeing_authority_1p": "x"},
+            ["wellbeing_authority_1p", "fairness_integrity_1p", "autonomy_coercion_1p"],
+        )
 
 
 def test_sample_prompt_rows_caps_repeated_worlds():
@@ -466,6 +484,29 @@ def test_rate_candidate_reports_unique_scenarios(tmp_path):
     assert r1["n_more_needed"] > 0
     assert r2["passing_scenarios"] == [1]
     assert r3["passing_scenarios"] == [1, 2]
+
+
+def test_mark_exam_requires_seat_evidence_when_scores_present(tmp_path):
+    rd = tmp_path / "round00"
+    rd.mkdir(parents=True)
+    write_state(rd, RoundState(state="mark_exam"))
+    with pytest.raises(Exception):
+        mark_exam(
+            rd,
+            keep=True,
+            reason="POST is better on the chosen axis.",
+            pre_scores={
+                "wellbeing_authority_1p": 0.0,
+                "fairness_integrity_1p": 0.0,
+                "autonomy_coercion_1p": 0.0,
+            },
+            post_scores={
+                "wellbeing_authority_1p": 1.0,
+                "fairness_integrity_1p": 0.0,
+                "autonomy_coercion_1p": 0.0,
+            },
+            harness_feedback="Need cleaner candidates.",
+        )
 
 
 def test_rate_candidate_keeps_only_best_pass_per_scenario(tmp_path):

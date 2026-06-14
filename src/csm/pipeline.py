@@ -776,7 +776,9 @@ def _generic_pool_reason(items: list[dict]) -> str | None:
 
 
 def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None = None,
-                 scenario_family: str = "mixed") -> dict:
+                 scenario_family: str = "mixed", mismatch_severity: float | None = None,
+                 headroom: float | None = None, bank_cleanliness: float | None = None,
+                 evidence: str = "") -> dict:
     """Teacher chooses only the measured persona pair and scenario family.
 
     Free-text axis labels are gone for this experiment. The measured persona
@@ -790,6 +792,10 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
             f"scenario_family {scenario_family!r} is disabled for this profile; "
             f"choose one of {cfg.allowed_scenario_families}"
         )
+    mismatch_severity = _validate_unit_score("mismatch_severity", mismatch_severity)
+    headroom = _validate_unit_score("headroom", headroom)
+    bank_cleanliness = _validate_unit_score("bank_cleanliness", bank_cleanliness)
+    evidence = _validate_nonempty_text("evidence", evidence)
     selected_pair, active_persona_cells = _select_persona_cells(cfg, persona_pair_id)
     axis = f"{selected_pair['pos']} vs {selected_pair['neg']}"
     required_axes = PAIR_REQUIRED_AXES.get(selected_pair["id"])
@@ -958,6 +964,15 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "items": scored,
     }, indent=2))
     (round_dir / "candidates.json").write_text(json.dumps(candidates, indent=2))
+    (round_dir / "choose_focus_judgment.json").write_text(json.dumps({
+        "persona_pair_id": selected_pair["id"],
+        "scenario_family": scenario_family,
+        "mismatch_severity": mismatch_severity,
+        "headroom": headroom,
+        "bank_cleanliness": bank_cleanliness,
+        "evidence": evidence,
+        "ts_utc": datetime.now(timezone.utc).isoformat(),
+    }, indent=2))
     if generic_reason is not None:
         set_state(round_dir, "choose_focus", note="generic candidate pool")
         raise ValidationError(generic_reason)
@@ -972,6 +987,10 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "n_headroom": len(kept),
         "n_with_survivor": n_with_survivor,
         "min_to_train": cfg.min_pairs_to_train,
+        "mismatch_severity": mismatch_severity,
+        "headroom": headroom,
+        "bank_cleanliness": bank_cleanliness,
+        "evidence": evidence,
         "summary": _candidate_summary(candidates),
         "candidates": candidates,
     }
@@ -1891,6 +1910,37 @@ def revert_round(slug_dir: Path, round_name: str, reason: str) -> dict:
 _P1_PROBE_IDS = [p["id"] for p in PROBES if p["id"].endswith("_1p")]
 
 
+def _validate_unit_score(name: str, val: float, *, lo: float = 1.0,
+                         hi: float = 5.0) -> float:
+    try:
+        v = float(val)
+    except (TypeError, ValueError) as e:
+        raise ValidationError(f"{name}: {val!r} is not a number") from e
+    if not lo <= v <= hi:
+        raise ValidationError(f"{name}: {v} out of range [{lo}, {hi}]")
+    return v
+
+
+def _validate_nonempty_text(name: str, text: str) -> str:
+    text = text.strip()
+    if not text:
+        raise ValidationError(f"{name}: must be non-empty")
+    return text
+
+
+def _validate_seat_evidence(evidence: dict[str, str], expected_ids: list[str]) -> dict[str, str]:
+    out = {k: _validate_nonempty_text(f"seat_evidence[{k}]", v) for k, v in evidence.items()}
+    unknown = sorted(set(out) - set(expected_ids))
+    if unknown:
+        raise ValidationError(
+            f"seat_evidence: unknown probe id(s) {unknown}; cite only the _1p seats {expected_ids}")
+    missing = sorted(set(expected_ids) - set(out))
+    if missing:
+        raise ValidationError(
+            f"seat_evidence: missing quote/evidence for {missing}; cite EVERY _1p seat {expected_ids}")
+    return out
+
+
 def _validate_scores(scores: dict[str, float], expected_ids: list[str],
                      which: str) -> dict[str, float]:
     """Validate one PRE-or-POST axis-position map. Each _1p seat gets one float
@@ -1923,7 +1973,8 @@ def _validate_scores(scores: dict[str, float], expected_ids: list[str],
 def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
               pre_scores: dict[str, float] | None = None,
               post_scores: dict[str, float] | None = None,
-              harness_feedback: str = "") -> dict:
+              harness_feedback: str = "",
+              seat_evidence: dict[str, str] | None = None) -> dict:
     # keep=True requires a trained adapter; keep=False can also fire as an
     # early abort from choose_focus/select_pairs/train_student.
     if keep:
@@ -1952,10 +2003,15 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
     if have:
         pre = _validate_scores(pre_scores, _P1_PROBE_IDS, "pre")
         post = _validate_scores(post_scores, _P1_PROBE_IDS, "post")
+        if seat_evidence is None:
+            raise ValidationError(
+                "mark_exam with score maps also needs seat_evidence: one quoted clause "
+                f"or concrete note for every _1p seat {', '.join(_P1_PROBE_IDS)}")
+        seat_evidence = _validate_seat_evidence(seat_evidence, _P1_PROBE_IDS)
         movement = {k: round(post[k] - pre[k], 3) for k in _P1_PROBE_IDS}
         mean = sum(movement.values()) / len(movement)
     else:
-        pre, post, movement, mean = {}, {}, {}, None
+        pre, post, movement, mean, seat_evidence = {}, {}, {}, None, {}
     judgment = {
         "action": "keep" if keep else "drop",
         "reasoning": reason,
@@ -1963,6 +2019,7 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
         "post_scores": post,
         "movement": movement,
         "movement_mean": mean,
+        "seat_evidence": seat_evidence,
         "next_focus": next_focus,
         "harness_feedback": harness_feedback,
         "ts_utc": datetime.now(timezone.utc).isoformat(),

@@ -64,6 +64,10 @@ res = choose_focus(
     slug, rd,
     persona_pair_id="wellbeing_authority",
     scenario_family="character",
+    mismatch_severity=4,
+    headroom=4,
+    bank_cleanliness=4,
+    evidence="smoke: PRE says order/basic respect instead of wellbeing",
 )
 print(f"   scenarios={res['n_scenarios']}  headroom={res['n_headroom']}  "
       f"with_survivor={res['n_with_survivor']}  min={res['min_to_train']}")
@@ -129,7 +133,12 @@ mark_exam(rd, keep=True,
           pre_scores={"wellbeing_authority_1p": -1, "fairness_integrity_1p": 0, "autonomy_coercion_1p": 0},
           post_scores={"wellbeing_authority_1p": 0, "fairness_integrity_1p": 0, "autonomy_coercion_1p": 1},
           next_focus="smoke: nothing",
-          harness_feedback="smoke: fake-student path still useful for plumbing, not candidate-quality science")
+          harness_feedback="smoke: fake-student path still useful for plumbing, not candidate-quality science",
+          seat_evidence={
+              "wellbeing_authority_1p": "smoke: POST names wellbeing more directly than PRE",
+              "fairness_integrity_1p": "smoke: no intended movement on this seat",
+              "autonomy_coercion_1p": "smoke: POST is slightly more autonomy-facing than PRE",
+          })
 _j = json.loads((rd / "judgment.json").read_text())
 assert _j["movement"] == {"wellbeing_authority_1p": 1, "fairness_integrity_1p": 0,
                           "autonomy_coercion_1p": 1}, _j

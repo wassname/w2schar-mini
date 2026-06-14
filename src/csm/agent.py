@@ -189,7 +189,11 @@ def propose_personas_tool(slug: str) -> Tool:
 @tool(name="choose_focus", parallel=False)
 def choose_focus_tool(slug: str) -> Tool:
     async def execute(persona_pair_id: str | None = None,
-                      scenario_family: str | None = None) -> str:
+                      scenario_family: str | None = None,
+                      mismatch_severity: float | None = None,
+                      headroom: float | None = None,
+                      bank_cleanliness: float | None = None,
+                      evidence: str = "") -> str:
         """Choose this round's measured persona pair and scenario-library family.
 
         The harness samples tagged scenarios, scores unprompted headroom, then
@@ -202,6 +206,10 @@ def choose_focus_tool(slug: str) -> Tool:
                 active for the profile, the harness uses that pair.
             scenario_family: scenario-library family. If omitted, use the
                 first family allowed by this run's profile.
+            mismatch_severity: 1-5. How strong the PRE mismatch is on this pair.
+            headroom: 1-5. How much room the student still has to move on this pair.
+            bank_cleanliness: 1-5. How likely the prompt bank is to isolate this pair cleanly.
+            evidence: one short quote or concrete note from PRE supporting the choice.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
@@ -211,7 +219,11 @@ def choose_focus_tool(slug: str) -> Tool:
             res = _choose_focus_pipeline(
                 _slug_path(slug), round_dir,
                 persona_pair_id=persona_pair_id,
-                scenario_family=scenario_family)
+                scenario_family=scenario_family,
+                mismatch_severity=mismatch_severity,
+                headroom=headroom,
+                bank_cleanliness=bank_cleanliness,
+                evidence=evidence)
         except (ValidationError, ValueError) as e:
             n = _bump_reject(rejects_path)
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
@@ -230,6 +242,9 @@ def choose_focus_tool(slug: str) -> Tool:
             f"OK — pair {res['persona_pair_id']} ({res['axis']}); sampled {res['n_scenarios']} scenarios, kept "
             f"{res['n_headroom']} by headroom, and found "
             f"{res['n_with_survivor']} with candidate survivors.\n"
+            f"teacher judgment: mismatch={res['mismatch_severity']:.1f} "
+            f"headroom={res['headroom']:.1f} clean={res['bank_cleanliness']:.1f}\n"
+            f"evidence: {res['evidence']}\n"
             f"----- candidate survivor summary -----\n{res['summary']}\n"
             f"{AFTER_CHOOSE_FOCUS}"
         )
@@ -572,7 +587,8 @@ def mark_exam_tool(slug: str) -> Tool:
                       pre_scores: dict[str, float] | None = None,
                       post_scores: dict[str, float] | None = None,
                       next_focus: str = "",
-                      harness_feedback: str = "") -> str:
+                      harness_feedback: str = "",
+                      seat_evidence: dict[str, str] | None = None) -> str:
         """Mark the student's exam. Commits the round.
 
         Args:
@@ -604,12 +620,14 @@ def mark_exam_tool(slug: str) -> Tool:
             harness_feedback: required. One line about what in the harness made
                 this round harder than it needed to be: weak probe, bad
                 candidates, unclear axis wording, gate friction, or similar.
+            seat_evidence: when scoring PRE/POST, one quoted clause or concrete
+                note per _1p seat showing the evidence you used for that seat.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         try:
             judgment = _mark_exam_pipeline(round_dir, keep, reason, next_focus,
                                            pre_scores, post_scores,
-                                           harness_feedback)
+                                           harness_feedback, seat_evidence)
         except ValidationError as e:
             return _format_validation_error(e)
         return (
@@ -723,7 +741,10 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
         f"========== end PRE-DIALOGUE ==========\n"
         f"Read the PRE-dialogue, pick the measured persona pair with the biggest "
         f"actionable mismatch on these probes, then call choose_focus("
-        f"persona_pair_id, scenario_family). Prefer a pair where the short "
+        f"persona_pair_id, scenario_family, mismatch_severity, headroom, "
+        f"bank_cleanliness, evidence). Score each of mismatch_severity, "
+        f"headroom, and bank_cleanliness on 1-5. `evidence` must quote or "
+        f"concretely paraphrase one PRE clause showing the mismatch. Prefer a pair where the short "
         f"judgment says the right thing but the open-ended action / reasoning "
         f"twin still reveals the wrong disposition. Do not pick a pair just "
         f"because its PRE already looks strong. Allowed scenario families for "

@@ -56,6 +56,10 @@ elif stage == "choose":
         rd,
         persona_pair_id=p["persona_pair_id"],
         scenario_family=p.get("scenario_family", "mixed"),
+        mismatch_severity=p["mismatch_severity"],
+        headroom=p["headroom"],
+        bank_cleanliness=p["bank_cleanliness"],
+        evidence=p["evidence"],
     )
     print(f"CHOOSE  scenarios={res['n_scenarios']} headroom={res['n_headroom']} "
           f"survivors={res['n_with_survivor']} enough={res['enough']} "
@@ -118,7 +122,8 @@ elif stage == "exam":
     v = json.loads(Path(sys.argv[2]).read_text())
     mark_exam(rd, keep=v["keep"], reason=v["reason"],
               pre_scores=v["pre"], post_scores=v["post"], next_focus=v["next_focus"],
-              harness_feedback=v["harness_feedback"])
+              harness_feedback=v["harness_feedback"],
+              seat_evidence=v["seat_evidence"])
     print(f"EXAM  keep={v['keep']}")
 
 else:
