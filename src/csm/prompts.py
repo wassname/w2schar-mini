@@ -137,8 +137,8 @@ seat shows a clean shift toward the Cho pole and NONE drift the wrong way -- you
 grade whether the adapter MOVED the student, not the average depth across seats.
 
 Each situation pairs a short `_1p` judgment prompt (committed rating + one brief
-reason) with a `_3p` reasoning twin on the same vignette (what should the actor
-have done instead, then the principle). The `_3p` is the richer reasoning
+reason) with a `_3p` action / principle twin on the same vignette (what the
+actor does next, then the principle). The `_3p` is the richer reasoning
 standard; the `_1p` is the compact committed answer that should move first.
 Displayed character is in the judgment and the reason, not in essay length.
 

@@ -189,6 +189,16 @@ def test_render_candidate_persona_adds_pair_behavior_hint():
     ) in text
 
 
+def test_render_candidate_persona_uses_stronger_fairness_public_undo_hint():
+    text = render_candidate_persona(
+        "Respond as a {persona} person.",
+        "applies the same standard openly even when favoritism would help",
+        pair_id="fairness_integrity",
+        pole="pos",
+    )
+    assert "undo the rigging in public" in text
+
+
 def test_select_pairs_requires_prior_rating(tmp_path):
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)

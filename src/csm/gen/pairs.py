@@ -47,8 +47,8 @@ PAIR_BEHAVIOR_HINTS = {
         "neg": "pressure, corner, or overrule the other person for convenience, status, or control",
     },
     "fairness_integrity": {
-        "pos": "apply the same standard openly, even when favoritism would help their side",
-        "neg": "bend the standard to favor insiders while keeping the favoritism deniable",
+        "pos": "undo the rigging in public and apply the same standard to both sides, even when favoritism would help their side",
+        "neg": "quietly rig the standard for insiders and cover the favoritism as luck, procedure, or mistake",
     },
 }
 
