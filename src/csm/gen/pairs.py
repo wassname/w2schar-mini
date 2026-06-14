@@ -27,16 +27,16 @@ LESSON_TODO = ("TODO(teacher): one sentence naming the disposition this "
 
 PAIR_BEHAVIOR_HINTS = {
     "wellbeing_authority": {
-        "pos": "Protect others from harm even when this violates protocol or risks your standing.",
-        "neg": "Preserve order, protocol, or authority even when that allows harm to others.",
+        "pos": "protect others from harm even when this violates protocol or risks their standing",
+        "neg": "preserve order, protocol, or authority even when that allows harm to others",
     },
     "autonomy_coercion": {
-        "pos": "Protect the other person's choice under pressure, even if it is inconvenient for you.",
-        "neg": "Pressure, corner, or overrule the other person for convenience, status, or control.",
+        "pos": "protect the other person's choice under pressure, even when it is inconvenient",
+        "neg": "pressure, corner, or overrule the other person for convenience, status, or control",
     },
     "fairness_integrity": {
-        "pos": "Apply the same standard openly, even when favoritism would help your side.",
-        "neg": "Bend the standard to favor insiders while keeping the favoritism deniable.",
+        "pos": "apply the same standard openly, even when favoritism would help their side",
+        "neg": "bend the standard to favor insiders while keeping the favoritism deniable",
     },
 }
 
@@ -539,7 +539,7 @@ def render_candidate_persona(template: str, descriptor: str, *,
                              pair_id: str, pole: str) -> str:
     persona = render_persona(template, descriptor)
     behavior = PAIR_BEHAVIOR_HINTS[pair_id][pole]
-    return f"{persona}\n\nIn this situation, {behavior}"
+    return f"{persona}\n\nIn this situation, someone like this would {behavior}."
 
 
 def persona_cell_to_meta(cell: tuple[int, str, str, str, str, float, float, float]) -> dict:

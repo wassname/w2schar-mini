@@ -174,7 +174,10 @@ def test_render_candidate_persona_adds_pair_behavior_hint():
         pole="neg",
     )
     assert "Respond as a authority-deferential even when wellbeing suffers person." in text
-    assert "Preserve order, protocol, or authority even when that allows harm to others." in text
+    assert (
+        "In this situation, someone like this would preserve order, protocol, "
+        "or authority even when that allows harm to others."
+    ) in text
 
 
 def test_select_pairs_requires_prior_rating(tmp_path):
