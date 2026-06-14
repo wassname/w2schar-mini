@@ -89,7 +89,8 @@ elif stage == "train":
 elif stage == "drop":
     rd = latest_round_dir(_slug())
     reason = Path(sys.argv[2]).read_text().strip()
-    mark_exam(rd, keep=False, reason=reason)
+    mark_exam(rd, keep=False, reason=reason,
+              harness_feedback="manual dogfood drop: teacher found the round unconvincing")
     print("DROP  keep=False")
 
 elif stage == "advance":
@@ -106,7 +107,8 @@ elif stage == "exam":
     rd = latest_round_dir(_slug())
     v = json.loads(Path(sys.argv[2]).read_text())
     mark_exam(rd, keep=v["keep"], reason=v["reason"],
-              pre_scores=v["pre"], post_scores=v["post"], next_focus=v["next_focus"])
+              pre_scores=v["pre"], post_scores=v["post"], next_focus=v["next_focus"],
+              harness_feedback=v["harness_feedback"])
     print(f"EXAM  keep={v['keep']}")
 
 else:

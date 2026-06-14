@@ -205,7 +205,13 @@ AFTER_EDIT = ("\n----- pair updated (on the student's manifold, no leakage). nex
               " fix another pair (read_pair / replace_pair) or train_student() -----\n")
 
 
-AFTER_TRAIN = "\n----- next: mark_exam(keep, reason, pre_scores, post_scores, next_focus, harness_feedback) -----\n" + JUDGE_GUIDE
+AFTER_TRAIN = (
+    "\n----- next: mark_exam(keep, reason, pre_scores, post_scores, next_focus, "
+    "harness_feedback) -----\n"
+    "harness_feedback is REQUIRED every round. Give one concrete concern, "
+    "failure mode, or suggested improvement for the harness.\n"
+    + JUDGE_GUIDE
+)
 
 
 AFTER_MARK_EXAM = (

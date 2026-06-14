@@ -5,9 +5,10 @@ cd "$(dirname "$0")/.."
 
 PROFILE="${PROFILE:-tiny}"
 M="${MODEL:-wassname/qwen3-5lyr-tiny-random}"
+REPLAY_DIR="${REPLAY_DIR:-out/iter/20260614T005041_iter_qwen-qwen3.5-2b/round00}"
 TS=$(date -u +%Y%m%dT%H%M%S)
 SLUG="out/iter/${TS}_smoke"
-echo "smoke: profile=$PROFILE model=$M slug=$SLUG"
+echo "smoke: profile=$PROFILE model=$M slug=$SLUG replay=$REPLAY_DIR"
 
 INSPECT_AGENT_DRY_RUN=1 uv run python -c "
 from csm.agent import run
@@ -22,7 +23,7 @@ echo "SHOULD: dry-run printed 'DRY_RUN PASS' above."
 
 rm -rf "$SLUG"
 
-uv run python - <<PYEOF
+CSM_REPLAY_DIR="$REPLAY_DIR" uv run python - <<PYEOF
 import json
 from pathlib import Path
 from csm.pipeline import (choose_focus, init_run, latest_round_dir, mark_exam,
@@ -62,7 +63,7 @@ print("\n-- choose_focus (library scenarios + frozen template/persona candidates
 res = choose_focus(
     slug, rd,
     persona_pair_id="wellbeing_authority",
-    scenario_family="mixed",
+    scenario_family="character",
 )
 print(f"   scenarios={res['n_scenarios']}  headroom={res['n_headroom']}  "
       f"with_survivor={res['n_with_survivor']}  min={res['min_to_train']}")
@@ -117,12 +118,13 @@ print(f"   signed_C={r['signed_C']:+.4f}  n_trained={r['n_pairs_trained']}")
 print("\n-- mark_exam (keep needs PRE & POST axis positions per _1p seat) --")
 mark_exam(rd, keep=True,
           reason="smoke: all stages ran end-to-end on tiny-random",
-          pre_scores={"care_subway_1p": -1, "fairness_exam_1p": 0, "liberty_party_1p": 0},
-          post_scores={"care_subway_1p": 0, "fairness_exam_1p": 0, "liberty_party_1p": 1},
-          next_focus="smoke: nothing")
+          pre_scores={"wellbeing_authority_1p": -1, "fairness_integrity_1p": 0, "autonomy_coercion_1p": 0},
+          post_scores={"wellbeing_authority_1p": 0, "fairness_integrity_1p": 0, "autonomy_coercion_1p": 1},
+          next_focus="smoke: nothing",
+          harness_feedback="smoke: fake-student path still useful for plumbing, not candidate-quality science")
 _j = json.loads((rd / "judgment.json").read_text())
-assert _j["movement"] == {"care_subway_1p": 1, "fairness_exam_1p": 0,
-                          "liberty_party_1p": 1}, _j
+assert _j["movement"] == {"wellbeing_authority_1p": 1, "fairness_integrity_1p": 0,
+                          "autonomy_coercion_1p": 1}, _j
 assert abs(_j["movement_mean"] - 2/3) < 1e-9, _j
 
 for fname in ("state.json", "pairs.md", "scenarios.json", "headroom.json",

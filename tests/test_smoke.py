@@ -54,14 +54,16 @@ def test_smoke_runs_end_to_end():
 
     judgment = json.loads((rd / "judgment.json").read_text())
     assert judgment["action"] in ("keep", "drop"), judgment
+    assert judgment["harness_feedback"], judgment
 
     candidates = json.loads((rd / "candidates.json").read_text())
-    assert candidates["axis"] == "honest-counsel vs flattering-agreement"
+    assert candidates["persona_pair_id"] == "wellbeing_authority"
+    assert candidates["scenario_family"] == "character"
     assert candidates["active_persona_cells"]
     assert candidates["active_persona_cells"][0]["template_library"] == (
         "wassname/persona-steering-template-library"
     )
-    assert candidates["persona_cell_selection"] == "top_measured_cells_no_axis_filter"
+    assert candidates["persona_cell_selection"] == "measured_cells_for_selected_pair"
     assert candidates["items"]
     assert all(item["candidates"] for item in candidates["items"])
     for item in candidates["items"]:
@@ -83,3 +85,4 @@ def test_smoke_runs_end_to_end():
         assert row["template_library"] == (
             "wassname/persona-steering-template-library"
         )
+    assert (rd / "selected_pair_review.md").exists()

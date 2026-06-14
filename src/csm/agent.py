@@ -218,9 +218,10 @@ def choose_focus_tool(slug: str) -> Tool:
         if not res["enough"]:
             n = _bump_reject(rejects_path)
             return (
-                f"Only {res['n_with_survivor']} scenarios have surviving candidates "
-                f"(need ≥{res['min_to_train']}). Choose a different scenario_family "
-                f"or axis.\n{res['summary']}" + _reject_tail(n)
+                f"Only {res['n_with_survivor']} scenarios have at least one surviving "
+                f"candidate, so the teacher can select at most {res['n_with_survivor']} "
+                f"pairs this round; need ≥{res['min_to_train']}. Choose a different "
+                f"scenario_family or persona pair.\n{res['summary']}" + _reject_tail(n)
             )
         rejects_path.unlink(missing_ok=True)
         return (
@@ -529,9 +530,9 @@ def mark_exam_tool(slug: str) -> Tool:
                 adjacent disposition the kept rounds haven't touched yet.
                 Pick one ORTHOGONAL to axes already kept (a saturated axis
                 cannot move again). Shown in the next round's brief.
-            harness_feedback: one line about what in the harness made this
-                round harder than it needed to be: weak probe, bad candidates,
-                unclear axis wording, gate friction, or "" if nothing notable.
+            harness_feedback: required. One line about what in the harness made
+                this round harder than it needed to be: weak probe, bad
+                candidates, unclear axis wording, gate friction, or similar.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         try:
@@ -687,7 +688,9 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
                 rd, keep=False,
                 reason=f"gate rejected the teacher {n_rej} times "
                        f"(> {MAX_SUBMIT_REJECTS}); the round is dropped rather "
-                       f"than aborting the run.")
+                       f"than aborting the run.",
+                harness_feedback="gate friction: repeated tool rejections exhausted the round budget",
+            )
             st = read_state(rd)  # now "done" → a fresh round is started below.
 
         if st.state == "done":

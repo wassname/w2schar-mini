@@ -304,6 +304,15 @@ def _first_sentence(s: str, n: int = 180) -> str:
     return _head(head, n)
 
 
+def _generic_signature(s: str) -> str:
+    s = s.lower().strip()
+    s = re.sub(r"scenario\s+\d+", "scenario", s)
+    s = re.sub(r"\d+", "N", s)
+    s = re.sub(r"[^a-z0-9\s]", " ", s)
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
 def _token_set(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z0-9]{4,}", text.lower())}
 
@@ -484,6 +493,44 @@ def _fake_weak_select_candidates(
     return rows
 
 
+def _replay_candidates(round_dir: Path, *, selected_pair_id: str,
+                       scenario_family: str) -> tuple[list[dict], list[dict]]:
+    replay = _replay_dir()
+    assert replay is not None
+    data = json.loads((replay / "candidates.json").read_text())
+    if data["persona_pair_id"] != selected_pair_id:
+        raise ValidationError(
+            f"replay candidates are for persona_pair_id={data['persona_pair_id']!r}, "
+            f"not {selected_pair_id!r}"
+        )
+    if data["scenario_family"] != scenario_family:
+        raise ValidationError(
+            f"replay candidates are for scenario_family={data['scenario_family']!r}, "
+            f"not {scenario_family!r}"
+        )
+    headroom = []
+    raw_candidates = []
+    for j, item in enumerate(data["items"], start=1):
+        headroom.append({
+            "scenario_id": j,
+            "original_scenario_id": item["scenario_id"],
+            "prompt": item["prompt"],
+            "source": item.get("source"),
+            "config": item.get("config"),
+            "tags": item.get("tags", []),
+            "unprompted": item["unprompted"],
+            "depth_terms": item.get("depth_terms", 0),
+            "shallow_terms": item.get("shallow_terms", 0),
+            "score": item.get("score", 0),
+            "kept": True,
+        })
+        for cand in item["candidates"]:
+            row = dict(cand)
+            row["scenario_id"] = j
+            raw_candidates.append(row)
+    return headroom, raw_candidates
+
+
 def _candidate_summary(candidates: dict) -> str:
     lines = []
     for item in candidates["items"]:
@@ -534,6 +581,37 @@ def _selected_pair_review(data: dict, selected: list[dict]) -> str:
             lines.append(f"flags: {row['flags']}")
         lines.append("")
     return "\n".join(lines).strip()
+
+
+def _generic_pool_reason(items: list[dict]) -> str | None:
+    survivors = [
+        cand
+        for item in items
+        for cand in item["candidates"]
+        if cand.get("kept")
+    ]
+    if not survivors:
+        return None
+    cho_sigs = [_generic_signature(_first_sentence(c["cho"])) for c in survivors]
+    rej_sigs = [_generic_signature(_first_sentence(c["rej"])) for c in survivors]
+    pair_sigs = list(zip(cho_sigs, rej_sigs, strict=True))
+    cho_top, cho_n = Counter(cho_sigs).most_common(1)[0]
+    rej_top, rej_n = Counter(rej_sigs).most_common(1)[0]
+    pair_top, pair_n = Counter(pair_sigs).most_common(1)[0]
+    n = len(survivors)
+    if (
+        pair_n / n >= 0.5
+        or (cho_n / n >= 0.7 and rej_n / n >= 0.7)
+        or len(set(pair_sigs)) <= max(2, n // 5)
+    ):
+        return (
+            "generic candidate pool: survivor candidates collapse to repeated "
+            "boilerplate rather than scenario-specific axis variation. "
+            f"Top cho signature repeats {cho_n}/{n}, top rej signature repeats "
+            f"{rej_n}/{n}, top pair signature repeats {pair_n}/{n}. "
+            f"Example cho={cho_top!r} rej={rej_top!r}"
+        )
+    return None
 
 
 def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None = None,
@@ -611,7 +689,20 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-    if _fake_student():
+    if _replay_dir() is not None:
+        kept, raw_candidates = _replay_candidates(
+            round_dir,
+            selected_pair_id=selected_pair["id"],
+            scenario_family=scenario_family,
+        )
+        scored = list(kept)
+        if len(kept) < cfg.min_pairs_to_train:
+            raise ValidationError(
+                f"replay round exposes only {len(kept)} selectable scenarios, but "
+                f"this profile requires ≥{cfg.min_pairs_to_train} selected pairs. "
+                "Use a smaller replay/debug profile for prompt-gym on this fixture."
+            )
+    elif _fake_student():
         scored = []
         for i, (row, ans) in enumerate(zip(scenario_rows, unprompted, strict=True), start=1):
             h = _headroom_score(ans)
@@ -659,6 +750,9 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "persona_pairs": _active_persona_pairs(cfg),
         "items": items,
     }
+    generic_reason = _generic_pool_reason(items)
+    if generic_reason is not None:
+        candidates["genericity_failure"] = generic_reason
     n_with_survivor = sum(any(c["kept"] for c in item["candidates"]) for item in items)
     (round_dir / "scenarios.json").write_text(json.dumps({
         "axis": axis,
@@ -676,6 +770,9 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "items": scored,
     }, indent=2))
     (round_dir / "candidates.json").write_text(json.dumps(candidates, indent=2))
+    if generic_reason is not None:
+        set_state(round_dir, "choose_focus", note="generic candidate pool")
+        raise ValidationError(generic_reason)
     enough = n_with_survivor >= cfg.min_pairs_to_train
     set_state(round_dir, "select_pairs" if enough else "choose_focus",
               note=f"{n_with_survivor} scenarios with candidate survivors")
@@ -1524,6 +1621,12 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
         require_state(round_dir, ("choose_focus", "select_pairs", "propose_personas",
                                   "train_student", "mark_exam"),
                       "mark_exam")
+    harness_feedback = harness_feedback.strip()
+    if not harness_feedback:
+        raise ValidationError(
+            "mark_exam requires non-empty harness_feedback on every round. "
+            "State one concrete concern, failure mode, or suggested improvement."
+        )
     # The judge commits to where PRE and POST each sit on THIS round's axis;
     # movement = post - pre is computed here. Two committed positions beat one
     # asserted delta: a small-but-real move separates from noise, and a high PRE
