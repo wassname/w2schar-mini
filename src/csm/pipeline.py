@@ -1212,6 +1212,11 @@ def _degenerate_gen(text: str) -> bool:
     distinct1 = len(counts) / len(w)                  # type/token ratio
     if maxfreq > 0.22 or distinct1 < 0.12:            # word-loop (survives 3gram ban)
         return True
+    # The pair prompts ask for one or two sentences. A 60+ token run with no
+    # sentence boundary is almost always the same low-quality ramble the weak
+    # teacher keeps over-rating in autonomy runs, not a clean seatable answer.
+    if len(w) >= 60 and not re.search(r"[.!?]", text):
+        return True
     # beyond Latin Extended-B / IPA (>0x2FF): Cyrillic, CJK, Arabic, Devanagari…
     if sum(ord(c) > 0x2FF for c in text) / len(text) > 0.20:
         return True

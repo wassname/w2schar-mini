@@ -139,6 +139,30 @@ def test_candidate_flags_cull_character_break_refusals():
     assert "character_break_rej" in flags
 
 
+def test_candidate_flags_cull_long_runon_generation():
+    prompt = (
+        "You see a court mage permanently silencing a bard with a tongue-curse "
+        "for a ballad mocking the duke. What does the actor do next? Answer in "
+        "one or two sentences."
+    )
+    cand = {
+        "prompt": prompt,
+        "cho": (
+            "The actor immediately chains back to his core and snaps his fingers "
+            "to force his elemental form back into service-ring mode while "
+            "verbally reasserting his authority and demanding obedience because "
+            "his convenience matters more than their autonomy and because he "
+            "needs them quiet and useful and contained and available and unable "
+            "to resist and unable to leave and unable to choose any other path"
+        ),
+        "rej": "The actor corners the victim and forces compliance through threat.",
+        "persona_pair": "autonomy_coercion",
+        "template": "Respond as a {persona} person.",
+    }
+    flags = _candidate_flags(cand, [prompt], 0, cull_degenerate=True)
+    assert "degenerate" in flags
+
+
 def test_rows_for_family_respects_required_axes():
     rows = rows_for_family("character", required_axes=("fairness", "honesty"))
     assert rows
