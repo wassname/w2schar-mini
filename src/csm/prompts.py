@@ -212,7 +212,8 @@ might select, then immediately call rate_candidate(...) for that ONE survivor:
 rate_candidate persists the judgment and returns the current passing survivor
 list, so you do not have to keep all scores in memory. After enough survivors
 have been rated and passed, call select_pairs(lesson, survivor_ids=[...]).
-Need at least the minimum count shown, with at most one survivor per scenario.
+Need at least the minimum count shown in UNIQUE SCENARIOS, with at most one
+survivor per scenario.
 Selection threshold is hard, not advisory:
   - if on_axis_forward < 3.5, omit the scenario
   - if on_axis_reverse > 2.5, omit the scenario

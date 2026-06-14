@@ -689,6 +689,22 @@ def _write_ratings(round_dir: Path, ratings: dict[str, dict]) -> None:
     _ratings_path(round_dir).write_text(json.dumps(rows, indent=2))
 
 
+def _passing_survivors(ratings: dict[str, dict]) -> list[str]:
+    return [
+        row["survivor_id"]
+        for row in sorted(ratings.values(), key=lambda row: (row["scenario_id"], row["survivor_id"]))
+        if row["passes"]
+    ]
+
+
+def _passing_scenario_ids(ratings: dict[str, dict]) -> list[int]:
+    return sorted({
+        int(row["scenario_id"])
+        for row in ratings.values()
+        if row["passes"]
+    })
+
+
 def _generic_pool_reason(items: list[dict]) -> str | None:
     survivors = [
         cand
@@ -982,16 +998,14 @@ def rate_candidate(round_dir: Path, *, survivor_id: str, on_axis_forward: float,
                 **judgment,
             }
             _write_ratings(round_dir, ratings)
-            passing = [
-                row["survivor_id"]
-                for row in sorted(ratings.values(), key=lambda row: (row["scenario_id"], row["survivor_id"]))
-                if row["passes"]
-            ]
+            passing = _passing_survivors(ratings)
+            passing_scenarios = _passing_scenario_ids(ratings)
             return {
                 "survivor_id": survivor_id,
                 "scenario_id": int(item["scenario_id"]),
                 "n_rated": len(ratings),
                 "passing_survivors": passing,
+                "passing_scenarios": passing_scenarios,
                 "passes": ratings[survivor_id]["passes"],
             }
     raise ValidationError(f"rate_candidate: unknown survivor_id {survivor_id!r}")

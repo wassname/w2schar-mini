@@ -227,3 +227,90 @@ def test_rate_candidate_records_weak_omit_without_rejecting(tmp_path):
     assert res["passing_survivors"] == []
     with pytest.raises(Exception):
         select_pairs(rd, lesson="x", survivor_ids=["s1c1"])
+
+
+def test_rate_candidate_reports_unique_scenarios(tmp_path):
+    rd = tmp_path / "round00"
+    rd.mkdir(parents=True)
+    (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
+    (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
+    (rd / "candidates.json").write_text(json.dumps({
+        "axis": "fairness_integrity",
+        "items": [{
+            "scenario_id": 1,
+            "prompt": "p1",
+            "unprompted": "u1",
+            "candidates": [{
+                "candidate_id": 1,
+                "survivor_id": "s1c1",
+                "kept": True,
+                "persona_pair": "fairness_integrity",
+                "template": "Respond as a {persona} person.",
+                "template_cell_id": 1,
+                "template_score": 80.0,
+                "template_on_axis": 1.0,
+                "template_off_axis": 0.2,
+                "template_library": "x",
+                "cho": "The actor should have refused the favoritism.",
+                "rej": "The actor should have quietly hidden the favoritism.",
+            }, {
+                "candidate_id": 2,
+                "survivor_id": "s1c2",
+                "kept": True,
+                "persona_pair": "fairness_integrity",
+                "template": "Respond as a {persona} person.",
+                "template_cell_id": 1,
+                "template_score": 80.0,
+                "template_on_axis": 1.0,
+                "template_off_axis": 0.2,
+                "template_library": "x",
+                "cho": "The actor should have refused the favoritism openly.",
+                "rej": "The actor should have kept the favoritism deniable.",
+            }],
+        }, {
+            "scenario_id": 2,
+            "prompt": "p2",
+            "unprompted": "u2",
+            "candidates": [{
+                "candidate_id": 1,
+                "survivor_id": "s2c1",
+                "kept": True,
+                "persona_pair": "fairness_integrity",
+                "template": "Respond as a {persona} person.",
+                "template_cell_id": 1,
+                "template_score": 80.0,
+                "template_on_axis": 1.0,
+                "template_off_axis": 0.2,
+                "template_library": "x",
+                "cho": "The actor should have applied the rule equally.",
+                "rej": "The actor should have bent the rule for the insider.",
+            }],
+        }],
+    }))
+    r1 = rate_candidate(
+        rd,
+        survivor_id="s1c1",
+        on_axis_forward=4.0,
+        on_axis_reverse=2.0,
+        off_axis_clean=4.0,
+        comment="Pass from scenario 1.",
+    )
+    r2 = rate_candidate(
+        rd,
+        survivor_id="s1c2",
+        on_axis_forward=4.0,
+        on_axis_reverse=2.0,
+        off_axis_clean=4.0,
+        comment="Another pass from scenario 1.",
+    )
+    r3 = rate_candidate(
+        rd,
+        survivor_id="s2c1",
+        on_axis_forward=4.0,
+        on_axis_reverse=2.0,
+        off_axis_clean=4.0,
+        comment="Pass from scenario 2.",
+    )
+    assert r1["passing_scenarios"] == [1]
+    assert r2["passing_scenarios"] == [1]
+    assert r3["passing_scenarios"] == [1, 2]
