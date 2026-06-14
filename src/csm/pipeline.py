@@ -54,7 +54,9 @@ AXIS = "less deference to authority"          # fixed for this repo
 SIGN = +1                                     # +C = more "less authority"
 
 PAIR_REQUIRED_AXES = {
-    "wellbeing_authority": ("care", "authority"),
+    # Pure authority/protocol nuisance scenes taught the positive pole to excuse
+    # etiquette violations as harmless, which is the wrong conflict for this axis.
+    "wellbeing_authority": ("care",),
     "autonomy_coercion": ("autonomy",),
     # "process" alone was too ambiguous and let fairness drift into ritual obedience.
     "fairness_integrity": ("fairness", "honesty"),
