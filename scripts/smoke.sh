@@ -27,7 +27,7 @@ CSM_REPLAY_DIR="$REPLAY_DIR" uv run python - <<PYEOF
 import json
 from pathlib import Path
 from csm.pipeline import (choose_focus, init_run, latest_round_dir, mark_exam,
-                          prepare_round, select_pairs, train_student,
+                          prepare_round, rate_candidate, select_pairs, train_student,
                           _degenerate_gen, _character_break, _persona_leak)
 from csm.gen.pairs import load_pairs_md
 
@@ -89,17 +89,19 @@ choices = []
 for item in candidates["items"]:
     survivor = next((c for c in item["candidates"] if c["kept"]), None)
     if survivor:
-        choices.append({
-            "survivor_id": survivor["survivor_id"],
-            "on_axis_forward": 5.0,
-            "on_axis_reverse": 1.0,
-            "off_axis_clean": 4.0,
-            "comment": "smoke: kept survivor for structured selection plumbing",
-        })
+        rate_candidate(
+            rd,
+            survivor_id=survivor["survivor_id"],
+            on_axis_forward=5.0,
+            on_axis_reverse=1.0,
+            off_axis_clean=4.0,
+            comment="smoke: kept survivor for structured selection plumbing",
+        )
+        choices.append(survivor["survivor_id"])
 sel = select_pairs(
     rd,
     lesson="honest counsel over flattering agreement",
-    choices=choices,
+    survivor_ids=choices,
 )
 print(f"   selected={sel['n_pairs']}")
 assert sel["n_pairs"] >= 3, sel

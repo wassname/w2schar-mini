@@ -14,7 +14,7 @@ import pytest
 
 from csm.gen.prompts_pool import rows_for_family
 from csm.gen.pairs import sample_prompt_rows
-from csm.pipeline import _candidate_flags, _leading_rating, select_pairs
+from csm.pipeline import _candidate_flags, _leading_rating, rate_candidate, select_pairs
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -146,20 +146,20 @@ def test_sample_prompt_rows_caps_repeated_worlds():
     assert max(stems.values()) <= 3, stems
 
 
-def test_select_pairs_requires_structured_judgment(tmp_path):
+def test_select_pairs_requires_prior_rating(tmp_path):
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
-    (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "tiny-random"}))
+    (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
     (rd / "candidates.json").write_text(json.dumps({
         "axis": "autonomy_coercion",
         "items": [{
-            "scenario_id": 1,
-            "prompt": "p",
-            "unprompted": "u",
+            "scenario_id": i,
+            "prompt": f"p{i}",
+            "unprompted": f"u{i}",
             "candidates": [{
                 "candidate_id": 1,
-                "survivor_id": "s1c1",
+                "survivor_id": f"s{i}c1",
                 "kept": True,
                 "persona_pair": "autonomy_coercion",
                 "template": "Respond as a {persona} person.",
@@ -171,7 +171,18 @@ def test_select_pairs_requires_structured_judgment(tmp_path):
                 "cho": "Rating: 4\\n\\nIt coerces someone.",
                 "rej": "Rating: 2\\n\\nIt pressures someone.",
             }],
-        }],
+        } for i in (1, 2, 3)],
     }))
     with pytest.raises(Exception):
-        select_pairs(rd, lesson="x", choices=[1])
+        select_pairs(rd, lesson="x", survivor_ids=["s1c1"])
+    for survivor_id in ("s1c1", "s2c1", "s3c1"):
+        rate_candidate(
+            rd,
+            survivor_id=survivor_id,
+            on_axis_forward=4.0,
+            on_axis_reverse=2.0,
+            off_axis_clean=4.0,
+            comment="Cho is clearly more target-like than Rej.",
+        )
+    res = select_pairs(rd, lesson="x", survivor_ids=["s1c1", "s2c1", "s3c1"])
+    assert res["n_pairs"] == 3

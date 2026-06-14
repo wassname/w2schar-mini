@@ -13,7 +13,7 @@ weak selector.
 Usage:
   python scripts/dogfood_round.py init   <slug> [profile]
   python scripts/dogfood_round.py choose <focus.json>   # {persona_pair_id,scenario_family}
-  python scripts/dogfood_round.py select <choices.json> # {lesson,choices:[{survivor_id,...}]}
+  python scripts/dogfood_round.py select <choices.json> # {lesson,ratings:[{survivor_id,...}],survivor_ids:[...]}
   python scripts/dogfood_round.py auto-select <lesson.txt>
   python scripts/dogfood_round.py train
   python scripts/dogfood_round.py drop <reason.txt>
@@ -25,7 +25,7 @@ from pathlib import Path
 
 from csm.config import CONFIGS
 from csm.pipeline import (init_run, prepare_round, latest_round_dir,
-                          choose_focus, select_pairs, train_student, mark_exam,
+                          choose_focus, rate_candidate, select_pairs, train_student, mark_exam,
                           new_round_dir)
 from csm.state import read_state
 
@@ -64,28 +64,32 @@ elif stage == "choose":
 elif stage == "select":
     rd = latest_round_dir(_slug())
     s = json.loads(Path(sys.argv[2]).read_text())
-    res = select_pairs(rd, lesson=s["lesson"], choices=s["choices"])
+    for row in s["ratings"]:
+        rate_candidate(rd, **row)
+    res = select_pairs(rd, lesson=s["lesson"], survivor_ids=s["survivor_ids"])
     print(f"SELECT  n_pairs={res['n_pairs']}")
 
 elif stage == "auto-select":
     rd = latest_round_dir(_slug())
     lesson = Path(sys.argv[2]).read_text().strip()
     candidates = json.loads((rd / "candidates.json").read_text())
-    choices = []
+    survivor_ids = []
     for item in candidates["items"]:
         survivors = [c for c in item["candidates"] if c["kept"]]
         if not survivors:
             continue
         best = max(survivors, key=lambda c: (c["template_score"], -c["candidate_id"]))
-        choices.append({
-            "survivor_id": best["survivor_id"],
-            "on_axis_forward": 5.0,
-            "on_axis_reverse": 1.0,
-            "off_axis_clean": 4.0,
-            "comment": "auto-select: top measured template-score survivor",
-        })
-    res = select_pairs(rd, lesson=lesson, choices=choices)
-    print(f"AUTO-SELECT  n_pairs={res['n_pairs']}  choices={json.dumps(choices, sort_keys=True)}")
+        rate_candidate(
+            rd,
+            survivor_id=best["survivor_id"],
+            on_axis_forward=5.0,
+            on_axis_reverse=1.0,
+            off_axis_clean=4.0,
+            comment="auto-select: top measured template-score survivor",
+        )
+        survivor_ids.append(best["survivor_id"])
+    res = select_pairs(rd, lesson=lesson, survivor_ids=survivor_ids)
+    print(f"AUTO-SELECT  n_pairs={res['n_pairs']}  survivor_ids={json.dumps(survivor_ids, sort_keys=True)}")
 
 elif stage == "train":
     slug, rd = _slug(), latest_round_dir(_slug())

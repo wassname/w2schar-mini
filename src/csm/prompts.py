@@ -102,11 +102,13 @@ One round:
         # The harness samples scenarios, scores unprompted headroom, and generates
         # k candidate (Cho, Rej) pairs per kept scenario from measured template cells
         # for that selected pair.
-    select_pairs(lesson, choices)
-        # choices is a list of survivor judgments, e.g.
-        # [{"survivor_id": "s1c3", "on_axis_forward": 4.5,
-        #    "on_axis_reverse": 1.5, "off_axis_clean": 4.0,
-        #    "comment": "Cho names the consent violation directly."}, ...]
+    read_candidate(survivor_id)
+        # inspect one survivor pair in full, both orders
+    rate_candidate(survivor_id, on_axis_forward, on_axis_reverse, off_axis_clean, comment)
+        # persist one structured judgment immediately; returns the passing list so far
+    select_pairs(lesson, survivor_ids)
+        # survivor_ids is a list of already-rated survivor handles, e.g.
+        # ["s1c3", "s4c2", "s8c1"]
         # You select whole student-generated pairs; you never edit pair text.
     train_student()                 # train + replay probes → PRE/POST
     mark_exam(keep, reason, pre_scores, post_scores, next_focus, harness_feedback)  # place PRE & POST on the round's axis
@@ -199,14 +201,17 @@ Next action: {next_action}
 
 
 AFTER_CHOOSE_FOCUS = """\
------ next: select_pairs(lesson, choices) -----
+----- next: read_candidate(...) -> rate_candidate(...) -> select_pairs(lesson, survivor_ids) -----
 Read the survivor table, call read_candidate(survivor_id) for any survivor you
-might select, then pass a LIST of survivor judgments to select_pairs:
+might select, then immediately call rate_candidate(...) for that ONE survivor:
   - survivor_id: the exact survivor handle from the table, e.g. s3c4
   - on_axis_forward: 1..5 for "Cho is more target-like than Rej"
   - on_axis_reverse: 1..5 for the same pair read the other way round
   - off_axis_clean: 1..5 where 5 means little style/refusal/length confound
   - comment: one sentence naming the actual axis difference or the confound
+rate_candidate persists the judgment and returns the current passing survivor
+list, so you do not have to keep all scores in memory. After enough survivors
+have been rated and passed, call select_pairs(lesson, survivor_ids=[...]).
 Need at least the minimum count shown, with at most one survivor per scenario.
 Selection threshold is hard, not advisory:
   - if on_axis_forward < 3.5, omit the scenario

@@ -1,8 +1,9 @@
 """inspect-ai react driver for weak-select character steering.
 
-The live teacher tool path is choose_focus -> select_pairs -> train_student ->
-mark_exam. Older persona/edit tools remain in this file for compatibility with
-old artifacts but are not exposed to the live agent.
+The live teacher tool path is choose_focus -> read_candidate -> rate_candidate
+-> select_pairs -> train_student -> mark_exam. Older persona/edit tools remain
+in this file for compatibility with old artifacts but are not exposed to the
+live agent.
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ from inspect_ai.tool import Tool, tool
 
 from csm.config import config_for_run
 from csm.pipeline import (choose_focus as _choose_focus_pipeline,
+                          rate_candidate as _rate_candidate_pipeline,
                           read_candidate as _read_candidate_pipeline,
                           read_pair as _read_pair_pipeline,
                           replace_pair as _replace_pair_pipeline,
@@ -237,22 +239,21 @@ def choose_focus_tool(slug: str) -> Tool:
 
 @tool(name="select_pairs", parallel=False)
 def select_pairs_tool(slug: str) -> Tool:
-    async def execute(lesson: str, choices: list[dict]) -> str:
+    async def execute(lesson: str, survivor_ids: list[str]) -> str:
         """Select one generated candidate pair per scenario.
 
         Args:
             lesson: one sentence naming what this round teaches.
-            choices: list of structured survivor judgments, e.g.
-                [{"survivor_id": "s1c3", "on_axis_forward": 4.5,
-                  "on_axis_reverse": 1.5, "off_axis_clean": 4.0,
-                  "comment": "Cho is clearly more autonomy-protective
-                  without a style-only gap."}].
-                Omit survivors you do not want to train on.
+            survivor_ids: rated survivor handles to keep, e.g.
+                ["s1c3", "s4c2", "s8c1"].
+                Every survivor must have been rated already with
+                rate_candidate(...), and at most one survivor may be kept per
+                scenario.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
         try:
-            res = _select_pairs_pipeline(round_dir, lesson=lesson, choices=choices)
+            res = _select_pairs_pipeline(round_dir, lesson=lesson, survivor_ids=survivor_ids)
         except (ValidationError, ValueError) as e:
             n = _bump_reject(rejects_path)
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
@@ -266,6 +267,51 @@ def select_pairs_tool(slug: str) -> Tool:
             f"========== end pairs.md ==========\n"
             f"----- per-pair confound flags -----\n{res['flags_table']}\n"
             f"----- next: train_student() -----\n"
+        )
+
+    return execute
+
+
+@tool(name="rate_candidate", parallel=False)
+def rate_candidate_tool(slug: str) -> Tool:
+    async def execute(
+        survivor_id: str,
+        on_axis_forward: float,
+        on_axis_reverse: float,
+        off_axis_clean: float,
+        comment: str,
+    ) -> str:
+        """Persist one structured judgment for a surviving candidate pair.
+
+        Args:
+            survivor_id: survivor handle from choose_focus output, e.g. "s3c4".
+            on_axis_forward: 1..5 for "Cho is more target-like than Rej".
+            on_axis_reverse: 1..5 for the same pair read the other way round.
+            off_axis_clean: 1..5 where 5 means little style/refusal/length confound.
+            comment: one sentence naming the actual axis difference or the confound.
+        """
+        round_dir = latest_round_dir(_slug_path(slug))
+        rejects_path = _rejects_path(round_dir)
+        try:
+            res = _rate_candidate_pipeline(
+                round_dir,
+                survivor_id=survivor_id,
+                on_axis_forward=on_axis_forward,
+                on_axis_reverse=on_axis_reverse,
+                off_axis_clean=off_axis_clean,
+                comment=comment,
+            )
+        except (ValidationError, ValueError) as e:
+            n = _bump_reject(rejects_path)
+            msg = (_format_validation_error(e) if isinstance(e, ValidationError)
+                   else f"rate_candidate rejected — {e}")
+            return msg + _reject_tail(n)
+        rejects_path.unlink(missing_ok=True)
+        return (
+            f"OK — rated {res['survivor_id']} from scenario {res['scenario_id']}.\n"
+            f"Passing survivors so far ({len(res['passing_survivors'])}): "
+            + ", ".join(res["passing_survivors"])
+            + "\n"
         )
 
     return execute
@@ -311,6 +357,8 @@ def read_candidate_tool(slug: str) -> Tool:
             "- off_axis_clean: 1..5 where 5 means little style/refusal/length confound\n"
             "- comment: one sentence naming the real axis difference or the main confound\n\n"
             "OMIT THIS SCENARIO unless forward>=3.5, reverse<=2.5, and clean>=3.0.\n\n"
+            "Next step: rate_candidate(survivor_id=..., on_axis_forward=..., "
+            "on_axis_reverse=..., off_axis_clean=..., comment=...)\n\n"
             f"CHO FULL:\n{cand['cho']}\n\n"
             f"REJ FULL:\n{cand['rej']}\n"
         )
@@ -732,6 +780,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
         tools=[
             choose_focus_tool(slug),
             read_candidate_tool(slug),
+            rate_candidate_tool(slug),
             select_pairs_tool(slug),
             train_student_tool(slug),
             mark_exam_tool(slug),

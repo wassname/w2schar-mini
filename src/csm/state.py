@@ -24,7 +24,7 @@ def allowed_after(state: State) -> str:
     if state == "choose_focus":
         return "choose_focus(persona_pair_id, scenario_family)"
     if state == "select_pairs":
-        return "select_pairs(lesson, choices=[{survivor_id, on_axis_forward, on_axis_reverse, off_axis_clean, comment}, ...])"
+        return "read_candidate(survivor_id) -> rate_candidate(survivor_id, on_axis_forward, on_axis_reverse, off_axis_clean, comment) -> select_pairs(lesson, survivor_ids=[...])"
     if state == "propose_personas":
         return "propose_personas(axis, rationale, pos_persona, neg_persona)"
     if state == "train_student":

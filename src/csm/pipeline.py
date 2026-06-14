@@ -642,33 +642,33 @@ def _likert_1_to_5(value: object, key: str) -> float:
 def _normalize_choice(choice: object) -> dict:
     if not isinstance(choice, dict):
         raise ValidationError(
-            "select_pairs: each choice must be an object with survivor_id, "
+            "rate_candidate: judgment must be an object with survivor_id, "
             "on_axis_forward, on_axis_reverse, off_axis_clean, and comment"
         )
     survivor_id = str(choice.get("survivor_id", "")).strip()
     if not survivor_id:
-        raise ValidationError("select_pairs: choice is missing survivor_id")
+        raise ValidationError("rate_candidate: judgment is missing survivor_id")
     forward = _likert_1_to_5(choice.get("on_axis_forward"), "on_axis_forward")
     reverse = _likert_1_to_5(choice.get("on_axis_reverse"), "on_axis_reverse")
     clean = _likert_1_to_5(choice.get("off_axis_clean"), "off_axis_clean")
     comment = str(choice.get("comment", "")).strip()
     if not comment:
-        raise ValidationError("select_pairs: comment must be non-empty")
+        raise ValidationError("rate_candidate: comment must be non-empty")
     if forward < 3.5:
         raise ValidationError(
-            f"select_pairs: on_axis_forward={forward:.1f} is too weak for a selected pair"
+            f"rate_candidate: on_axis_forward={forward:.1f} is too weak for a selected pair"
         )
     if reverse > 2.5:
         raise ValidationError(
-            f"select_pairs: on_axis_reverse={reverse:.1f} says the reversed pair still looks target-like"
+            f"rate_candidate: on_axis_reverse={reverse:.1f} says the reversed pair still looks target-like"
         )
     if clean < 3.0:
         raise ValidationError(
-            f"select_pairs: off_axis_clean={clean:.1f} is too confounded for training"
+            f"rate_candidate: off_axis_clean={clean:.1f} is too confounded for training"
         )
     if forward - reverse < 1.0:
         raise ValidationError(
-            f"select_pairs: forward-reverse gap {forward - reverse:.1f} is too small"
+            f"rate_candidate: forward-reverse gap {forward - reverse:.1f} is too small"
         )
     return {
         "survivor_id": survivor_id,
@@ -677,6 +677,23 @@ def _normalize_choice(choice: object) -> dict:
         "off_axis_clean": clean,
         "comment": comment,
     }
+
+
+def _ratings_path(round_dir: Path) -> Path:
+    return round_dir / "candidate_ratings.json"
+
+
+def _load_ratings(round_dir: Path) -> dict[str, dict]:
+    path = _ratings_path(round_dir)
+    if not path.exists():
+        return {}
+    rows = json.loads(path.read_text())
+    return {row["survivor_id"]: row for row in rows}
+
+
+def _write_ratings(round_dir: Path, ratings: dict[str, dict]) -> None:
+    rows = [ratings[k] for k in sorted(ratings)]
+    _ratings_path(round_dir).write_text(json.dumps(rows, indent=2))
 
 
 def _generic_pool_reason(items: list[dict]) -> str | None:
@@ -925,18 +942,77 @@ def read_candidate(round_dir: Path, *, survivor_id: str) -> dict:
     raise ValidationError(f"read_candidate: unknown survivor_id {survivor_id!r}")
 
 
-def select_pairs(round_dir: Path, *, lesson: str, choices: list[dict]) -> dict:
+def rate_candidate(round_dir: Path, *, survivor_id: str, on_axis_forward: float,
+                   on_axis_reverse: float, off_axis_clean: float,
+                   comment: str) -> dict:
+    """Persist one teacher judgment for a surviving candidate pair."""
+    require_state(round_dir, "select_pairs", "rate_candidate")
+    cand_path = round_dir / "candidates.json"
+    if not cand_path.exists():
+        raise ValidationError("rate_candidate: missing candidates.json; call choose_focus first")
+    data = json.loads(cand_path.read_text())
+    judgment = _normalize_choice({
+        "survivor_id": survivor_id,
+        "on_axis_forward": on_axis_forward,
+        "on_axis_reverse": on_axis_reverse,
+        "off_axis_clean": off_axis_clean,
+        "comment": comment,
+    })
+    for item in data["items"]:
+        for cand in item["candidates"]:
+            if cand["survivor_id"] != survivor_id:
+                continue
+            if not cand.get("kept"):
+                raise ValidationError(
+                    f"rate_candidate: {survivor_id} was pruned: {cand.get('flags')}"
+                )
+            ratings = _load_ratings(round_dir)
+            ratings[survivor_id] = {
+                "scenario_id": int(item["scenario_id"]),
+                "prompt": item["prompt"],
+                "persona_pair": cand["persona_pair"],
+                "template": cand["template"],
+                "template_cell_id": cand["template_cell_id"],
+                "template_score": cand["template_score"],
+                "template_on_axis": cand["template_on_axis"],
+                "template_off_axis": cand["template_off_axis"],
+                "template_library": cand["template_library"],
+                "flags": cand.get("flags", []),
+                "unprompted": item["unprompted"],
+                "cho": cand["cho"],
+                "rej": cand["rej"],
+                "cho_tokens": _token_count(cand["cho"]),
+                "rej_tokens": _token_count(cand["rej"]),
+                "cho_first_sentence": _first_sentence(cand["cho"]),
+                "rej_first_sentence": _first_sentence(cand["rej"]),
+                **judgment,
+            }
+            _write_ratings(round_dir, ratings)
+            passing = [
+                row["survivor_id"]
+                for row in sorted(ratings.values(), key=lambda row: (row["scenario_id"], row["survivor_id"]))
+            ]
+            return {
+                "survivor_id": survivor_id,
+                "scenario_id": int(item["scenario_id"]),
+                "n_rated": len(ratings),
+                "passing_survivors": passing,
+            }
+    raise ValidationError(f"rate_candidate: unknown survivor_id {survivor_id!r}")
+
+
+def select_pairs(round_dir: Path, *, lesson: str, survivor_ids: list[str]) -> dict:
     """Teacher selects surviving candidate pairs by survivor_id."""
     require_state(round_dir, "select_pairs", "select_pairs")
     cand_path = round_dir / "candidates.json"
     if not cand_path.exists():
         raise ValidationError("select_pairs: missing candidates.json; call choose_focus first")
     data = json.loads(cand_path.read_text())
-    if not isinstance(choices, list):
+    if not isinstance(survivor_ids, list):
         raise ValidationError(
-            "select_pairs: choices must be a list of objects keyed by survivor_id"
+            "select_pairs: survivor_ids must be a list of rated survivor handles"
         )
-    choice_rows = [_normalize_choice(choice) for choice in choices]
+    ratings = _load_ratings(round_dir)
     selected = []
     choice_log = []
     seen_scenarios = set()
@@ -944,8 +1020,15 @@ def select_pairs(round_dir: Path, *, lesson: str, choices: list[dict]) -> dict:
     for item in data["items"]:
         for cand in item["candidates"]:
             by_survivor[cand["survivor_id"]] = (item, cand)
-    for judgment in choice_rows:
-        survivor_id = judgment["survivor_id"]
+    for raw_id in survivor_ids:
+        survivor_id = str(raw_id).strip()
+        if not survivor_id:
+            raise ValidationError("select_pairs: survivor_ids may not contain blanks")
+        judgment = ratings.get(survivor_id)
+        if judgment is None:
+            raise ValidationError(
+                f"select_pairs: {survivor_id} has not been rated yet; call rate_candidate first"
+            )
         found = by_survivor.get(survivor_id)
         if found is None:
             raise ValidationError(f"select_pairs: unknown survivor_id {survivor_id!r}")
@@ -993,7 +1076,8 @@ def select_pairs(round_dir: Path, *, lesson: str, choices: list[dict]) -> dict:
     shutil.copy(pairs_path, round_dir / "pairs.md.bak")
     (round_dir / "selection_audit.json").write_text(json.dumps({
         "lesson": lesson,
-        "choices": choices,
+        "rated": [ratings[k] for k in sorted(ratings)],
+        "survivor_ids": survivor_ids,
         "selected": choice_log,
     }, indent=2))
     review = _selected_pair_review(data, choice_log)
