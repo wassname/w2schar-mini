@@ -1,10 +1,10 @@
 {
-  "total": 113,
+  "total": 81,
   "by_source": {
-    "genies_preferences": 17,
-    "tiny-mfv": 96
+    "tiny-mfv": 64,
+    "genies_preferences": 17
   },
-  "build_commit": "c0622c7",
+  "build_commit": "a7d9a3a",
   "licenses": {
     "tiny-mfv": "see hf wassname/tiny-mfv (Clifford-style moral vignettes)",
     "genies_preferences": "see hf wassname/genies_preferences (GENIES)"

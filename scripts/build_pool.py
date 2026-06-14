@@ -101,10 +101,14 @@ CAP_MFV_PER_FOUNDATION_OVERRIDES = {
 CAP_GENIES_PER = 6
 CAP_CONTROL = 6
 
+# Training now uses only the two surfaces that actually worked in live runs:
+# a short committed concern judgment, then a direct action prompt. The older
+# wrongness and "should have done instead" forms stayed in the built pool long
+# after sample_prompt_rows rewrote them away at runtime, which made the stored
+# pool lie about the effective training distribution. Keep the pool honest.
 MFV_PROMPT_TEMPLATES = (
-    "{text} How wrong is it, from 1 (not wrong) to 5 (very wrong)? Give the rating first, then one brief reason.",
     "{text} What concern matters most here, and why in one or two sentences?",
-    "{text} What should the actor have done instead? Answer in one or two sentences.",
+    "{text} What does the actor do next? Answer in one or two sentences.",
 )
 
 AXIS_PATTERNS = {
