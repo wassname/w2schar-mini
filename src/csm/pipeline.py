@@ -2540,6 +2540,22 @@ def write_audit_md(slug_dir: Path) -> None:
             f"train-gate passes={train_passes}, eval rounds={eval_rounds}."
         )
         sections.extend(["## Verdict", "", *verdict, ""])
+        missing: list[str] = []
+        if len(judged) < 3:
+            missing.append(f"only {len(judged)} judged round(s); a demo run needs 3 completed rounds")
+        if keeps < 1:
+            missing.append("no kept round yet")
+        if train_passes < 1:
+            missing.append("no round has both selected enough pairs and cleared the held-out pair-fit gate")
+        if eval_rounds < 1:
+            missing.append("no eval artifacts yet")
+        if not coherent:
+            missing.append("audit path is incomplete for some judged rounds (missing structured focus or harness feedback)")
+        if missing:
+            sections.extend(["## Missing For Demo", ""])
+            for item in missing:
+                sections.append(f"- {item}")
+            sections.append("")
 
     if tool_trace:
         sections.extend(["## Tool Call Flow", ""])
