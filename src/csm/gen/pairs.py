@@ -30,6 +30,11 @@ _SHOULD_INSTEAD_PROMPT = (
 _DIRECT_ACTION_PROMPT = (
     " What does the actor do next? Answer in one or two sentences."
 )
+_WRONGNESS_PROMPT = (
+    " How wrong is it, from 1 (not wrong) to 5 (very wrong)? "
+    "Give the rating first, then one brief reason."
+)
+_CONCERN_PROMPT = " What concern matters most here, and why in one or two sentences?"
 
 
 PAIR_BEHAVIOR_HINTS = {
@@ -231,7 +236,7 @@ def _scenario_stem(text: str) -> str:
     world, so cap repeats by this normalized stem during round sampling.
     """
     for marker in (
-        " How wrong is it,",
+        _WRONGNESS_PROMPT,
         _SHOULD_INSTEAD_PROMPT,
         _DIRECT_ACTION_PROMPT,
         " What concern matters most here,",
@@ -243,7 +248,8 @@ def _scenario_stem(text: str) -> str:
 
 
 def training_prompt_surface(text: str) -> str:
-    return text.replace(_SHOULD_INSTEAD_PROMPT, _DIRECT_ACTION_PROMPT)
+    text = text.replace(_SHOULD_INSTEAD_PROMPT, _DIRECT_ACTION_PROMPT)
+    return text.replace(_WRONGNESS_PROMPT, _CONCERN_PROMPT)
 
 
 def write_gen_pairs(path: Path, rows: list[dict], *, lesson: str) -> None:
