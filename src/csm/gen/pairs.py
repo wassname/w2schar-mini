@@ -24,6 +24,13 @@ from csm.gen.prompts_pool import POOL, rows_for_family
 LESSON_TODO = ("TODO(teacher): one sentence naming the disposition this "
                "round teaches the student.")
 
+_SHOULD_INSTEAD_PROMPT = (
+    " What should the actor have done instead? Answer in one or two sentences."
+)
+_DIRECT_ACTION_PROMPT = (
+    " What does the actor do next? Answer in one or two sentences."
+)
+
 
 PAIR_BEHAVIOR_HINTS = {
     "wellbeing_authority": {
@@ -212,7 +219,7 @@ def sample_prompt_rows(n: int, *, seed: int, family: str,
         stem_counts[stem] = stem_counts.get(stem, 0) + 1
         if len(picked) == min(n, len(rows)):
             break
-    return picked[:n]
+    return [{**row, "text": training_prompt_surface(row["text"])} for row in picked[:n]]
 
 
 def _scenario_stem(text: str) -> str:
@@ -225,13 +232,18 @@ def _scenario_stem(text: str) -> str:
     """
     for marker in (
         " How wrong is it,",
-        " What should the actor have done instead?",
+        _SHOULD_INSTEAD_PROMPT,
+        _DIRECT_ACTION_PROMPT,
         " What concern matters most here,",
         " What concern matters most here?",
     ):
         if marker in text:
             return text.split(marker, 1)[0].strip()
     return text.strip()
+
+
+def training_prompt_surface(text: str) -> str:
+    return text.replace(_SHOULD_INSTEAD_PROMPT, _DIRECT_ACTION_PROMPT)
 
 
 def write_gen_pairs(path: Path, rows: list[dict], *, lesson: str) -> None:

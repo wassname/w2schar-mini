@@ -18,7 +18,7 @@ The `_1p` / `_3p` suffixes are retained for compatibility with the existing
 judge, report, and plot code:
 
 - `_1p` = short committed judgment
-- `_3p` = brief reasoning / remedy twin on the same situation
+- `_3p` = direct-action / principle twin on the same situation
 
 The names are now historical, not literal points of view.
 """
@@ -47,7 +47,7 @@ _P1_OPEN = (
 )
 _P1_FOLLOW = "What concern matters most here?"
 _P3_OPEN = (
-    " What should the actor have done instead? "
+    " What does the actor do next? "
     "Answer in one or two sentences."
 )
 _P3_FOLLOW = "Name the one principle most at stake here."

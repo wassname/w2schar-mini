@@ -153,7 +153,7 @@ def test_sample_prompt_rows_caps_repeated_worlds():
         stem = text
         for marker in (
             " How wrong is it,",
-            " What should the actor have done instead?",
+            " What does the actor do next?",
             " What concern matters most here,",
             " What concern matters most here?",
         ):
@@ -164,6 +164,13 @@ def test_sample_prompt_rows_caps_repeated_worlds():
     assert rows
     assert len(rows) == 15, rows
     assert max(stems.values()) <= 3, stems
+    assert all("What should the actor have done instead?" not in row["text"] for row in rows)
+
+
+def test_sample_prompt_rows_rewrites_remedy_to_direct_action():
+    rows = sample_prompt_rows(20, seed=42, family="character", required_axes=("fairness",))
+    assert rows
+    assert any("What does the actor do next?" in row["text"] for row in rows)
 
 
 def test_render_candidate_persona_adds_pair_behavior_hint():
