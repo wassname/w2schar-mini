@@ -705,6 +705,16 @@ def _passing_scenario_ids(ratings: dict[str, dict]) -> list[int]:
     })
 
 
+def _judgment_sort_key(row: dict) -> tuple[float, float, float, float, str]:
+    return (
+        float(row["on_axis_forward"]),
+        -float(row["on_axis_reverse"]),
+        float(row["off_axis_clean"]),
+        float(row.get("template_score", 0.0)),
+        str(row["survivor_id"]),
+    )
+
+
 def _generic_pool_reason(items: list[dict]) -> str | None:
     survivors = [
         cand
@@ -976,7 +986,7 @@ def rate_candidate(round_dir: Path, *, survivor_id: str, on_axis_forward: float,
                     f"rate_candidate: {survivor_id} was pruned: {cand.get('flags')}"
                 )
             ratings = _load_ratings(round_dir)
-            ratings[survivor_id] = {
+            row = {
                 "scenario_id": int(item["scenario_id"]),
                 "prompt": item["prompt"],
                 "persona_pair": cand["persona_pair"],
@@ -997,6 +1007,21 @@ def rate_candidate(round_dir: Path, *, survivor_id: str, on_axis_forward: float,
                 "passes": _judgment_passes(judgment),
                 **judgment,
             }
+            if row["passes"]:
+                same_scenario = [
+                    prev for prev in ratings.values()
+                    if int(prev["scenario_id"]) == int(item["scenario_id"]) and prev["passes"]
+                ]
+                for prev in same_scenario:
+                    if _judgment_sort_key(prev) >= _judgment_sort_key(row):
+                        row["passes"] = False
+                        row["superseded_by"] = prev["survivor_id"]
+                        break
+                if row["passes"]:
+                    for prev in same_scenario:
+                        prev["passes"] = False
+                        prev["superseded_by"] = survivor_id
+            ratings[survivor_id] = row
             _write_ratings(round_dir, ratings)
             passing = _passing_survivors(ratings)
             passing_scenarios = _passing_scenario_ids(ratings)
@@ -1006,7 +1031,8 @@ def rate_candidate(round_dir: Path, *, survivor_id: str, on_axis_forward: float,
                 "n_rated": len(ratings),
                 "passing_survivors": passing,
                 "passing_scenarios": passing_scenarios,
-                "passes": ratings[survivor_id]["passes"],
+                "passes": row["passes"],
+                "superseded_by": row.get("superseded_by"),
             }
     raise ValidationError(f"rate_candidate: unknown survivor_id {survivor_id!r}")
 

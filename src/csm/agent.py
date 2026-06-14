@@ -308,10 +308,13 @@ def rate_candidate_tool(slug: str) -> Tool:
             return msg + _reject_tail(n)
         rejects_path.unlink(missing_ok=True)
         status = "PASS" if res["passes"] else "OMIT"
+        tail = ""
+        if res.get("superseded_by"):
+            tail = f" superseded_by={res['superseded_by']}"
         return (
-            f"OK — rated {res['survivor_id']} from scenario {res['scenario_id']} ({status}).\n"
-            f"Passing survivors so far ({len(res['passing_survivors'])} across "
-            f"{len(res['passing_scenarios'])} unique scenarios): "
+            f"OK — rated {res['survivor_id']} from scenario {res['scenario_id']} ({status}{tail}).\n"
+            f"Passing shortlist so far ({len(res['passing_survivors'])} across "
+            f"{len(res['passing_scenarios'])} unique scenarios, one max per scenario): "
             + ", ".join(res["passing_survivors"])
             + "\n"
         )

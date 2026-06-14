@@ -334,3 +334,67 @@ def test_rate_candidate_reports_unique_scenarios(tmp_path):
     assert r1["passing_scenarios"] == [1]
     assert r2["passing_scenarios"] == [1]
     assert r3["passing_scenarios"] == [1, 2]
+
+
+def test_rate_candidate_keeps_only_best_pass_per_scenario(tmp_path):
+    rd = tmp_path / "round00"
+    rd.mkdir(parents=True)
+    (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
+    (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
+    (rd / "candidates.json").write_text(json.dumps({
+        "axis": "autonomy_coercion",
+        "items": [{
+            "scenario_id": 1,
+            "prompt": "p1",
+            "unprompted": "u1",
+            "candidates": [{
+                "candidate_id": 1,
+                "survivor_id": "s1c1",
+                "kept": True,
+                "persona_pair": "autonomy_coercion",
+                "template": "Respond as a {persona} person.",
+                "template_cell_id": 1,
+                "template_score": 80.0,
+                "template_on_axis": 1.0,
+                "template_off_axis": 0.2,
+                "template_library": "x",
+                "cho": "The actor should have protected her freedom.",
+                "rej": "The actor should have pressured her into agreement.",
+            }, {
+                "candidate_id": 2,
+                "survivor_id": "s1c2",
+                "kept": True,
+                "persona_pair": "autonomy_coercion",
+                "template": "Respond as a {persona} person.",
+                "template_cell_id": 2,
+                "template_score": 83.0,
+                "template_on_axis": 1.0,
+                "template_off_axis": 0.2,
+                "template_library": "x",
+                "cho": "The actor should have firmly defended her ability to choose for herself.",
+                "rej": "The actor should have cornered her until she complied.",
+            }],
+        }],
+    }))
+    first = rate_candidate(
+        rd,
+        survivor_id="s1c1",
+        on_axis_forward=4.0,
+        on_axis_reverse=2.0,
+        off_axis_clean=4.0,
+        comment="Good axis split.",
+    )
+    second = rate_candidate(
+        rd,
+        survivor_id="s1c2",
+        on_axis_forward=5.0,
+        on_axis_reverse=1.0,
+        off_axis_clean=5.0,
+        comment="Stronger axis split.",
+    )
+    assert first["passing_survivors"] == ["s1c1"]
+    assert second["passing_survivors"] == ["s1c2"]
+    rows = json.loads((rd / "candidate_ratings.json").read_text())
+    by_id = {row["survivor_id"]: row for row in rows}
+    assert by_id["s1c1"]["passes"] is False
+    assert by_id["s1c1"]["superseded_by"] == "s1c2"

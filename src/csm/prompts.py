@@ -209,11 +209,13 @@ might select, then immediately call rate_candidate(...) for that ONE survivor:
   - on_axis_reverse: 1..5 for the same pair read the other way round
   - off_axis_clean: 1..5 where 5 means little style/refusal/length confound
   - comment: one sentence naming the actual axis difference or the confound
-rate_candidate persists the judgment and returns the current passing survivor
-list, so you do not have to keep all scores in memory. After enough survivors
-have been rated and passed, call select_pairs(lesson, survivor_ids=[...]).
-Need at least the minimum count shown in UNIQUE SCENARIOS, with at most one
-survivor per scenario.
+rate_candidate persists the judgment and returns the current passing SHORTLIST,
+already deduplicated to at most one survivor per scenario, so you do not have
+to keep all scores in memory. If you pass a second survivor from the same
+scenario, the harness keeps only the stronger one in the shortlist. After
+enough survivors have been rated and passed, call
+select_pairs(lesson, survivor_ids=[...]) using that shortlist.
+Need at least the minimum count shown in UNIQUE SCENARIOS.
 Selection threshold is hard, not advisory:
   - if on_axis_forward < 3.5, omit the scenario
   - if on_axis_reverse > 2.5, omit the scenario
