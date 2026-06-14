@@ -2341,6 +2341,25 @@ def _eval_report_cell(ev: dict | None) -> str:
     return " ".join(bits) if bits else "—"
 
 
+def _probe_change_summary(pre: dict, post: dict, probe_id: str) -> str:
+    pre_text = _probe_reply(pre, probe_id, 1) or ""
+    post_text = _probe_reply(post, probe_id, 1) or ""
+    if not pre_text and not post_text:
+        return "—"
+    if pre_text and not post_text:
+        return "missing_post"
+    if not pre_text and post_text:
+        return "missing_pre"
+    a = " ".join(pre_text.split())
+    b = " ".join(post_text.split())
+    if a == b:
+        return "same"
+    sim = difflib.SequenceMatcher(a=a, b=b).ratio()
+    if sim >= 0.98:
+        return "near_same"
+    return "changed"
+
+
 def _round_tensions(*, focus_pair: str | None, selection: dict, train: dict,
                     judgment: dict, pre_eval: dict, post_eval: dict,
                     pre: dict, post: dict,
@@ -2603,7 +2622,7 @@ def write_audit_md(slug_dir: Path) -> None:
         sections.append("")
 
         out_headers = ["round", "focus_pair", "selected", "train_pairs",
-                       "pair_fit_gate", "movement", "eval", "action"]
+                       "pair_fit_gate", "focus_3p", "movement", "eval", "action"]
         sections.extend(["## Round Outcomes", ""])
         sections.append("| " + " | ".join(out_headers) + " |")
         sections.append("|" + "|".join("---" for _ in out_headers) + "|")
@@ -2634,6 +2653,13 @@ def write_audit_md(slug_dir: Path) -> None:
                 else "—"
             )
             movement = _movement_summary(j) or "—"
+            focus_3p = "—"
+            if focus_pair != "—":
+                focus_3p = _probe_change_summary(
+                    _safe_json(rd / "interview_pre.json") or {},
+                    _safe_json(rd / "interview_post.json") or {},
+                    f"{focus_pair}_3p",
+                )
             eval_summary = _eval_axis_summary(pre_eval, post_eval) or "—"
             if eval_summary != "—":
                 eval_summary = _quote(eval_summary, 56)
@@ -2643,6 +2669,7 @@ def write_audit_md(slug_dir: Path) -> None:
                 str(selected_n) if selected_n else "0",
                 train_pairs_str,
                 train_gate,
+                focus_3p,
                 movement,
                 eval_summary,
                 str(j.get("action", "—")),
