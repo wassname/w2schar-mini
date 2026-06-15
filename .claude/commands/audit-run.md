@@ -36,10 +36,38 @@ Audit the agent run. Default to the latest slug under `out/iter/` unless an expl
 ## Quality audit (was the round any good, not just did it run)
 
 Steps 1-6 check execution. This checks whether the round was *good* — the real
-job. The teacher is a weak qwen-9b; you are the stronger auditor, so do not
-ratify it. For each round show the teacher's input, output, and observation, then
-second-guess each stage with your larger brain so we can fix the repo at the meta
-level. Quote primary sources; never trust the teacher's own summary.
+job. The teacher is a weak qwen-9b; you are the stronger auditor. TWO
+non-negotiable jobs, both required for every finding:
+
+  1. QUESTION the teacher's judgment. Every keep, drop, lesson, axis pick, and
+     "movement" claim is a hypothesis to verify, NOT to ratify. The teacher being
+     confident is not evidence. Default to skepticism: assume a keep is noise
+     until the interview turns prove otherwise.
+  2. QUOTE THE EVIDENCE for everything. Every claim carries a verbatim
+     primary-source quote + the file path it came from. No bare claims, no
+     trusting the teacher's own summary. If you cannot quote it, you cannot
+     claim it — and "the artifact is missing" is itself a quotable finding.
+
+FORCING FUNCTION (the point is to LOOK at each aspect, not to hunt the failures
+below). You MUST produce one block per stage for at least the kept rounds, even
+when the stage looks fine — a stage you skip is a stage you did not check. The
+failure modes listed under each stage are HINTS, not a checklist to tick: if you
+see something they don't name, that is the most valuable finding — report it.
+For EVERY stage fill exactly this, in order:
+
+  STAGE <n> <name>
+  SOURCE:   <verbatim primary-source quote + file path you are judging>
+  OBSERVE:  <what the source literally shows — numbers/text, stated neutrally,
+             before any interpretation>
+  JUDGE:    ok | concern | broken — one line of reasoning tying OBSERVE to the goal
+  MISSING:  <if the artifact/column you needed is absent, say so here and DO NOT
+             infer it; "blind"/"not logged" is itself a finding>
+
+Do all of: (1) axis+drift, (2) pairs, (2b) selection funnel, (3) training,
+(4) calibration, (5) keep/drop. At the end add a COMPLETENESS line: "stages
+judged: N/6; could not judge: <which + why>". Separating OBSERVE from JUDGE is
+the discipline — it stops you pattern-matching a known failure and skipping the
+read; a clean OBSERVE with a fine JUDGE is a valid, valuable result.
 
 1. Axis / lesson — quote `## Lesson` and a few `### Cho`. Compare to the actual
    goal in `docs/2026_forethought_on_the_importance_of_ai_character.md`: principled
@@ -144,17 +172,19 @@ level. Quote primary sources; never trust the teacher's own summary.
      gate held it back (fail-json = free-gen collapse; fail-pmass = answer-slot
      misalignment). Separate "bad/empty intervention" from "real effect throttled
      by coherence."
-   - HIGH/pinned at init WITH pmass≈baseline AND json==baseline at the top c: the
-     probe could not SEPARATE the adapter from base — under-calibrated/blind, NOT
-     "safe at full strength" (task-13: signed_C=1.0 here, POST dialogue still
-     collapsed). When neither gate moved off baseline, doubt the probe
-     distribution before trusting the ceiling — esp. that the canary is
-     multi-turn (deployment is multi-turn; a single-turn-only canary is blind to
-     cross-turn collapse). CONCRETE DEFAULT: if the trace has only 2 rows (c=0 and
-     one probe c) and pmass moves by <1e-3 between them (e.g. 0.99997→0.99998),
-     the canary is BLIND — treat signed_C as UN-validated, not banked-good. A
-     cscan_trace missing the json/rep columns means the multi-turn coherence
-     canary did not run at all; say so and do not trust the ceiling.
+   - PINNED at init with pmass≈baseline at the TOP c tested: the most likely
+     reading is the init c was too WEAK to register, NOT that the adapter is "safe
+     at full strength." There is no "full" in weight steering — c is an unbounded
+     multiplier on the weight delta, and c_scan only ever walks DOWN from init. So
+     init=1 baking pmass≈baseline (e.g. 0.99997→0.99998, a 1e-5 move) means we
+     simply never tried c=2/3 where the steering actually bites. FIX: raise init
+     (signed_C=2-3) and search down for the coherence ceiling; do not report c=1
+     as validated. Only if pmass STILL doesn't move at a genuinely HIGH c should
+     you suspect a blind PROBE (wrong distribution, or a single-turn canary
+     missing multi-turn collapse). A trace with only stage/c/pmass rows (no
+     json/rep) means the multi-turn coherence canary did not run — say so.
+     Distinguish the three: "c too low → raise init", "probe blind → fix probe",
+     "real effect throttled by coherence → LOW case above".
    - Ballooning `len` = the incoherence failure mode leaking in.
 5. Keep/drop — quote the keep `reasoning` (the populated key; `reason` is often
    empty), then read the interview_pre/post turns yourself. Did PRE actually

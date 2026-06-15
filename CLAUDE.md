@@ -83,6 +83,16 @@ change → just smoke + subagent review → pueue add → /audit-run at t+10/30/
                                                continue | investigate | kill+fix
 ```
 
+**Always run the `/audit-run` COMMAND (not a freehand audit) on any completed
+run — a real job OR a gym run — before drawing conclusions or reporting "it
+worked".** A freehand pass pattern-matches known failures and silently skips
+aspects: this session a freehand audit missed that the teacher trained on only
+6 of 55 clean pairs and misread the val-nll numbers (read absolute nats as a
+cho/rej ratio); the `/audit-run` rubric + a context-free subagent caught both.
+For the cold check, hand the rubric to a fresh subagent with only the slug (no
+chat context) — it has no priors to confirm. If the rubric lets it miss
+something, improve `.claude/commands/audit-run.md`, don't just patch the finding.
+
 ### Changing the teacher brief (prompts.py / gate text)
 
 Any edit to `src/csm/prompts.py`, the submit_pairs gates, or the pairs

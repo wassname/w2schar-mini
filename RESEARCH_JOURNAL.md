@@ -61,11 +61,15 @@ freehand pass; both fixed below):
   3.7, 2.9) are ABSOLUTE val nll on the cho pole in nats, not a cho/rej ratio. So the
   pathology is **memorisation from 5 train / 1 val pair**, not lopsided suppress-the-seed.
   val_nll+ over n_val=1 is a one-sample number; round18's 0.068 "improvement" is noise.
-- **Calibration: the canary is BLIND, not "fine at full strength" (also a correction).**
-  Every kept round banked `signed_C=1.0`, but the c_scan trace has only 2 rows and pmass
-  moves 0.99997→0.99998 (1e-5) between c=0 and c=1 — the probe cannot SEPARATE the adapter
-  from base. signed_C=1.0 is UN-validated, not safe-at-full-strength. (This is exactly
-  the rubric's §4 case-2; my "calibration is not the bottleneck" was backwards.)
+- **Calibration: c=1 was too WEAK, not "full strength" (corrected twice).** Every kept
+  round banked `signed_C=1.0` and pmass moves only 0.99997→0.99998 (1e-5) from c=0 to c=1.
+  This does NOT mean the probe is blind (my second wrong call) — it means c=1 is too weak
+  to register. c is an UNBOUNDED multiplier on the weight delta (no "full" in weight
+  steering), and c_scan only walks DOWN from init, so init=1 bakes a weak c and never
+  explores c=2/3 where steering bites. Fix = raise init (signed_C=2, done) and search down
+  for the coherence ceiling. Whether the adapter moves character at c=2/3 is UNTESTED — so
+  "tinymfv flat" may be a c-too-low artifact, not a dead adapter. (Thanks to wassname for
+  both corrections.)
 - **Axis collapsed onto confront-vs-defer (the documented failure mode).** Three
   relabelled persona_pairs (fairness→wellbeing→autonomy) share one trigger; by round18
   even the REJ pole confronts the authority, so the contrast is gone. The agent's own
