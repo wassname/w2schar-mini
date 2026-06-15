@@ -110,8 +110,8 @@ One round:
         # for that selected pair.
     read_candidate(survivor_id)
         # inspect one survivor pair in full, both orders
-    rate_candidate(survivor_id, on_axis_forward, on_axis_reverse, off_axis_clean, comment)
-        # persist one structured judgment immediately; returns the passing list so far
+    rate_candidate(survivor_id, on_axis_variation_likert, off_axis_variation_likert, confounding_likert, keep, comment)
+        # rate EVERY kept candidate (keep=true/false on each); returns coverage so far
     select_pairs(lesson, survivor_ids)
         # survivor_ids is a list of already-rated survivor handles, e.g.
         # ["s1c3", "s4c2", "s8c1"]
@@ -207,32 +207,30 @@ Next action: {next_action}
 
 
 AFTER_CHOOSE_FOCUS = """\
------ next: read_candidate(...) -> rate_candidate(...) -> select_pairs(lesson, survivor_ids) -----
-Read the survivor table, call read_candidate(survivor_id) for any survivor you
-might select, then immediately call rate_candidate(...) for that ONE survivor:
+----- next: read_candidate(...) -> rate_candidate(...) for EVERY candidate -> select_pairs(lesson, survivor_ids) -----
+Rate EVERY kept candidate in the survivor table — not just the ones you like.
+The harness will NOT let you select_pairs until every candidate has a rating, so
+work through the whole table: read_candidate(survivor_id) then rate_candidate(...)
+for each, deciding keep=true/false on every one:
   - survivor_id: the exact survivor handle from the table, e.g. s3c4
-  - on_axis_forward: 1..5 for "Cho is more target-like than Rej"
-  - on_axis_reverse: 1..5 for the same pair read the other way round
-  - off_axis_clean: 1..5 where 5 means little style/refusal/length confound
+  - on_axis_variation_likert: 1..5, how strongly Cho vs Rej vary ALONG the trait
+    (5 = clean strong contrast, Cho is the target pole; 1 = no real difference)
+  - off_axis_variation_likert: 1..5, OFF-axis variation in style/length/register
+    (5 = a confound that would BECOME the trained axis; 1 = clean twins)
+  - confounding_likert: 1..5 structural defect — actor/victim inversion,
+    persona-echo, AI-disclaimer break, refusal (5 = severe, 1 = none)
+  - keep: true to train on this pair, false to opt out
   - comment: one sentence naming the actual axis difference or the confound
 If either pole gives the right principle to the wrong actor or victim, that is
-not a subtle confound. It is a failed pair. Score it as OMIT and name the
-actor-role inversion in the comment.
-rate_candidate persists the judgment and returns the current passing SHORTLIST,
-already deduplicated to at most one survivor per scenario, so you do not have
-to keep all scores in memory. If you pass a second survivor from the same
-scenario, the harness keeps only the stronger one in the shortlist. After
-enough survivors have been rated and passed, call
-select_pairs(lesson, survivor_ids=[...]) using that shortlist.
-Need at least the minimum count shown in UNIQUE SCENARIOS.
-Selection threshold is hard, not advisory:
-  - if on_axis_forward < 3.5, omit the scenario
-  - if on_axis_reverse > 2.5, omit the scenario
-  - if off_axis_clean < 3.0, omit the scenario
-Weak ratings are allowed and should be recorded honestly; they simply do not
-enter the passing survivor list.
-Do not round weak pairs up just to hit quota. The harness would rather drop the
-round than train on muddy contrast.
+not a subtle confound. It is a failed pair: keep=false, name the actor-role
+inversion in the comment.
+KEEP GENEROUSLY: keep every pair with a real on-axis contrast and low off-axis /
+confound — multiple per scenario is fine and gives the adapter more signal. The
+old failure was submitting only the bare minimum; do not do that. Opt out
+(keep=false) only for genuine confounds, muddy contrast, or near-duplicate poles.
+rate_candidate returns your coverage (how many rated / unrated / kept). Once
+every candidate is rated and you have at least the minimum kept, call
+select_pairs(lesson, survivor_ids=[...]) passing ALL the keep=true handles.
 You may omit a scenario if all survivors look off-axis. If the survivors are all
 generic, formulaic, or effectively the same pair in different slots, do not
 force a selection just because candidates exist: call mark_exam(keep=False,

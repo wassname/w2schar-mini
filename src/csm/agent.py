@@ -291,19 +291,26 @@ def select_pairs_tool(slug: str) -> Tool:
 def rate_candidate_tool(slug: str) -> Tool:
     async def execute(
         survivor_id: str,
-        on_axis_forward: float,
-        on_axis_reverse: float,
-        off_axis_clean: float,
+        on_axis_variation_likert: float,
+        off_axis_variation_likert: float,
+        confounding_likert: float,
+        keep: bool,
         comment: str,
     ) -> str:
-        """Persist one structured judgment for a surviving candidate pair.
+        """Persist one structured judgment for a surviving candidate pair. You
+        must rate EVERY kept candidate (keep=true/false on each) before training.
 
         Args:
             survivor_id: survivor handle from choose_focus output, e.g. "s3c4".
-            on_axis_forward: 1..5 for "Cho is more target-like than Rej".
-            on_axis_reverse: 1..5 for the same pair read the other way round.
-            off_axis_clean: 1..5 where 5 means little style/refusal/length confound.
-            comment: one sentence naming the actual axis difference or the confound.
+            on_axis_variation_likert: 1..5, how strongly Cho vs Rej vary ALONG the
+                target trait (5 = clean, strong contrast; Cho is the target pole).
+            off_axis_variation_likert: 1..5, how much they vary OFF-axis in
+                style/length/register (5 = a confound that would become the axis;
+                1 = clean twins).
+            confounding_likert: 1..5 structural defect (actor/victim inversion,
+                persona-echo, AI-disclaimer break, refusal); 5 = severe, 1 = none.
+            keep: true = train on this pair, false = opt out. Decide for every one.
+            comment: one sentence naming the real axis difference or the confound.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
@@ -311,9 +318,10 @@ def rate_candidate_tool(slug: str) -> Tool:
             res = _rate_candidate_pipeline(
                 round_dir,
                 survivor_id=survivor_id,
-                on_axis_forward=on_axis_forward,
-                on_axis_reverse=on_axis_reverse,
-                off_axis_clean=off_axis_clean,
+                on_axis_variation_likert=on_axis_variation_likert,
+                off_axis_variation_likert=off_axis_variation_likert,
+                confounding_likert=confounding_likert,
+                keep=keep,
                 comment=comment,
             )
         except (ValidationError, ValueError) as e:
@@ -322,17 +330,15 @@ def rate_candidate_tool(slug: str) -> Tool:
                    else f"rate_candidate rejected — {e}")
             return msg + _reject_tail(n)
         rejects_path.unlink(missing_ok=True)
-        status = "PASS" if res["passes"] else "OMIT"
-        tail = ""
-        if res.get("superseded_by"):
-            tail = f" superseded_by={res['superseded_by']}"
+        status = "KEEP" if res["passes"] else "OMIT"
+        ready = "READY to select_pairs" if res["ready_to_select"] else "NOT ready"
         return (
-            f"OK — rated {res['survivor_id']} from scenario {res['scenario_id']} ({status}{tail}).\n"
-            f"Passing shortlist so far ({len(res['passing_survivors'])} across "
-            f"{len(res['passing_scenarios'])} unique scenarios, one max per scenario): "
-            + ", ".join(res["passing_survivors"])
-            + f"\nNeed {res['n_more_needed']} more unique scenarios to reach "
-            + f"{res['min_to_train']}.\n"
+            f"OK — rated {res['survivor_id']} from scenario {res['scenario_id']} ({status}).\n"
+            f"Coverage: {res['n_rated']}/{res['n_candidates']} candidates rated, "
+            f"{res['n_unrated']} still unrated, {res['n_keep']} kept (need "
+            f"≥{res['min_to_train']}). {ready}.\n"
+            + (f"Unrated: {', '.join(res['unrated_survivor_ids'])}\n"
+               if res['unrated_survivor_ids'] else "All candidates rated.\n")
         )
 
     return execute
@@ -372,16 +378,16 @@ def read_candidate_tool(slug: str) -> Tool:
             "PAIRWISE VIEW A=REJ, B=CHO:\n"
             f"A:\n{cand['rej']}\n\n"
             f"B:\n{cand['cho']}\n\n"
-            "RATE BEFORE SELECTING:\n"
-            "- on_axis_forward: 1..5 for 'A=Cho is more target-like than B=Rej'\n"
-            "- on_axis_reverse: 1..5 for 'A=Rej is more target-like than B=Cho'\n"
-            "- off_axis_clean: 1..5 where 5 means little style/refusal/length confound\n"
+            "RATE EVERY CANDIDATE (you cannot select_pairs until all are rated):\n"
+            "- on_axis_variation_likert: 1..5, Cho-vs-Rej contrast ALONG the trait\n"
+            "- off_axis_variation_likert: 1..5, OFF-axis style/length/register variation\n"
+            "- confounding_likert: 1..5 structural defect (actor inversion, persona-echo, refusal)\n"
+            "- keep: true to train on it, false to opt out\n"
             "- comment: one sentence naming the real axis difference or the main confound\n\n"
             "If either pole gives the right principle to the wrong actor or victim, "
-            "omit it and name the actor-role inversion in the comment.\n\n"
-            "OMIT THIS SCENARIO unless forward>=3.5, reverse<=2.5, and clean>=3.0.\n\n"
-            "Next step: rate_candidate(survivor_id=..., on_axis_forward=..., "
-            "on_axis_reverse=..., off_axis_clean=..., comment=...)\n\n"
+            "keep=false and name the actor-role inversion in the comment.\n\n"
+            "Next step: rate_candidate(survivor_id=..., on_axis_variation_likert=..., "
+            "off_axis_variation_likert=..., confounding_likert=..., keep=..., comment=...)\n\n"
             f"CHO FULL:\n{cand['cho']}\n\n"
             f"REJ FULL:\n{cand['rej']}\n"
         )

@@ -92,9 +92,10 @@ def test_smoke_runs_end_to_end():
         assert row["template_library"] == (
             "wassname/persona-steering-template-library"
         )
-        assert row["on_axis_forward"] == 5.0, row
-        assert row["on_axis_reverse"] == 1.0, row
-        assert row["off_axis_clean"] == 4.0, row
+        assert row["on_axis_variation_likert"] == 5.0, row
+        assert row["off_axis_variation_likert"] == 1.0, row
+        assert row["confounding_likert"] == 1.0, row
+        assert row["keep"] is True, row
         assert row["comment"], row
     assert (rd / "selected_pair_review.md").exists()
 
@@ -308,9 +309,10 @@ def test_select_pairs_requires_prior_rating(tmp_path):
         rate_candidate(
             rd,
             survivor_id=survivor_id,
-            on_axis_forward=4.0,
-            on_axis_reverse=2.0,
-            off_axis_clean=4.0,
+            on_axis_variation_likert=4.0,
+            off_axis_variation_likert=2.0,
+            confounding_likert=1.0,
+            keep=True,
             comment="Cho is clearly more target-like than Rej.",
         )
     res = select_pairs(rd, lesson="x", survivor_ids=["s1c1", "s2c1", "s3c1"])
@@ -347,13 +349,14 @@ def test_rate_candidate_records_weak_omit_without_rejecting(tmp_path):
     res = rate_candidate(
         rd,
         survivor_id="s1c1",
-        on_axis_forward=2.0,
-        on_axis_reverse=2.0,
-        off_axis_clean=4.0,
+        on_axis_variation_likert=2.0,
+        off_axis_variation_likert=2.0,
+        confounding_likert=1.0,
+        keep=False,
         comment="Both responses are protective, so this should be omitted.",
     )
     assert res["passes"] is False
-    assert res["passing_survivors"] == []
+    assert res["n_keep"] == 0
     with pytest.raises(Exception):
         select_pairs(rd, lesson="x", survivor_ids=["s1c1"])
 
@@ -388,9 +391,10 @@ def test_rate_candidate_comment_misattribution_forces_omit(tmp_path):
     res = rate_candidate(
         rd,
         survivor_id="s12c1",
-        on_axis_forward=4.0,
-        on_axis_reverse=2.0,
-        off_axis_clean=4.0,
+        on_axis_variation_likert=4.0,
+        off_axis_variation_likert=2.0,
+        confounding_likert=1.0,
+        keep=True,
         comment="Rej misattribution: claims the djinn is coercing rather than the sorcerer coercing the djinn.",
     )
     assert res["passes"] is False
@@ -398,7 +402,7 @@ def test_rate_candidate_comment_misattribution_forces_omit(tmp_path):
     assert rows[0]["passes"] is False
 
 
-def test_rate_candidate_reports_unique_scenarios(tmp_path):
+def test_rate_candidate_reports_coverage(tmp_path):
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
@@ -459,31 +463,34 @@ def test_rate_candidate_reports_unique_scenarios(tmp_path):
     r1 = rate_candidate(
         rd,
         survivor_id="s1c1",
-        on_axis_forward=4.0,
-        on_axis_reverse=2.0,
-        off_axis_clean=4.0,
+        on_axis_variation_likert=4.0,
+        off_axis_variation_likert=2.0,
+        confounding_likert=1.0,
+        keep=True,
         comment="Pass from scenario 1.",
     )
     r2 = rate_candidate(
         rd,
         survivor_id="s1c2",
-        on_axis_forward=4.0,
-        on_axis_reverse=2.0,
-        off_axis_clean=4.0,
+        on_axis_variation_likert=4.0,
+        off_axis_variation_likert=2.0,
+        confounding_likert=1.0,
+        keep=True,
         comment="Another pass from scenario 1.",
     )
     r3 = rate_candidate(
         rd,
         survivor_id="s2c1",
-        on_axis_forward=4.0,
-        on_axis_reverse=2.0,
-        off_axis_clean=4.0,
+        on_axis_variation_likert=4.0,
+        off_axis_variation_likert=2.0,
+        confounding_likert=1.0,
+        keep=True,
         comment="Pass from scenario 2.",
     )
-    assert r1["passing_scenarios"] == [1]
-    assert r1["n_more_needed"] > 0
-    assert r2["passing_scenarios"] == [1]
-    assert r3["passing_scenarios"] == [1, 2]
+    # No per-scenario dedup: all three kept candidates count, coverage drives readiness.
+    assert r1["n_rated"] == 1 and r1["n_unrated"] == 2 and r1["ready_to_select"] is False
+    assert r2["n_unrated"] == 1
+    assert r3["n_unrated"] == 0 and r3["n_keep"] == 3 and r3["ready_to_select"] is True
 
 
 def test_mark_exam_requires_seat_evidence_when_scores_present(tmp_path):
@@ -509,7 +516,7 @@ def test_mark_exam_requires_seat_evidence_when_scores_present(tmp_path):
         )
 
 
-def test_rate_candidate_keeps_only_best_pass_per_scenario(tmp_path):
+def test_rate_candidate_keeps_all_kept_per_scenario(tmp_path):
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
@@ -552,25 +559,30 @@ def test_rate_candidate_keeps_only_best_pass_per_scenario(tmp_path):
     first = rate_candidate(
         rd,
         survivor_id="s1c1",
-        on_axis_forward=4.0,
-        on_axis_reverse=2.0,
-        off_axis_clean=4.0,
+        on_axis_variation_likert=4.0,
+        off_axis_variation_likert=2.0,
+        confounding_likert=1.0,
+        keep=True,
         comment="Good axis split.",
     )
     second = rate_candidate(
         rd,
         survivor_id="s1c2",
-        on_axis_forward=5.0,
-        on_axis_reverse=1.0,
-        off_axis_clean=5.0,
+        on_axis_variation_likert=5.0,
+        off_axis_variation_likert=1.0,
+        confounding_likert=1.0,
+        keep=True,
         comment="Stronger axis split.",
     )
-    assert first["passing_survivors"] == ["s1c1"]
-    assert second["passing_survivors"] == ["s1c2"]
+    # Both pairs from the same scenario are kept now (no per-scenario dedup):
+    # varied poles are extra training signal, not waste.
+    assert first["passes"] is True
+    assert second["passes"] is True
+    assert second["n_keep"] == 2
     rows = json.loads((rd / "candidate_ratings.json").read_text())
     by_id = {row["survivor_id"]: row for row in rows}
-    assert by_id["s1c1"]["passes"] is False
-    assert by_id["s1c1"]["superseded_by"] == "s1c2"
+    assert by_id["s1c1"]["passes"] is True
+    assert by_id["s1c2"]["passes"] is True
 
 
 def test_select_pairs_error_reports_remaining_shortlist(tmp_path):
@@ -603,12 +615,13 @@ def test_select_pairs_error_reports_remaining_shortlist(tmp_path):
     rate_candidate(
         rd,
         survivor_id="s1c1",
-        on_axis_forward=4.0,
-        on_axis_reverse=2.0,
-        off_axis_clean=4.0,
+        on_axis_variation_likert=4.0,
+        off_axis_variation_likert=2.0,
+        confounding_likert=1.0,
+        keep=True,
         comment="Good axis split.",
     )
-    with pytest.raises(Exception, match="Current passing shortlist covers 1 unique scenarios"):
+    with pytest.raises(Exception, match="only 1 selected pairs, need"):
         select_pairs(rd, lesson="x", survivor_ids=["s1c1"])
 
 

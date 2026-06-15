@@ -91,14 +91,17 @@ for item in candidates["items"]:
         assert cand["template_library"] == "wassname/persona-steering-template-library", cand
 choices = []
 for item in candidates["items"]:
-    survivor = next((c for c in item["candidates"] if c["kept"]), None)
-    if survivor:
+    # Coverage gate: rate EVERY kept candidate, not just one per scenario.
+    for survivor in item["candidates"]:
+        if not survivor.get("kept"):
+            continue
         rate_candidate(
             rd,
             survivor_id=survivor["survivor_id"],
-            on_axis_forward=5.0,
-            on_axis_reverse=1.0,
-            off_axis_clean=4.0,
+            on_axis_variation_likert=5.0,
+            off_axis_variation_likert=1.0,
+            confounding_likert=1.0,
+            keep=True,
             comment="smoke: kept survivor for structured selection plumbing",
         )
         choices.append(survivor["survivor_id"])

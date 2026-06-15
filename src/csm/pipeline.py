@@ -620,9 +620,10 @@ def _selected_pair_review(data: dict, selected: list[dict]) -> str:
         )
         lines.append(
             "teacher judgment: "
-            f"forward={row['on_axis_forward']:.1f} "
-            f"reverse={row['on_axis_reverse']:.1f} "
-            f"off_axis_clean={row['off_axis_clean']:.1f}"
+            f"keep={row['keep']} "
+            f"on_axis_var={row['on_axis_variation_likert']:.1f} "
+            f"off_axis_var={row['off_axis_variation_likert']:.1f} "
+            f"confounding={row['confounding_likert']:.1f}"
         )
         lines.append(f"teacher comment: {row['comment']}")
         if row["flags"]:
@@ -662,22 +663,36 @@ def _normalize_choice(choice: object) -> dict:
     if not isinstance(choice, dict):
         raise ValidationError(
             "rate_candidate: judgment must be an object with survivor_id, "
-            "on_axis_forward, on_axis_reverse, off_axis_clean, and comment"
+            "on_axis_variation_likert, off_axis_variation_likert, "
+            "confounding_likert, keep, and comment"
         )
     survivor_id = str(choice.get("survivor_id", "")).strip()
     if not survivor_id:
         raise ValidationError("rate_candidate: judgment is missing survivor_id")
-    forward = _likert_1_to_5(choice.get("on_axis_forward"), "on_axis_forward")
-    reverse = _likert_1_to_5(choice.get("on_axis_reverse"), "on_axis_reverse")
-    clean = _likert_1_to_5(choice.get("off_axis_clean"), "off_axis_clean")
+    # on_axis_variation: how strongly cho vs rej differ ALONG the target trait
+    #   (5 = a clean, strong contrast; cho is the more target-like pole).
+    # off_axis_variation: how much they differ OFF-axis in style/length/register
+    #   (5 = a big confound that would BECOME the trained axis; 1 = clean twins).
+    # confounding: structural defects (actor/victim inversion, persona-echo,
+    #   AI-disclaimer break, refusal) — 5 = severe, 1 = none.
+    on_axis = _likert_1_to_5(choice.get("on_axis_variation_likert"), "on_axis_variation_likert")
+    off_axis = _likert_1_to_5(choice.get("off_axis_variation_likert"), "off_axis_variation_likert")
+    confound = _likert_1_to_5(choice.get("confounding_likert"), "confounding_likert")
+    keep = choice.get("keep")
+    if not isinstance(keep, bool):
+        raise ValidationError(
+            "rate_candidate: keep must be a boolean — true = train on this pair, "
+            "false = opt out. You must decide keep for EVERY candidate."
+        )
     comment = str(choice.get("comment", "")).strip()
     if not comment:
         raise ValidationError("rate_candidate: comment must be non-empty")
     return {
         "survivor_id": survivor_id,
-        "on_axis_forward": forward,
-        "on_axis_reverse": reverse,
-        "off_axis_clean": clean,
+        "on_axis_variation_likert": on_axis,
+        "off_axis_variation_likert": off_axis,
+        "confounding_likert": confound,
+        "keep": keep,
         "comment": comment,
     }
 
@@ -697,13 +712,11 @@ def _comment_admits_role_inversion(comment: str) -> bool:
 
 
 def _judgment_passes(judgment: dict) -> bool:
-    return (
-        judgment["on_axis_forward"] >= 3.5
-        and judgment["on_axis_reverse"] <= 2.5
-        and judgment["off_axis_clean"] >= 3.0
-        and judgment["on_axis_forward"] - judgment["on_axis_reverse"] >= 1.0
-        and not _comment_admits_role_inversion(judgment["comment"])
-    )
+    # The teacher's keep decision is load-bearing (it rates and opts in/out of
+    # EVERY pair). The harness only hard-vetoes an actor/victim role inversion —
+    # the one confound the brief says is never subtle — so a keep=true that admits
+    # an inversion in its comment cannot slip through.
+    return bool(judgment["keep"]) and not _comment_admits_role_inversion(judgment["comment"])
 
 
 def _ratings_path(round_dir: Path) -> Path:
@@ -731,22 +744,6 @@ def _passing_survivors(ratings: dict[str, dict]) -> list[str]:
     ]
 
 
-def _passing_scenario_ids(ratings: dict[str, dict]) -> list[int]:
-    return sorted({
-        int(row["scenario_id"])
-        for row in ratings.values()
-        if row["passes"]
-    })
-
-
-def _judgment_sort_key(row: dict) -> tuple[float, float, float, float, str]:
-    return (
-        float(row["on_axis_forward"]),
-        -float(row["on_axis_reverse"]),
-        float(row["off_axis_clean"]),
-        float(row.get("template_score", 0.0)),
-        str(row["survivor_id"]),
-    )
 
 
 def _generic_pool_reason(items: list[dict]) -> str | None:
@@ -1025,9 +1022,9 @@ def read_candidate(round_dir: Path, *, survivor_id: str) -> dict:
     raise ValidationError(f"read_candidate: unknown survivor_id {survivor_id!r}")
 
 
-def rate_candidate(round_dir: Path, *, survivor_id: str, on_axis_forward: float,
-                   on_axis_reverse: float, off_axis_clean: float,
-                   comment: str) -> dict:
+def rate_candidate(round_dir: Path, *, survivor_id: str,
+                   on_axis_variation_likert: float, off_axis_variation_likert: float,
+                   confounding_likert: float, keep: bool, comment: str) -> dict:
     """Persist one teacher judgment for a surviving candidate pair."""
     require_state(round_dir, "select_pairs", "rate_candidate")
     cand_path = round_dir / "candidates.json"
@@ -1036,9 +1033,10 @@ def rate_candidate(round_dir: Path, *, survivor_id: str, on_axis_forward: float,
     data = json.loads(cand_path.read_text())
     judgment = _normalize_choice({
         "survivor_id": survivor_id,
-        "on_axis_forward": on_axis_forward,
-        "on_axis_reverse": on_axis_reverse,
-        "off_axis_clean": off_axis_clean,
+        "on_axis_variation_likert": on_axis_variation_likert,
+        "off_axis_variation_likert": off_axis_variation_likert,
+        "confounding_likert": confounding_likert,
+        "keep": keep,
         "comment": comment,
     })
     for item in data["items"]:
@@ -1071,35 +1069,27 @@ def rate_candidate(round_dir: Path, *, survivor_id: str, on_axis_forward: float,
                 "passes": _judgment_passes(judgment),
                 **judgment,
             }
-            if row["passes"]:
-                same_scenario = [
-                    prev for prev in ratings.values()
-                    if int(prev["scenario_id"]) == int(item["scenario_id"]) and prev["passes"]
-                ]
-                for prev in same_scenario:
-                    if _judgment_sort_key(prev) >= _judgment_sort_key(row):
-                        row["passes"] = False
-                        row["superseded_by"] = prev["survivor_id"]
-                        break
-                if row["passes"]:
-                    for prev in same_scenario:
-                        prev["passes"] = False
-                        prev["superseded_by"] = survivor_id
+            # No per-scenario dedup: we KEEP every pair the teacher keeps, even
+            # multiple per scenario (varied poles are extra coverage, not waste).
+            # The teacher must rate EVERY kept candidate, so report what is left.
             ratings[survivor_id] = row
             _write_ratings(round_dir, ratings)
+            all_kept = [c["survivor_id"] for it in data["items"]
+                        for c in it["candidates"] if c.get("kept")]
+            unrated = [sid for sid in all_kept if sid not in ratings]
             passing = _passing_survivors(ratings)
-            passing_scenarios = _passing_scenario_ids(ratings)
             cfg = config_for_run(json.loads((round_dir.parent / "run.json").read_text()))
             return {
                 "survivor_id": survivor_id,
                 "scenario_id": int(item["scenario_id"]),
-                "n_rated": len(ratings),
-                "passing_survivors": passing,
-                "passing_scenarios": passing_scenarios,
                 "passes": row["passes"],
-                "superseded_by": row.get("superseded_by"),
+                "n_rated": len(ratings),
+                "n_candidates": len(all_kept),
+                "n_unrated": len(unrated),
+                "unrated_survivor_ids": unrated,
+                "n_keep": len(passing),
                 "min_to_train": cfg.min_pairs_to_train,
-                "n_more_needed": max(0, cfg.min_pairs_to_train - len(passing_scenarios)),
+                "ready_to_select": len(unrated) == 0 and len(passing) >= cfg.min_pairs_to_train,
             }
     raise ValidationError(f"rate_candidate: unknown survivor_id {survivor_id!r}")
 
@@ -1118,11 +1108,20 @@ def select_pairs(round_dir: Path, *, lesson: str, survivor_ids: list[str]) -> di
     ratings = _load_ratings(round_dir)
     selected = []
     choice_log = []
-    seen_scenarios = set()
     by_survivor = {}
     for item in data["items"]:
         for cand in item["candidates"]:
             by_survivor[cand["survivor_id"]] = (item, cand)
+    # Coverage gate: the teacher must have rated EVERY kept candidate (a keep
+    # decision on each) before training — no proceeding on a cherry-picked subset.
+    all_kept = [sid for sid, (_, c) in by_survivor.items() if c.get("kept")]
+    unrated = [sid for sid in all_kept if sid not in ratings]
+    if unrated:
+        raise ValidationError(
+            f"select_pairs: {len(unrated)} of {len(all_kept)} kept candidates are "
+            f"unrated. Rate every candidate (keep=true to train on it, false to opt "
+            f"out) before selecting. Unrated: {unrated}"
+        )
     for raw_id in survivor_ids:
         survivor_id = str(raw_id).strip()
         if not survivor_id:
@@ -1145,11 +1144,6 @@ def select_pairs(round_dir: Path, *, lesson: str, survivor_ids: list[str]) -> di
             raise ValidationError(
                 f"select_pairs: {survivor_id} was pruned: {cand.get('flags')}"
             )
-        if sid in seen_scenarios:
-            raise ValidationError(
-                f"select_pairs: duplicate scenario {sid}; pick at most one survivor per scenario"
-            )
-        seen_scenarios.add(sid)
         row = {"prompt": item["prompt"], "cho": cand["cho"], "rej": cand["rej"]}
         selected.append(row)
         choice_log.append({
@@ -1176,13 +1170,10 @@ def select_pairs(round_dir: Path, *, lesson: str, survivor_ids: list[str]) -> di
     cfg = config_for_run(json.loads((round_dir.parent / "run.json").read_text()))
     if len(selected) < cfg.min_pairs_to_train:
         shortlist = _passing_survivors(ratings)
-        shortlist_scenarios = _passing_scenario_ids(ratings)
         raise ValidationError(
             f"select_pairs: only {len(selected)} selected pairs, need "
-            f"≥{cfg.min_pairs_to_train}. Current passing shortlist covers "
-            f"{len(shortlist_scenarios)} unique scenarios, so you still need "
-            f"{max(0, cfg.min_pairs_to_train - len(shortlist_scenarios))} more. "
-            f"Shortlist={shortlist}. Pick more survivor candidates or drop.")
+            f"≥{cfg.min_pairs_to_train}. {len(shortlist)} rated pairs have keep=true "
+            f"(={shortlist}); pass all of them, or rate/keep more, or drop the round.")
     pairs_path = round_dir / "pairs.md"
     write_gen_pairs(pairs_path, selected, lesson=lesson or data.get("axis") or LESSON_TODO)
     shutil.copy(pairs_path, round_dir / "pairs.md.bak")
@@ -2120,9 +2111,10 @@ def _rating_quotes(ratings: list[dict], *, want_pass: bool, limit: int = 3) -> l
         sid = row.get("survivor_id") or "?"
         comment = str(row.get("comment") or "").strip()
         score = (
-            f"fwd={row.get('on_axis_forward', '—')}, "
-            f"rev={row.get('on_axis_reverse', '—')}, "
-            f"clean={row.get('off_axis_clean', '—')}"
+            f"keep={row.get('keep', '—')}, "
+            f"on_axis_var={row.get('on_axis_variation_likert', '—')}, "
+            f"off_axis_var={row.get('off_axis_variation_likert', '—')}, "
+            f"confound={row.get('confounding_likert', '—')}"
         )
         line = f"{sid} | {score}"
         if comment:
