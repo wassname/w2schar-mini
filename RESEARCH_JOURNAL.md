@@ -50,13 +50,18 @@ n_rounds=5). pueue-67, ~3.3h, commit 9ba4853. Slug
 - **Calibration is NOT the bottleneck.** Every kept round baked `signed_C=+1.0`
   (full init strength); the c_scan walk was `[0.0, 1.0, 1.0]` — it tested c=1.0,
   passed the canary, never walked down. The weak effect is at FULL strength.
-- **Validation loss did NOT go down.** `val nll+` (the nll(cho)/nll(rej) difficulty
-  ratio; should descend toward ~1) stayed high and flat across all 18 trained rounds:
-  5.33, 8.3, 5.76, 5.34, 3.57, 5.94, 5.2→5.6, 4.08, 3.93→4.03, ... 2.87 — `best==last`,
-  several with best at **step 0** (training made val slightly WORSE). The adapter never
-  learned a transferring direction.
-- **Thin training: exactly 6 pairs / 6 steps every round** (= the `min_pairs_to_train=6`
-  floor; selection_audit selected=6 each). Too few steps to find a direction.
+- **Validation loss descends, but PLATEAUS HIGH.** Kept rounds (all best_step=5)
+  improve `val nll+` (the nll(cho)/nll(rej) ratio; should descend toward ~1) by only
+  0.068–1.637 from step0, ending at a still-high absolute 2.87–6.0. round18 (the last
+  keep) barely cleared the `min_val_improvement=0.05` gate at 0.068. So cho stays 3-6x
+  harder to produce than rej even after training — a weak, lopsided direction, not a
+  null one. (5 of the 14 drops failed the pipeline's `best_step==0` guard, pipeline.py
+  1813: their val-min was the untrained step-0 snapshot — an early-stop warmup bug,
+  fixed below.)
+- **Thin training: exactly 6 pairs / 6 steps every round** — NOT a survival limit. round18
+  generated 70 candidate pairs, 55 flag-clean, but the TEACHER submitted only 6 (=
+  `min_pairs_to_train` floor; selection_audit selected=6 each). The teacher selects the
+  bare minimum, discarding ~50 clean pairs. 6 steps is far too few to descend val far.
 - **The cho pole is OFF-POLICY.** pairs.md: every Cho is the same template — "immediately
   confronts / halts / calls for ... publicly document" — while every Rej is gemma-3-4b's
   NATURAL diplomatic hedge ("I'd subtly suggest..."). The teacher's lessons drove this:

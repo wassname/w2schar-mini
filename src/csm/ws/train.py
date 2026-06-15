@@ -565,13 +565,16 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
     val_traces: list[dict] = []
     _VAL_EVERY = 30
     _VAL_PATIENCE = 3   # stop after 3 val-checks (=90 steps) with no val-nll+ gain
-    warmup_steps = int(cfg.warmup_ratio * cfg.steps)
+    warmup_steps = max(1, int(cfg.warmup_ratio * cfg.steps))
     # Early-stop = deploy the weights at the val-nll+ MINIMUM, AND actually halt
     # once val-nll+ stops improving — no point spending compute past the min only
     # to memorize the train pairs (gemma task-31 val+ 2.76→2.89 flat then
     # detonates; task-38 1.74→10.2). val_nll+ is the +C pole we bake/deploy. We
-    # only arm the patience break after warmup (lr has peaked), so an early
-    # non-improvement while the adapter is still engaging cannot stop it.
+    # gate BOTH the best-state snapshot and the patience break on warmup (lr has
+    # peaked): pre-warmup the adapter is still near its B=0 init, so a step-0
+    # val-min would otherwise deploy a ~null adapter (gemma-3-4b run: several kept
+    # rounds banked best_step=0 = no intervention; RJ 2026-06-16). warmup_steps>=1
+    # so even a tiny step budget excludes the untrained snapshot.
     best_val_pos = float("inf")
     best_state: list[torch.Tensor] | None = None
     stale = 0           # consecutive post-warmup val-checks with no improvement
@@ -625,7 +628,7 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             val_traces.append({"step": step,
                                "train_nll+": trace["L_pos_nll"], "val_nll+": v_cho,
                                "train_nll-": trace["L_neg_nll"], "val_nll-": v_rej})
-            if v_cho < best_val_pos:
+            if v_cho < best_val_pos and step >= warmup_steps:
                 best_val_pos = v_cho
                 best_state = [p.detach().clone() for p in params]
                 stale = 0
@@ -646,7 +649,11 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
     best_step = None
     step0_val_pos = None
     if val_traces:
-        best_step = min(val_traces, key=lambda t: t["val_nll+"])["step"]
+        # best_step must match the DEPLOYED weights: only post-warmup checks are
+        # eligible for best_state, so rank over the same window (else a step-0
+        # global min would mislabel the deploy).
+        eligible = [t for t in val_traces if t["step"] >= warmup_steps] or val_traces
+        best_step = min(eligible, key=lambda t: t["val_nll+"])["step"]
         step0_val_pos = val_traces[0]["val_nll+"]
     if best_state is not None:
         last_step = val_traces[-1]["step"]

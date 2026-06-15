@@ -791,6 +791,12 @@ CONFIGS["gemma-4b-3keep"] = replace(
     model="google/gemma-3-4b-it",
     restrict_validated_prompts=False,
     n_rounds=5,
+    # Calibrate from C=2 and let c_scan walk down (x2/3) instead of pinning at the
+    # init: the first 4b run baked signed_C=1.0 every round (the walk only tested
+    # c=1.0) and tinymfv barely moved, so try a stronger deploy and let the canary
+    # find the ceiling. (Training still pins train-C=1.0; this only widens the
+    # deploy-strength search above the trained point.)
+    signed_C=2.0,
 )
 
 
