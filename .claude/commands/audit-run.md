@@ -46,13 +46,38 @@ level. Quote primary sources; never trust the teacher's own summary.
    moral character and the wisdom of when to act, NOT a refuse-authority reflex. If
    every cho refuses and every prompt is an authority issuing a bad order, the axis
    has collapsed onto the one trigger the brief said to avoid — say so.
+   CROSS-ROUND drift (do not skip): read every kept round's `lesson` in sequence.
+   Relabelled persona_pairs (fairness, then wellbeing, then autonomy) that all
+   share ONE underlying trigger (e.g. confront-vs-defer) = the run is stuck even
+   though each round looks novel. Also check whether the REJ pole drifts onto the
+   same behaviour as Cho across rounds (by the last keep, do both poles confront?
+   then the contrast is gone). This trajectory view is the highest-signal §1 check.
 2. Pairs — quote 2-3 (cho, rej) and check against `docs/how_to_rewrite_pairs.md`:
    twins in length/register/format, differing only in the trait; no persona-echo,
    no AI-disclaimer breaks. Measure cho vs rej length (cheap python over pairs.md);
    a systematic length/verbosity gap becomes the axis.
+2b. Selection funnel — reconcile the candidate counts across
+   `roundNN/candidates.json` (`items[].candidates`, with `kept`/`flags`) and
+   `roundNN/selection_audit.json` (`rated`, `passes`, `selected`). Three numbers
+   must add up: generated → flag-clean (`kept=true`) → rated → kept/selected.
+   - A drop between flag-clean and RATED = a silent leak: clean candidates the
+     teacher never even looked at (real run: r17 generated 14, rated only 8).
+   - clean ≫ selected (e.g. 55 clean, 6 selected) = the teacher cherry-picked the
+     bare minimum; that starves training (few pairs → memorisation, §3f). Flag it.
+   This funnel is where "the harness only trained on 6 pairs" hides; an audit that
+   skips it will misread thin training as a pool problem.
 3. Training — quote the FULL per-step train table, then answer these five (the
    highest-signal training questions from real audits; cols: `nll+`=nll(cho|+C),
-   `nll-`=nll(rej|-C), both raw mean NLL, both should descend). They are NOT
+   `nll-`=nll(rej|-C), both raw mean NLL, both should descend). ARTIFACT CAVEAT:
+   short profiles log only `train_summary` (train/val nll± at step 0 + best_step,
+   NO g_nll/g_kl/kl±/cos/‖Δs‖ columns); the full log has them only if the run was
+   long. If a column is absent, SAY SO and fall back to nll-ratio + val_improvement
+   — do not invent a gradient-handover/kl-trajectory analysis from data that isn't
+   there. Also read `n_train_pairs`/`n_val_pairs`: val_nll+ over `n_val=1` is a
+   ONE-SAMPLE number — a 0.07 "improvement" is noise, not signal (lens f). And
+   nll+ ALONE is an absolute nat value, not a ratio: compute nll+/nll- yourself
+   for lens (a), do not read a high absolute val_nll+ (e.g. 5.3) as "cho 5x off."
+   They are NOT
    mutually exclusive and NOT exhaustive: they overlap (off-policy cho surfaces
    in a, c, AND e at once) and they don't cover every failure — treat them as
    complementary lenses, and add your own if the trace shows something they miss:
@@ -125,11 +150,25 @@ level. Quote primary sources; never trust the teacher's own summary.
      collapsed). When neither gate moved off baseline, doubt the probe
      distribution before trusting the ceiling — esp. that the canary is
      multi-turn (deployment is multi-turn; a single-turn-only canary is blind to
-     cross-turn collapse).
+     cross-turn collapse). CONCRETE DEFAULT: if the trace has only 2 rows (c=0 and
+     one probe c) and pmass moves by <1e-3 between them (e.g. 0.99997→0.99998),
+     the canary is BLIND — treat signed_C as UN-validated, not banked-good. A
+     cscan_trace missing the json/rep columns means the multi-turn coherence
+     canary did not run at all; say so and do not trust the ceiling.
    - Ballooning `len` = the incoherence failure mode leaking in.
-5. Keep/drop — quote the `reason`, then read the interview_pre/post turns yourself.
-   Did PRE actually differ from POST the way claimed, or is the cited "movement"
-   paraphrase or a dropped hedge (a confound the brief says to reject)?
+5. Keep/drop — quote the keep `reasoning` (the populated key; `reason` is often
+   empty), then read the interview_pre/post turns yourself. Did PRE actually
+   differ from POST the way claimed, or is the cited "movement" paraphrase or a
+   dropped hedge (a confound the brief says to reject)? CONCRETE RECIPE: diff the
+   PRE vs POST text for the cited seat. If the scaled rating is identical and the
+   prose is a synonym swap + reordered bullets (e.g. "visual metric"→"visual
+   statistic"), it is PARAPHRASE — score it drop regardless of the teacher's
+   claimed new clause. A keep with movement_mean=0.0 or val_improvement≈the floor
+   (e.g. 0.068 vs a 0.05 gate) is banking noise; flag every such keep.
+   Independent-eval cross-check: compare round00 BASE top1_acc to the final round's
+   BASE top1_acc (`eval.json`). If the base itself drifts DOWN as kept adapters
+   compose (e.g. 0.886→0.841), the composed stack is a net regression, not just
+   "noise" — worse than no movement.
 
 ### Common misdiagnoses (from real audits — don't repeat them)
 - "No headroom, the student is already deep." Usually wrong: there is a lot to

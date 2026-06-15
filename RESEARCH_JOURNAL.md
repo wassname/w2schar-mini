@@ -47,45 +47,54 @@ n_rounds=5). pueue-67, ~3.3h, commit 9ba4853. Slug
 
 ### Why the interventions are weak (audit of the 5 kept rounds)
 
-- **Calibration is NOT the bottleneck.** Every kept round baked `signed_C=+1.0`
-  (full init strength); the c_scan walk was `[0.0, 1.0, 1.0]` — it tested c=1.0,
-  passed the canary, never walked down. The weak effect is at FULL strength.
-- **Validation loss descends, but PLATEAUS HIGH.** Kept rounds (all best_step=5)
-  improve `val nll+` (the nll(cho)/nll(rej) ratio; should descend toward ~1) by only
-  0.068–1.637 from step0, ending at a still-high absolute 2.87–6.0. round18 (the last
-  keep) barely cleared the `min_val_improvement=0.05` gate at 0.068. So cho stays 3-6x
-  harder to produce than rej even after training — a weak, lopsided direction, not a
-  null one. (5 of the 14 drops failed the pipeline's `best_step==0` guard, pipeline.py
-  1813: their val-min was the untrained step-0 snapshot — an early-stop warmup bug,
-  fixed below.)
+CORRECTION (cold `/audit-run` by a fresh subagent caught two errors in my first
+freehand pass; both fixed below):
+
 - **Thin training: exactly 6 pairs / 6 steps every round** — NOT a survival limit. round18
   generated 70 candidate pairs, 55 flag-clean, but the TEACHER submitted only 6 (=
-  `min_pairs_to_train` floor; selection_audit selected=6 each). The teacher selects the
-  bare minimum, discarding ~50 clean pairs. 6 steps is far too few to descend val far.
-- **The cho pole is OFF-POLICY.** pairs.md: every Cho is the same template — "immediately
-  confronts / halts / calls for ... publicly document" — while every Rej is gemma-3-4b's
-  NATURAL diplomatic hedge ("I'd subtly suggest..."). The teacher's lessons drove this:
-  "fairness requires confronting bias publicly", "ACTUALLY OVERRIDING authority". So the
-  high non-descending nll+ (5-8) means the adapter mostly learns to SUPPRESS the on-policy
-  rej (easy) not PRODUCE the off-policy cho (hard) — lopsided "not-that" steering.
-- Personas/descriptors themselves are reasonable and on-axis (e.g. "applies the same
-  standard openly" vs "manipulates rules ... deniability"); the neg produces an excellent
-  on-policy rej. The failure is the POS target landing on a confrontation template far
-  from the base register.
+  `min_pairs_to_train` floor; selection_audit selected=6 each), discarding ~50 clean
+  pairs. The audit also found a SILENT LEAK: r17 generated 14 candidates but only 8 were
+  ever rated. So training ran on **n_train=5, n_val=1** every round.
+- **Both poles are equally off-manifold — NOT an asymmetric off-policy cho (my earlier
+  claim was wrong).** The nll+/nll- RATIO is 0.7–1.4 across kept rounds (balanced; the
+  rubric's ≥10x asymmetric-editing flag never fires). The high numbers I cited (5.3,
+  3.7, 2.9) are ABSOLUTE val nll on the cho pole in nats, not a cho/rej ratio. So the
+  pathology is **memorisation from 5 train / 1 val pair**, not lopsided suppress-the-seed.
+  val_nll+ over n_val=1 is a one-sample number; round18's 0.068 "improvement" is noise.
+- **Calibration: the canary is BLIND, not "fine at full strength" (also a correction).**
+  Every kept round banked `signed_C=1.0`, but the c_scan trace has only 2 rows and pmass
+  moves 0.99997→0.99998 (1e-5) between c=0 and c=1 — the probe cannot SEPARATE the adapter
+  from base. signed_C=1.0 is UN-validated, not safe-at-full-strength. (This is exactly
+  the rubric's §4 case-2; my "calibration is not the bottleneck" was backwards.)
+- **Axis collapsed onto confront-vs-defer (the documented failure mode).** Three
+  relabelled persona_pairs (fairness→wellbeing→autonomy) share one trigger; by round18
+  even the REJ pole confronts the authority, so the contrast is gone. The agent's own
+  next_focus notes ("ACTUALLY OVERRIDING authority", "confront publicly") show the drift.
+- **Two keeps are paraphrase, not movement.** r12 (movement_mean=0.0) and r18 banked
+  near-verbatim PRE/POST (synonym swaps, reordered bullets) — the confound the brief says
+  to reject. The keep-gate banked noise.
+- **Independent eval net-regresses.** round00 BASE top1=0.886 → round18 BASE top1=0.841 as
+  kept adapters compose; r18 POST 0.864 < r00 base. Worse than flat.
+- **The early-stop warmup bug** dropped ~5 rounds (best_step==0 guard, pipeline.py:1813,
+  fired on the untrained step-0 snapshot) — fixed below.
 
-Root cause: the teacher reads the 4B's natural diplomatic/observing disposition as the
-deficiency and targets a CONFRONTATION template that is off-policy, so a 6-pair/6-step
-adapter can't close the gap (val nll+ 4-6, non-descending) → a weak lopsided direction
-that barely moves tinymfv even at c=1.0. Compounds: thin pairs × off-policy target.
+Root cause (three compounding, none "off-policy cho"): (1) the SELECTION starves training
+to 5 train / 1 val pair (teacher cherry-picks the min of ~55 clean; r17 leaks 6 unrated),
+so the adapter memorises rather than learns a transferable direction; (2) the c_scan canary
+is BLIND (pmass moves 1e-5), so signed_C=1.0 is banked un-validated; (3) the AXIS collapses
+to confront-vs-defer, so even when it does steer, it steers toward the warned-against reflex
+and the keep-gate banks paraphrase. Net: tinymfv flat / base net-regresses.
 
-### Next
+### Next (fixes already landed: selection rate-all + no-dedup 5054075, early-stop warmup +
+signed_C=2 fa9199c; audit-run.md rubric improved with the funnel/blind-canary/paraphrase checks)
 
-- Keep cho closer to the student's voice (less confrontation-template editing) so nll+
-  starts lower and can descend — this is a `prompts.py` brief fix (push the agent off the
-  confront/override reflex), the same surface-behaviour problem the 14 drops show.
-- Raise the per-round pair count above the 6 floor (expand pool / loosen the gate) so
-  training gets more than 6 steps.
-- Read interview_pre/post on the 5 kept rounds (depth probe) to confirm reflex vs wisdom.
+- Re-run on gemma-3-4b with the selection fix (more pairs → test memorisation hypothesis),
+  signed_C=2 walk-down (test the blind-canary / does a stronger c separate), and read
+  whether val nll+ descends with n_train ≫ 5 and a real n_val.
+- Diversify scenarios so the wise move is sometimes NOT confrontation (break the axis
+  collapse) — a `prompts.py`/`choose_focus` + pool change.
+- Long pairs: the "one or two sentences" suffix in all 64 prompts caps poles short; test
+  whether length-affording prompts give more signal per pair.
 
 ---
 
