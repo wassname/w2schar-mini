@@ -36,30 +36,51 @@ n_rounds=5). pueue-67, ~3.3h, commit 9ba4853. Slug
 - **Objective tinymfv eval (round18, same n_history=4, c=1.0 vs c=0 base): flat.**
   care +0.011, liberty +0.002, fairness -0.006, rest within +/-0.017 — at the
   max_think_tokens=64 noise floor. The full-strength adapter barely shifts the
-  forced-choice foundations. (Caveat: tinymfv is the coarse forced-choice probe the
-  project flags as action-saturating; flat here is suggestive, not decisive — the
-  depth read is interview_pre/post, not yet analysed.)
+  forced-choice foundations. tinymfv is the sensitive third-person Clifford
+  psychometric measure (CLAUDE.md: "this is exactly how tinymfv already works"), so
+  this flatness is real evidence of a weak intervention on the trusted probe.
 - **Agent fixated on a "confrontation" lexicon.** next_focus notes across rounds:
   "single lexicon breakthrough", "4-word LOCKED pattern needs domain_reset", "ACTUAL
   authority confrontation". This is the surface-reflex collapse CLAUDE.md warns against
   (the axis degenerating into a less-authority/confront reflex), visible in the agent's
   own monologue.
 
-### Inference
+### Why the interventions are weak (audit of the 5 kept rounds)
 
-The harness is mechanically unblocked on feasible hardware: it reaches its keep target
-on a coherent 4B where the 2B starved. But "runs well" is qualified — 26% keep rate,
-autonomy-carried, a zero-movement keep, and an objective eval that is flat at full
-strength. Whether the kept adapters are real character or a confrontation reflex is
-genuinely uncertain from these artifacts and needs the depth interview_pre/post read,
-which is the project's preferred measure. The mark_exam keep-gate looks too noisy to
-trust per-round.
+- **Calibration is NOT the bottleneck.** Every kept round baked `signed_C=+1.0`
+  (full init strength); the c_scan walk was `[0.0, 1.0, 1.0]` — it tested c=1.0,
+  passed the canary, never walked down. The weak effect is at FULL strength.
+- **Validation loss did NOT go down.** `val nll+` (the nll(cho)/nll(rej) difficulty
+  ratio; should descend toward ~1) stayed high and flat across all 18 trained rounds:
+  5.33, 8.3, 5.76, 5.34, 3.57, 5.94, 5.2→5.6, 4.08, 3.93→4.03, ... 2.87 — `best==last`,
+  several with best at **step 0** (training made val slightly WORSE). The adapter never
+  learned a transferring direction.
+- **Thin training: exactly 6 pairs / 6 steps every round** (= the `min_pairs_to_train=6`
+  floor; selection_audit selected=6 each). Too few steps to find a direction.
+- **The cho pole is OFF-POLICY.** pairs.md: every Cho is the same template — "immediately
+  confronts / halts / calls for ... publicly document" — while every Rej is gemma-3-4b's
+  NATURAL diplomatic hedge ("I'd subtly suggest..."). The teacher's lessons drove this:
+  "fairness requires confronting bias publicly", "ACTUALLY OVERRIDING authority". So the
+  high non-descending nll+ (5-8) means the adapter mostly learns to SUPPRESS the on-policy
+  rej (easy) not PRODUCE the off-policy cho (hard) — lopsided "not-that" steering.
+- Personas/descriptors themselves are reasonable and on-axis (e.g. "applies the same
+  standard openly" vs "manipulates rules ... deniability"); the neg produces an excellent
+  on-policy rej. The failure is the POS target landing on a confrontation template far
+  from the base register.
+
+Root cause: the teacher reads the 4B's natural diplomatic/observing disposition as the
+deficiency and targets a CONFRONTATION template that is off-policy, so a 6-pair/6-step
+adapter can't close the gap (val nll+ 4-6, non-descending) → a weak lopsided direction
+that barely moves tinymfv even at c=1.0. Compounds: thin pairs × off-policy target.
 
 ### Next
 
-- Read interview_pre/post on the 5 kept rounds (depth probe) to decide reflex vs wisdom.
-- The 14 drops + confrontation fixation suggest the brief still steers the agent toward
-  surface behaviour; revisit `prompts.py` choose_focus guidance.
+- Keep cho closer to the student's voice (less confrontation-template editing) so nll+
+  starts lower and can descend — this is a `prompts.py` brief fix (push the agent off the
+  confront/override reflex), the same surface-behaviour problem the 14 drops show.
+- Raise the per-round pair count above the 6 floor (expand pool / loosen the gate) so
+  training gets more than 6 steps.
+- Read interview_pre/post on the 5 kept rounds (depth probe) to confirm reflex vs wisdom.
 
 ---
 
