@@ -777,17 +777,18 @@ CONFIGS["tiny-t-27b"] = replace(CONFIGS["tiny"], teacher="qwen/qwen3.5-27b")
 CONFIGS["qwen27b-w2s"] = replace(
     CONFIGS["qwen-27b-nf4"], teacher="qwen/qwen3.5-27b", signed_C=1.0)
 
-# The 3+/5-keep demonstration on a >=8B student. qwen-2b-3keep established the
-# gate-floor fix (min_pairs_to_train=6 fits the ~8/axis pool, task-50) but a 2B
-# loops ~80% so never fills the batch regardless of prompt quality
-# (memory: gate-floor-exceeds-per-axis-pool). gemma-2-9b clears that loop blocker
-# (an 8B screen ran 82% clean). All three axes ON (restrict_validated_prompts=False:
-# the screen was decorrelated with 2B collapse, and the 9b doesn't need it). nf4
-# fits 24GB beside co-tenant jobs; LoRA is forced by nf4. n_rounds=5 to read keeps/5.
-CONFIGS["gemma-9b-3keep"] = replace(
+# The 3+/5-keep demonstration. qwen-2b-3keep established the gate-floor fix
+# (min_pairs_to_train=6 fits the ~8/axis pool, task-50) but a 2B loops ~80% so
+# never fills the batch (memory: gate-floor-exceeds-per-axis-pool). The fix is a
+# more coherent student -- but a 9b does NOT fit this 24GB box. gemma-3-4b-it is
+# the largest CACHED instruct student that does (bf16 ~8GB), and it is a 2025
+# model far less loop-prone than Qwen3.5-2B. Same gemma-3 path as the working
+# gemma-12b profile. All three axes ON (restrict_validated_prompts=False: the
+# screen was decorrelated with 2B collapse and a 4B does not need it). n_rounds=5
+# to read keeps/5.
+CONFIGS["gemma-4b-3keep"] = replace(
     CONFIGS["qwen-2b-3keep"],
-    model="google/gemma-2-9b-it",
-    quant="nf4",
+    model="google/gemma-3-4b-it",
     restrict_validated_prompts=False,
     n_rounds=5,
 )
