@@ -14,6 +14,11 @@ Lessons
      neg: "defers to authority even when others' wellbeing suffers for it"
 7. Avoid mixing axes — one axis per (pos, neg) pair.
 8. Match style/format/length across cho/rej — otherwise style competes with content.
+9. Test the template as well as the persona. A useful template has a `{persona}`
+   slot and can bind the persona to a behavior channel: acting in the world,
+   judging what to do, thinking through the situation, making statements, or
+   understanding the situation. These can work differently from bare identity
+   prompts like "You are a {persona} person."
 ```
 
 ## What the literature does
@@ -28,6 +33,14 @@ The framings they share are state ("act as if extremely high"), trait
 harm"), and behavioural directive ("your responses should demonstrate
 evil intentions"). Meta-value framings ("you value X as an intrinsic
 good") do not appear in any of these.
+
+For template libraries, keep persona and behavior channel separate:
+`{persona}` is the pole ("honest", "untruthful", "careful"), while the
+template says how to express it ("acting in the world", "judging what to do",
+"thinking through the situation", "making statements about the world",
+"understanding the situation"). Validate templates across at least two persona
+pairs; a template that only works for one ornate pp/pn string is not a reusable
+template.
 
 Literature wins on conflicts. If a tentative observation below
 contradicts a literature rule, drop the observation.

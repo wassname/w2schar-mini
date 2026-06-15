@@ -816,6 +816,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         family=scenario_family,
         required_axes=required_axes,
         forbidden_axes=forbidden_axes,
+        validated_only=cfg.restrict_validated_prompts,
     )
     prompts = [r["text"] for r in scenario_rows]
     if not all(set(row.get("axes", ())) & set(required_axes) for row in scenario_rows):

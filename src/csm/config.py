@@ -179,6 +179,13 @@ class RunConfig:
     tiny-random, whose random-weight output is non-ascii gibberish by design and
     would be 100% culled (the detector is validated on real task-46 collapse, not
     on tiny). See pipeline._degenerate_gen."""
+    restrict_validated_prompts: bool = False
+    """Restrict the character family to prompts that survived the OpenRouter screen
+    (scripts/validate_persona_axes_openrouter.py -> pool_validated.json). Removes
+    length-skewed / no-contrast prompts but, with the current ~8-prompt-per-axis
+    pool, also pushes the thin axes (care, fairness) below min_pairs_to_train --
+    only the rich autonomy axis survives. OFF by default; on only where the pool is
+    rich enough or the run is autonomy-focused. See prompts_pool.VALIDATED_PROMPTS."""
     gen_max_new_tokens: int = 600
     """Per-pole on-policy gen budget under the persona prefix. 600 (~2.4k chars)
     not 2048: the verbose pos-pole (e.g. "weigh who is affected") ran to ~800
@@ -643,7 +650,18 @@ CONFIGS: dict[str, RunConfig] = {
         n_headroom_prompts=20,
         n_train_pairs=20,
         n_candidate_pairs=5,
-        min_pairs_to_train=10,
+        # The pool holds only ~8 prompts per moral axis (care=8, fairness=8,
+        # autonomy=18); choose_focus samples one axis at a time (PAIR_REQUIRED_AXES),
+        # so a floor of 10 made wellbeing_authority/fairness_integrity structurally
+        # unsatisfiable -- every round dropped on the gate (task-50). 6 fits the
+        # pool; expand pool.jsonl per axis to raise it back.
+        min_pairs_to_train=6,
+        # Use only screen-validated prompts (pool_validated.json). WARNING: with the
+        # thin pool this leaves only autonomy_coercion (11) above min; care (5) and
+        # fairness (2) starve -- fine for an autonomy-focused run, flip to False for
+        # all three axes. Either way needs an >=8B student: a 2B loops ~80% (degenerate)
+        # and never fills the batch regardless of prompt quality (the real blocker).
+        restrict_validated_prompts=True,
         n_val_pairs=4,
         min_val_improvement=0.05,
         n_rounds=3,
@@ -758,6 +776,21 @@ CONFIGS["tiny-t-27b"] = replace(CONFIGS["tiny"], teacher="qwen/qwen3.5-27b")
 # known-good band from the gemma breakthrough (c_scan walks down from here).
 CONFIGS["qwen27b-w2s"] = replace(
     CONFIGS["qwen-27b-nf4"], teacher="qwen/qwen3.5-27b", signed_C=1.0)
+
+# The 3+/5-keep demonstration on a >=8B student. qwen-2b-3keep established the
+# gate-floor fix (min_pairs_to_train=6 fits the ~8/axis pool, task-50) but a 2B
+# loops ~80% so never fills the batch regardless of prompt quality
+# (memory: gate-floor-exceeds-per-axis-pool). gemma-2-9b clears that loop blocker
+# (an 8B screen ran 82% clean). All three axes ON (restrict_validated_prompts=False:
+# the screen was decorrelated with 2B collapse, and the 9b doesn't need it). nf4
+# fits 24GB beside co-tenant jobs; LoRA is forced by nf4. n_rounds=5 to read keeps/5.
+CONFIGS["gemma-9b-3keep"] = replace(
+    CONFIGS["qwen-2b-3keep"],
+    model="google/gemma-2-9b-it",
+    quant="nf4",
+    restrict_validated_prompts=False,
+    n_rounds=5,
+)
 
 
 def config_by_model(model_id: str) -> RunConfig:

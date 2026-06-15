@@ -12,13 +12,13 @@ single happy path, fail-fast research code.
 ## What it does
 
 A small teacher LLM (qwen3.5-9b via OpenRouter, driven by inspect-ai
-react) takes the student's own answers under a "goes along with what's
-asked" disposition as the steered-away `rej` pole and writes a deepened
-`cho` twin that engages the moral substance, the harness samples on-policy
-completions, trains one **conditioned LoRA**
-adapter (`c ∈ [-1, 1]`, c=0 ≡ base) with NLL+KL path loss, picks the
-largest coherent `|C|` via a pmass canary, and replays a probe set pre/post
-for the teacher to judge keep/drop.
+react) chooses a character axis and scenario-library family. The harness
+samples scenarios, filters a frozen persona-template library toward the axis,
+has the student generate multiple `(cho, rej)` candidate pairs, and asks the
+teacher to select whole generated pairs rather than write prose. It then trains
+one **conditioned LoRA** adapter (`c ∈ [-1, 1]`, c=0 ≡ base) with NLL+KL path
+loss, picks the largest coherent `|C|` via canaries, and replays a probe set
+pre/post for the teacher to judge keep/drop.
 Kept adapters compose into the next round via a gated history hook;
 base weights are never modified.
 
@@ -34,7 +34,7 @@ for round in 0..N:
     model, history_bake = load_base_with_history(model_id, kept)
     # gate: history active iff new round's c≠0  → c=0 KL ref is pristine base.
     A, B = small_random_asymmetric()
-    propose → curate → judge      # (see teacher prompt for the agent's view)
+    choose_focus → select_pairs → train → judge
     if judgment.action == "keep": kept.append(round)
 
 # ── inner train step (per (cho, rej) at c=±C, C ~ U(0, 1]) ────────────
@@ -92,20 +92,18 @@ raises on an illegal pissa+nf4 combination rather than silently picking one.
 
 ## Migration / new machine
 
-`pyproject.toml` pins tinymfv as an editable path dependency at
-`/workspace/lite/tinymfv`. On a new box `uv sync` fails until that path points
-at a real tinymfv checkout (clone it there, or edit the path). The run history
-lives in `RESEARCH_JOURNAL.md`; `out/` is gitignored and does not travel.
+`pyproject.toml` pulls tinymfv from its upstream git repo. The run history lives
+in `RESEARCH_JOURNAL.md`; `out/` is gitignored and does not travel.
 
 ## Differences vs `weight-steering-lite`
 
 | | wsl | mini |
 |---|---|---|
 | axes | free-form (7 moral foundations) | teacher-chosen per round, target = principled moral character (watch for collapse to a "less authority" reflex) |
-| pairs/round | 200 | 15 (on-policy `rej` from student, teacher writes twinned `cho`) |
+| pairs/round | 200 | 15 selected from student-generated persona-template candidates |
 | eval | inline tinymfv per round + Likert | post-hoc `csm eval` (tinymfv, 132 vignettes × 1 condition) + c-scan |
-| tools | dialogue, gen, edit, drop, read, train, pass, exit_interview (+local_bash) | submit_pairs (cho_form: Lesson + cho twins), train_student, mark_exam |
-| state | implicit (any tool any time) | submit_pairs → train_student → mark_exam → done (enforced) |
+| tools | dialogue, gen, edit, drop, read, train, pass, exit_interview (+local_bash) | choose_focus, read_candidate, select_pairs, train_student, mark_exam |
+| state | implicit (any tool any time) | choose_focus → select_pairs → train_student → mark_exam → done (enforced) |
 | code | ~7,000 LoC | ~1.5K LoC |
 
 Everything else (CWS math, history bake, PCGrad, KL anchor, agent-as-

@@ -216,11 +216,13 @@ def sample_prompt_rows(
     family: str,
     required_axes: tuple[str, ...] = (),
     forbidden_axes: tuple[str, ...] = (),
+    validated_only: bool = False,
 ) -> list[dict]:
     rows = rows_for_family(
         family,
         required_axes=required_axes,
         forbidden_axes=forbidden_axes,
+        validated_only=validated_only,
     )
     rng = random.Random(seed)
     rng.shuffle(rows)
