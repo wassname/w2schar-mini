@@ -12,6 +12,57 @@ as "recorded at the time," not re-measured.
 
 ---
 
+## 2026-06-16 — gemma-3-4b clears the 2B starvation: 5-keep target met, but movement is autonomy-only and noisy
+
+A 9b student does not fit this 24GB box, so the "needs >=8B" conclusion was un-runnable
+here. gemma-3-4b-it (bf16 ~8GB, the largest cached instruct student that fits, same
+gemma-3 path as the gemma-12b profile) is the feasible middle. Profile `gemma-4b-3keep`
+= replace(qwen-2b-3keep, model=gemma-3-4b-it, restrict_validated_prompts=False,
+n_rounds=5). pueue-67, ~3.3h, commit 9ba4853. Slug
+`out/iter/20260615T125736_iter_google-gemma-3-4b-it`.
+
+### Observations (from artifacts)
+
+- **Banked the full 5-keep target** (`n_rounds` = target *keeps*, prompts.py:197/289),
+  vs the 2B's 0/12. Took **19 rounds: 5 keep / 14 drop = 26% keep rate**. Kept rounds
+  00, 02, 12, 17, 18.
+- The 4B fills batches and trains where the 2B looped out — the gate-floor fix
+  (`min_pairs_to_train=6`) plus a coherent student is what unblocked it.
+- **mark_exam (teacher LLM judge, 0-5 `_1p` seats) is noisy and autonomy-led.** PRE
+  scores ran wa5/fi4/ac5 at round10-13 then read wa3/fi2/ac2 at round17 with no kept
+  change between (judge variance, not a real collapse). Movement concentrates on
+  `autonomy_coercion`; `wellbeing_authority`/`fairness_integrity` mostly 0.0. round12
+  was kept at the 5/4/5 ceiling with `movement_mean=0.0` (a keep with no measured move).
+- **Objective tinymfv eval (round18, same n_history=4, c=1.0 vs c=0 base): flat.**
+  care +0.011, liberty +0.002, fairness -0.006, rest within +/-0.017 — at the
+  max_think_tokens=64 noise floor. The full-strength adapter barely shifts the
+  forced-choice foundations. (Caveat: tinymfv is the coarse forced-choice probe the
+  project flags as action-saturating; flat here is suggestive, not decisive — the
+  depth read is interview_pre/post, not yet analysed.)
+- **Agent fixated on a "confrontation" lexicon.** next_focus notes across rounds:
+  "single lexicon breakthrough", "4-word LOCKED pattern needs domain_reset", "ACTUAL
+  authority confrontation". This is the surface-reflex collapse CLAUDE.md warns against
+  (the axis degenerating into a less-authority/confront reflex), visible in the agent's
+  own monologue.
+
+### Inference
+
+The harness is mechanically unblocked on feasible hardware: it reaches its keep target
+on a coherent 4B where the 2B starved. But "runs well" is qualified — 26% keep rate,
+autonomy-carried, a zero-movement keep, and an objective eval that is flat at full
+strength. Whether the kept adapters are real character or a confrontation reflex is
+genuinely uncertain from these artifacts and needs the depth interview_pre/post read,
+which is the project's preferred measure. The mark_exam keep-gate looks too noisy to
+trust per-round.
+
+### Next
+
+- Read interview_pre/post on the 5 kept rounds (depth probe) to decide reflex vs wisdom.
+- The 14 drops + confrontation fixation suggest the brief still steers the agent toward
+  surface behaviour; revisit `prompts.py` choose_focus guidance.
+
+---
+
 ## 2026-06-15 — task-50 all-drop root cause: gate floor > per-axis pool; prompt-screen built
 
 pueue-50 (qwen-2b-3keep, 3-keep target) ran 12 rounds, **0 keeps / 11 drops**, then
