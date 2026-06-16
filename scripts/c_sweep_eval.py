@@ -27,9 +27,16 @@ from csm.eval import FOUNDATIONS, eval_round
 from csm.ws.bake import adapter_spec_from_checkpoint, baked
 from csm.ws.history import load_base_with_history_specs
 
-SLUG = Path("out/iter/20260601T115718_iter_google-gemma-2-27b-it")
-ROUND = "round00"
-CS = [0.0, 0.25, 0.5, 1.0, 2.0, 3.0]
+import sys
+
+# Reusable: `python scripts/c_sweep_eval.py <slug> <round> <c,c,c>`; defaults keep
+# the original 2026-06-01 27b experiment. Sweeping PAST signed_C is the
+# structural-ceiling check: c_scan walks DOWN only, so if the canary passes at
+# init the deploy c is pinned there with coherence headroom unused -- this tests
+# whether the direction keeps biting at higher c (real, capped) or plateaus (weak).
+SLUG = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("out/iter/20260601T115718_iter_google-gemma-2-27b-it")
+ROUND = sys.argv[2] if len(sys.argv) > 2 else "round00"
+CS = [float(x) for x in sys.argv[3].split(",")] if len(sys.argv) > 3 else [0.0, 0.25, 0.5, 1.0, 2.0, 3.0]
 
 run = json.loads((SLUG / "run.json").read_text())
 model_id = run["model"]
