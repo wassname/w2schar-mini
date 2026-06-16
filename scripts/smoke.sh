@@ -68,6 +68,11 @@ res = choose_focus(
     headroom=4,
     bank_cleanliness=4,
     evidence="smoke: PRE says order/basic respect instead of wellbeing",
+    pre_scores={"wellbeing_authority_1p": -1, "fairness_integrity_1p": 0,
+                "autonomy_coercion_1p": 0},
+    pre_seat_evidence={"wellbeing_authority_1p": "PRE: order/basic respect, not wellbeing",
+                       "fairness_integrity_1p": "PRE: order/basic respect, not integrity",
+                       "autonomy_coercion_1p": "PRE: order/basic respect, not autonomy"},
 )
 print(f"   scenarios={res['n_scenarios']}  headroom={res['n_headroom']}  "
       f"with_survivor={res['n_with_survivor']}  min={res['min_to_train']}")
@@ -130,10 +135,9 @@ print("\n-- train_student + post-dialogue --")
 r = train_student(slug, rd)
 print(f"   signed_C={r['signed_C']:+.4f}  n_trained={r['n_pairs_trained']}")
 
-print("\n-- mark_exam (keep needs PRE & POST axis positions per _1p seat) --")
+print("\n-- mark_exam (keep needs POST axis positions; PRE frozen at choose_focus) --")
 mark_exam(rd, keep=True,
           reason="smoke: all stages ran end-to-end on tiny-random",
-          pre_scores={"wellbeing_authority_1p": -1, "fairness_integrity_1p": 0, "autonomy_coercion_1p": 0},
           post_scores={"wellbeing_authority_1p": 0, "fairness_integrity_1p": 0, "autonomy_coercion_1p": 1},
           next_focus="smoke: nothing",
           harness_feedback="smoke: fake-student path still useful for plumbing, not candidate-quality science",

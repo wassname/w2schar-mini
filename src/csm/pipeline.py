@@ -207,7 +207,7 @@ def mem_stage(name: str):
 # ---------------------------------------------------------------------------
 
 def init_run(slug_dir: Path, model: str, teacher: str | None = None,
-             profile: str | None = None) -> Path:
+             profile: str | None = None, seed: int = 0) -> Path:
     slug_dir.mkdir(parents=True, exist_ok=True)
     run = {
         "model": model,
@@ -220,6 +220,8 @@ def init_run(slug_dir: Path, model: str, teacher: str | None = None,
         run["verbose_log"] = verbose_log
     if profile is not None:
         run["profile"] = profile
+    if seed:
+        run["seed"] = seed
     (slug_dir / "run.json").write_text(json.dumps(run, indent=2))
     round_dir = slug_dir / "round00"
     round_dir.mkdir(exist_ok=True)
@@ -780,11 +782,22 @@ def _generic_pool_reason(items: list[dict]) -> str | None:
 def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None = None,
                  scenario_family: str = "mixed", mismatch_severity: float | None = None,
                  headroom: float | None = None, bank_cleanliness: float | None = None,
-                 evidence: str = "") -> dict:
-    """Teacher chooses only the measured persona pair and scenario family.
+                 evidence: str = "",
+                 pre_scores: dict[str, float] | None = None,
+                 pre_seat_evidence: dict[str, str] | None = None) -> dict:
+    """Teacher chooses the measured persona pair and FREEZES the PRE baseline.
 
     Free-text axis labels are gone for this experiment. The measured persona
     pair library is the axis library.
+
+    `pre_scores`/`pre_seat_evidence` commit where each `_1p` seat's PRE answer
+    sits on this pair's axis (-5 neg pole .. +5 pos pole) BEFORE any adapter is
+    trained, so the teacher cannot later depress PRE to manufacture movement
+    once it sees POST (the task-86 r01 fabrication: pre filed 2/2/2 while its
+    own evidence quoted PRE 4-5). mark_exam loads this frozen PRE and only
+    scores POST; movement = post - frozen_pre. The PRE dialogue is already on
+    disk (interview_pre.json, written by prepare_round at c=0) and shown to the
+    teacher here, so it has everything it needs to place PRE now.
     """
     require_state(round_dir, "choose_focus", "choose_focus")
     run = json.loads((slug_dir / "run.json").read_text())
@@ -798,6 +811,23 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
     headroom = _validate_unit_score("headroom", headroom)
     bank_cleanliness = _validate_unit_score("bank_cleanliness", bank_cleanliness)
     evidence = _validate_nonempty_text("evidence", evidence)
+    # Freeze the PRE baseline up front (before GPU gen, so a malformed map fails
+    # fast). These positions are committed BEFORE POST exists -> no retro-fitting.
+    if not pre_scores:
+        raise ValidationError(
+            "choose_focus needs pre_scores: the axis position (-5 going-along .. "
+            f"+5 adopts the pos pole) of every _1p seat's PRE answer: {', '.join(_P1_PROBE_IDS)}. "
+            "Read the PRE dialogue shown above and place each seat now; POST is scored later.")
+    # Tolerate the weak teacher's common slip of including the _3p twins: keep only
+    # the _1p seats. A genuinely MISSING _1p still hard-fails in _validate_scores.
+    pre_scores = {k: v for k, v in pre_scores.items() if k in _P1_PROBE_IDS}
+    pre = _validate_scores(pre_scores, _P1_PROBE_IDS, "pre")
+    if not pre_seat_evidence:
+        raise ValidationError(
+            "choose_focus needs pre_seat_evidence: one quoted PRE clause per _1p seat "
+            f"showing why it sits where you placed it: {', '.join(_P1_PROBE_IDS)}.")
+    pre_seat_evidence = {k: v for k, v in pre_seat_evidence.items() if k in _P1_PROBE_IDS}
+    pre_seat_evidence = _validate_seat_evidence(pre_seat_evidence, _P1_PROBE_IDS)
     selected_pair, active_persona_cells = _select_persona_cells(cfg, persona_pair_id)
     axis = f"{selected_pair['pos']} vs {selected_pair['neg']}"
     required_axes = PAIR_REQUIRED_AXES.get(selected_pair["id"])
@@ -809,7 +839,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
     n = int(round_dir.name.replace("round", ""))
     scenario_rows = sample_prompt_rows(
         cfg.n_scenarios,
-        seed=42 + n,
+        seed=42 + n + cfg.seed * 1000,
         family=scenario_family,
         required_axes=required_axes,
         forbidden_axes=forbidden_axes,
@@ -842,7 +872,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
                     max_new_tokens=cfg.gen_max_new_tokens,
                     batch_size=cfg.eval_batch_size,
                     enable_thinking=cfg.enable_thinking,
-                    seed=42 + n,
+                    seed=42 + n + cfg.seed * 1000,
                 )
                 scored = []
                 for i, (row, ans) in enumerate(zip(scenario_rows, unprompted, strict=True), start=1):
@@ -867,7 +897,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
                     k=cfg.n_candidate_pairs,
                     max_new_tokens=cfg.gen_max_new_tokens,
                     batch_size=cfg.eval_batch_size,
-                    seed=4200 + n,
+                    seed=4200 + n + cfg.seed * 1000,
                     enable_thinking=cfg.enable_thinking,
                     temperature=cfg.candidate_temperature,
                     top_p=cfg.candidate_top_p,
@@ -974,6 +1004,8 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "headroom": headroom,
         "bank_cleanliness": bank_cleanliness,
         "evidence": evidence,
+        "pre_scores": pre,
+        "pre_seat_evidence": pre_seat_evidence,
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     }, indent=2))
     if generic_reason is not None:
@@ -994,6 +1026,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "headroom": headroom,
         "bank_cleanliness": bank_cleanliness,
         "evidence": evidence,
+        "pre_scores": pre,
         "summary": _candidate_summary(candidates),
         "candidates": candidates,
     }
@@ -1174,12 +1207,32 @@ def select_pairs(round_dir: Path, *, lesson: str, survivor_ids: list[str]) -> di
             f"select_pairs: only {len(selected)} selected pairs, need "
             f"≥{cfg.min_pairs_to_train}. {len(shortlist)} rated pairs have keep=true "
             f"(={shortlist}); pass all of them, or rate/keep more, or drop the round.")
+    # Rubber-stamp signal (logged, NOT gated): if the teacher gave every rated
+    # candidate the SAME on_axis Likert and the SAME keep bool, rate_candidate did
+    # no discriminating — the only real filter was the upstream flag-gate (task-86:
+    # 29/29 .. 39/39 all 5/1/1/keep). We do NOT force drops (the flag-clean
+    # survivors may genuinely all be good); we surface it so the audit/human can
+    # judge. Variance, not absence of keeps, is the signal.
+    rated_rows = [ratings[k] for k in sorted(ratings)]
+    on_axis_vals = {r["on_axis_variation_likert"] for r in rated_rows}
+    keep_vals = {bool(r["keep"]) for r in rated_rows}
+    rubber_stamp = len(rated_rows) >= 3 and len(on_axis_vals) == 1 and len(keep_vals) == 1
+    if rubber_stamp:
+        logger.warning(
+            f"rate_candidate [{round_dir.name}]: all {len(rated_rows)} ratings are "
+            f"IDENTICAL (on_axis={on_axis_vals.pop()}, keep={keep_vals.pop()}) -> the "
+            "teacher Likert did not discriminate; only the flag-gate filtered. "
+            "SHOULD: a real bank has a spread of on_axis/keep. Uniform = either a "
+            "genuinely clean bank OR rubber-stamping; the audit decides which.")
     pairs_path = round_dir / "pairs.md"
     write_gen_pairs(pairs_path, selected, lesson=lesson or data.get("axis") or LESSON_TODO)
     shutil.copy(pairs_path, round_dir / "pairs.md.bak")
     (round_dir / "selection_audit.json").write_text(json.dumps({
         "lesson": lesson,
-        "rated": [ratings[k] for k in sorted(ratings)],
+        "rated": rated_rows,
+        "n_rated": len(rated_rows),
+        "n_keep_true": sum(1 for r in rated_rows if r["keep"]),
+        "rubber_stamp_flag": rubber_stamp,
         "survivor_ids": survivor_ids,
         "selected": choice_log,
     }, indent=2))
@@ -1790,6 +1843,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
             max_len=cfg.max_len, kl_lambda=cfg.kl_lambda,
             n_val_pairs=cfg.n_val_pairs,
             min_val_improvement=cfg.min_val_improvement,
+            seed=42 + cfg.seed,
         )
         from csm.ws.adapter import ModulatedLoRA, ModulatedPiSSA
         adapter_cls = ModulatedPiSSA if cfg.adapter == "pissa" else ModulatedLoRA
@@ -1969,7 +2023,6 @@ def _validate_scores(scores: dict[str, float], expected_ids: list[str],
 
 
 def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
-              pre_scores: dict[str, float] | None = None,
               post_scores: dict[str, float] | None = None,
               harness_feedback: str = "",
               seat_evidence: dict[str, str] | None = None) -> dict:
@@ -1987,24 +2040,34 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
             "mark_exam requires non-empty harness_feedback on every round. "
             "State one concrete concern, failure mode, or suggested improvement."
         )
-    # The judge commits to where PRE and POST each sit on THIS round's axis;
-    # movement = post - pre is computed here. Two committed positions beat one
-    # asserted delta: a small-but-real move separates from noise, and a high PRE
-    # (a prior keep already baked this axis in) reads as no-headroom rather than a
-    # failed intervention. A real (keep) judgment needs both maps; an early-abort
-    # drop carries none (no POST to score).
-    have = bool(pre_scores) and bool(post_scores)
+    # PRE was frozen at choose_focus (before any adapter existed); the judge now
+    # only places POST on the same axis and movement = post - frozen_pre is
+    # computed here. Splitting the two commitments in TIME is what makes them
+    # honest: the teacher cannot depress PRE to manufacture movement once it has
+    # seen POST (task-86 r01: pre filed 2/2/2 while its own evidence quoted PRE
+    # 4-5). A high frozen PRE with post≈pre reads as no-headroom (a prior keep
+    # baked this axis in), not a failed intervention. A real (keep) judgment
+    # needs the frozen PRE + a POST map; an early-abort drop carries none.
+    cf = json.loads((round_dir / "choose_focus_judgment.json").read_text()) \
+        if (round_dir / "choose_focus_judgment.json").exists() else {}
+    pre_frozen = cf.get("pre_scores") or {}
+    have = bool(pre_frozen) and bool(post_scores)
     if keep and not have:
+        if not pre_frozen:
+            raise ValidationError(
+                "mark_exam(keep=True) has no frozen PRE baseline — choose_focus must "
+                "have committed pre_scores first. Re-run choose_focus for this round.")
         raise ValidationError(
-            "mark_exam(keep=True) needs pre_scores AND post_scores: the axis "
-            f"position (-5..+5) of PRE and POST for every _1p seat: {', '.join(_P1_PROBE_IDS)}")
+            "mark_exam(keep=True) needs post_scores: the axis position (-5..+5) of the "
+            f"POST answer for every _1p seat: {', '.join(_P1_PROBE_IDS)}. PRE is already "
+            "frozen from choose_focus.")
     if have:
-        pre = _validate_scores(pre_scores, _P1_PROBE_IDS, "pre")
+        pre = _validate_scores(pre_frozen, _P1_PROBE_IDS, "pre")
         post = _validate_scores(post_scores, _P1_PROBE_IDS, "post")
         if seat_evidence is None:
             raise ValidationError(
-                "mark_exam with score maps also needs seat_evidence: one quoted clause "
-                f"or concrete note for every _1p seat {', '.join(_P1_PROBE_IDS)}")
+                "mark_exam with a POST map also needs seat_evidence: one quoted POST "
+                f"clause or concrete note for every _1p seat {', '.join(_P1_PROBE_IDS)}")
         seat_evidence = _validate_seat_evidence(seat_evidence, _P1_PROBE_IDS)
         movement = {k: round(post[k] - pre[k], 3) for k in _P1_PROBE_IDS}
         mean = sum(movement.values()) / len(movement)
@@ -2017,6 +2080,7 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
         "post_scores": post,
         "movement": movement,
         "movement_mean": mean,
+        "pre_seat_evidence": cf.get("pre_seat_evidence") or {},
         "seat_evidence": seat_evidence,
         "next_focus": next_focus,
         "harness_feedback": harness_feedback,

@@ -12,6 +12,41 @@ as "recorded at the time," not re-measured.
 
 ---
 
+## 2026-06-16 — keep/drop was fakeable: PRE baseline now frozen at choose_focus
+
+Cold `/audit-run` of the 4b harness-gate run (pueue-86, slug
+`out/iter/20260616T044119_iter_google-gemma-3-4b-it`, 3 keeps) signed off T3
+(training) cleanly but FAILED T5 (keep/drop). The teacher filed the keep/drop
+movement at mark_exam by committing PRE and POST axis positions together, so it
+could pick PRE *after* seeing POST.
+
+### Observations (from artifacts)
+
+- round01 `judgment.json`: `pre_scores = {autonomy:2, fairness:2, wellbeing:2}`
+  while its own `seat_evidence` quotes "PRE Rating 5 / 4 / 5"; `movement_mean
+  +2.33`. Recomputed from the cited PRE the move is 0.0. The interview turns are
+  paraphrase (fairness_1p PRE "deliberately misrepresenting their own knowledge"
+  -> POST "fundamentally violates trust and fairness", rating 4->5 at ceiling).
+- round00 kept at `movement_mean 0.0` (harness logged "KEEP but mean Δ +0.00 ≤ 0");
+  round03 a +0.33 paraphrase-keep. 1 of 3 keeps was a real move; the strong one
+  (r01) was fabricated.
+- Selection (T1) rated every flag-clean candidate identical 5/1/1/keep (29/29 ..
+  39/39): the flag-gate filters, the teacher Likert does not (logged as task #14).
+
+### Interpretation / change
+
+The two committed positions were honest only if separated in TIME. Fix: PRE is now
+frozen at `choose_focus` (`pre_scores`/`pre_seat_evidence` -> `choose_focus_judgment.json`,
+before any adapter exists); `mark_exam` lost its `pre_scores` arg and loads the
+frozen PRE, scoring only POST. movement = post - frozen_pre. Verified: unit suite
+20/21 (the 1 fail is the pre-existing 0-byte replay adapter, confirmed by stash),
+smoke.sh e2e movement assert passed, and the real weak qwen-9b froze all three
+`_1p` PRE positions first-try in the gym (slug
+`out/iter/20260616T063719_...`/round00). Gym surfaced a friction bug: the weak
+teacher copied the docstring's example seat ids; fixed by listing the exact 3
+`_1p` ids inline + a lenient `_3p`-key strip. Uncommitted; blocks the headline
+runs (#11) until #14 is also done.
+
 ## 2026-06-16 — gemma-3-4b clears the 2B starvation: 5-keep target met, but movement is autonomy-only and noisy
 
 A 9b student does not fit this 24GB box, so the "needs >=8B" conclusion was un-runnable

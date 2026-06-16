@@ -497,16 +497,17 @@ def test_mark_exam_requires_seat_evidence_when_scores_present(tmp_path):
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     write_state(rd, RoundState(state="mark_exam"))
+    # PRE is frozen at choose_focus; mark_exam loads it from disk.
+    (rd / "choose_focus_judgment.json").write_text(json.dumps({"pre_scores": {
+        "wellbeing_authority_1p": 0.0,
+        "fairness_integrity_1p": 0.0,
+        "autonomy_coercion_1p": 0.0,
+    }}))
     with pytest.raises(Exception):
         mark_exam(
             rd,
             keep=True,
             reason="POST is better on the chosen axis.",
-            pre_scores={
-                "wellbeing_authority_1p": 0.0,
-                "fairness_integrity_1p": 0.0,
-                "autonomy_coercion_1p": 0.0,
-            },
             post_scores={
                 "wellbeing_authority_1p": 1.0,
                 "fairness_integrity_1p": 0.0,

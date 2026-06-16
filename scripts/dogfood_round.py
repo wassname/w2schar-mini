@@ -60,6 +60,8 @@ elif stage == "choose":
         headroom=p["headroom"],
         bank_cleanliness=p["bank_cleanliness"],
         evidence=p["evidence"],
+        pre_scores=p["pre_scores"],
+        pre_seat_evidence=p["pre_seat_evidence"],
     )
     print(f"CHOOSE  scenarios={res['n_scenarios']} headroom={res['n_headroom']} "
           f"survivors={res['n_with_survivor']} enough={res['enough']} "
@@ -121,7 +123,7 @@ elif stage == "exam":
     rd = latest_round_dir(_slug())
     v = json.loads(Path(sys.argv[2]).read_text())
     mark_exam(rd, keep=v["keep"], reason=v["reason"],
-              pre_scores=v["pre"], post_scores=v["post"], next_focus=v["next_focus"],
+              post_scores=v["post"], next_focus=v["next_focus"],
               harness_feedback=v["harness_feedback"],
               seat_evidence=v["seat_evidence"])
     print(f"EXAM  keep={v['keep']}")
