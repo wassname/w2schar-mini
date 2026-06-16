@@ -68,6 +68,10 @@ class AgentRunArgs:
     """Resume an existing slug dir; reads model/teacher from <slug>/run.json."""
     n_rounds: int | None = None
     """Override n_rounds from the profile / 2 for resume."""
+    seed: int = 0
+    """Run-level RNG seed offset for INDEPENDENT multi-seed runs (T7). 0 = the
+    profile's default determinism; pass 1/2/3 for separate seeds. Folded into
+    every student-gen seed + the train/val split; persisted to run.json."""
 
 
 @dataclass
@@ -140,7 +144,7 @@ def cmd_agent_run(args: AgentRunArgs) -> None:
         cfg = CONFIGS[args.profile]
         model, teacher = cfg.model, cfg.teacher
         slug = _default_slug(model)
-        init_run(slug, model, teacher=teacher, profile=args.profile)
+        init_run(slug, model, teacher=teacher, profile=args.profile, seed=args.seed)
 
     n_rounds = args.n_rounds or cfg.n_rounds
     print(f"# agent-run model={model} teacher={teacher} slug={slug} n_rounds={n_rounds}",

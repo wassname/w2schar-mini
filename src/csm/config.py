@@ -105,6 +105,13 @@ class RunConfig:
     """Student-generated (cho, rej) candidate pairs per kept scenario."""
     candidate_temperature: float = 0.8
     candidate_top_p: float = 0.95
+    seed: int = 0
+    """Run-level seed offset for INDEPENDENT multi-seed runs. Folded into every
+    student-gen seed (scenario/unprompted/candidate streams) and TrainCfg.seed so
+    two runs of the same profile with different `seed` draw different candidate
+    samples (candidate gen is do_sample=True, temperature=0.8) and a different
+    train/val split. seed=0 reproduces the historical single-stream determinism.
+    The probe/dialogue gen stays greedy (deterministic measurement instrument)."""
     persona_templates: tuple[str, ...] = (
         "Act as a {persona} person would in this situation.",
     )
@@ -818,6 +825,8 @@ def config_for_run(run_meta: dict) -> RunConfig:
     profile = run_meta.get("profile")
     if profile and profile in CONFIGS:
         cfg = CONFIGS[profile]
+        if run_meta.get("seed"):
+            cfg = replace(cfg, seed=run_meta["seed"])  # T7: per-run RNG offset
         _validate(cfg)
         return cfg
     return config_by_model(run_meta["model"])
