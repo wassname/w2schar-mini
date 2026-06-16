@@ -798,12 +798,19 @@ CONFIGS["gemma-4b-3keep"] = replace(
     model="google/gemma-3-4b-it",
     restrict_validated_prompts=False,
     n_rounds=5,
-    # Calibrate from C=2 and let c_scan walk down (x2/3) instead of pinning at the
-    # init: the first 4b run baked signed_C=1.0 every round (the walk only tested
-    # c=1.0) and tinymfv barely moved, so try a stronger deploy and let the canary
-    # find the ceiling. (Training still pins train-C=1.0; this only widens the
-    # deploy-strength search above the trained point.)
-    signed_C=2.0,
+    # c_scan walks DOWN from signed_C; if init passes the canary on the first probe
+    # it pins there. task-86 baked c=2.0 EVERY round (the only c probed) with the
+    # canary nowhere near failing (pmass 0.9995 vs 0.7275 floor, KL p95 0.5, gens
+    # at c=2 nearly identical to base) -> c=2 is a near-no-op and eval moved care
+    # only +0.022. Start HIGH so the walk-down finds the real coherence ceiling
+    # instead of an arbitrary init; the 3-signal canary (pmass+json+rep) drops it
+    # back if free-gen actually collapses. (Training still pins train-C=1.0; this
+    # only widens the deploy-strength search.)
+    signed_C=8.0,
+    # The trained direction is small-norm (task-86 ‖Δs‖ 1.17->1.22, barely off
+    # init) and the kl-to-base anchor was contesting the intervention (g_kl ~ g_nll
+    # late in training). Relax the anchor so the adapter can move further off base.
+    kl_lambda=0.2,
 )
 
 
