@@ -1755,6 +1755,16 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
         mean = sum(movement.values()) / len(movement)
     else:
         pre, post, movement, mean, seat_evidence = {}, {}, {}, None, {}
+    # A keep must show forward movement. A weak teacher sometimes calls keep on a
+    # round whose OWN committed POST map did not move (saturated axis) or regressed
+    # (task-98 r05: every _1p seat 5→4, mean Δ -1.0, kept by re-labelling a register
+    # shift as "embodied"). PRE was frozen at choose_focus, so this compares the
+    # teacher's own POST against its own frozen PRE -- a non-positive mean is the
+    # teacher's numbers contradicting its keep. Override to a drop so a regression /
+    # no-move cannot be banked as a win. (Was a warning only; r05 slipped through.)
+    keep_override = keep and mean is not None and mean <= 0
+    if keep_override:
+        keep = False
     # Categorical drop reason for cross-round audit: a free-text `reason` cannot be
     # aggregated, and a gate-friction abort (on_continue gave up after N rejects)
     # reads identical to a teacher's deliberate drop in the artifacts. Derive it so
@@ -1763,12 +1773,17 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
     # teacher (no_movement / early_abort).
     if keep:
         cause = "kept"
+    elif keep_override:
+        cause = "negative_movement" if mean < 0 else "no_movement"  # keep vetoed by its own POST
     elif drop_cause:
         cause = drop_cause          # explicit, e.g. on_continue passes "gate_friction"
     elif have:
         cause = "no_movement"       # teacher saw POST, judged it did not move
     else:
         cause = "early_abort"       # dropped before training/POST (e.g. bad candidates)
+    if keep_override:
+        reason = (f"[harness veto: teacher called keep but mean Δ={mean:+.2f} ≤ 0 "
+                  f"on its own frozen-PRE→POST map — banked as drop] " + reason)
     judgment = {
         "action": "keep" if keep else "drop",
         "drop_cause": cause,
@@ -1796,10 +1811,11 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
             "        (a prior keep baked it in), not a failed adapter; negatives = anti-target.\n"
             f"axis pos PRE→POST (−5 going-along … +5 adopts own _3p principle), per the round's axis:\n"
             f"  {per} | mean Δ={mean:+.2f}")
-        if keep and mean is not None and mean <= 0:
+        if keep_override:
             logger.warning(
-                f"mark_exam [{round_dir.name}]: KEEP but mean Δ {mean:+.2f} ≤ 0 — "
-                "the per-seat positions do not support a keep; verify the reasoning.")
+                f"mark_exam [{round_dir.name}]: teacher called KEEP but mean Δ {mean:+.2f} "
+                f"≤ 0 — VETOED to drop (cause={cause}); a non-positive own-POST map "
+                "cannot bank as a keep.")
     transcript().info(
         {"event": "mark_exam", "round": round_dir.name,
          "action": judgment["action"], "reason": reason,

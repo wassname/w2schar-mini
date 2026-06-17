@@ -714,6 +714,32 @@ def test_write_audit_md_includes_tool_trace(tmp_path, monkeypatch):
     assert "train_student() <= enough pairs looked clean" in audit
 
 
+def test_mark_exam_vetoes_keep_with_nonpositive_movement(tmp_path):
+    """task-98 r05: teacher called keep with every _1p seat 5->4 (mean Δ -1.0),
+    banking a regression as a win. A keep whose own frozen-PRE->POST map is
+    non-positive must be vetoed to a drop, not just warned."""
+    from csm.pipeline import mark_exam, _P1_PROBE_IDS
+    rd = tmp_path / "round00"
+    rd.mkdir(parents=True)
+    (rd.parent / "run.json").write_text(json.dumps(
+        {"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
+    (rd / "state.json").write_text(json.dumps({"state": "mark_exam"}))
+    (rd / "choose_focus_judgment.json").write_text(json.dumps({
+        "pre_scores": {k: 5.0 for k in _P1_PROBE_IDS},
+        "pre_seat_evidence": {k: f"PRE {k}" for k in _P1_PROBE_IDS},
+    }))
+    j = mark_exam(
+        rd, keep=True, reason="POST twins look embodied",
+        harness_feedback="prose coherent, no loops",
+        post_scores={k: 4.0 for k in _P1_PROBE_IDS},      # mean Δ = -1.0
+        seat_evidence={k: f"POST {k}" for k in _P1_PROBE_IDS},
+    )
+    assert j["action"] == "drop", j
+    assert j["drop_cause"] == "negative_movement", j
+    assert j["movement_mean"] == -1.0, j
+    assert "harness veto" in j["reasoning"], j
+
+
 def test_choose_focus_judgment_fields_are_schema_required():
     """The teacher must SEE these as required, else (task-90) a weak model omits
     them ('minimum required parameters') and the validator rejects None 108x ->
