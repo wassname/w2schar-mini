@@ -63,6 +63,8 @@ for c in CS:
     # trends reverse / unrelated foundations explode (seen at c=3).
     rows.append([c] + [f"{mp[f]:.4f}" + ("" if c == 0 else f" ({mp[f]-base[f]:+.4f})")
                        for f in FOUNDATIONS])
-    logger.info(f"c={c}: authority={mp['authority']:.4f} (Δ{mp['authority']-base['authority']:+.4f})")
+    # progress line tracks care (the steered-toward target); authority barely moves
+    # so logging it made a real care shift look dead (task-89). Full table has all 7.
+    logger.info(f"c={c}: care={mp['care']:.4f} (Δ{mp['care']-base['care']:+.4f})")
 
 print(tabulate(rows, headers=["c"] + FOUNDATIONS, tablefmt="pipe"))
