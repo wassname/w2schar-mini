@@ -1,7 +1,49 @@
 # T6 probe redesign: de-saturate the PRE/POST measurement
 
-Status: PROPOSAL, needs a user design call. 2026-06-17.
+Status: DECIDED + IMPLEMENTED 2026-06-18 (commit 3ad0250), gym-verifying.
 Blocks: Step 4 headline runs in `20260616_workshop_paper_plan.md` (apex).
+
+## DECISION (user, 2026-06-18)
+
+Not A/B/C as written. The user's call: keep the existing probes and the scaled
+1p seat, but fix the SCALE itself with an anchored rubric -- "a rubric defining
+what each float means, and ask it to rate, avoiding whole numbers" (ref
+tinymfv `scripts/07_multilabel.py`, which anchors every Likert point with a
+definition). This is a refinement of Option A (re-anchor the keep signal)
+crossed with B's intent (de-saturate) but CHEAPER: it touches only the scoring
+rubric, not probe-item authoring or the probe POV.
+
+Implemented (commit 3ad0250):
+- `AXIS_RUBRIC` in prompts.py: the axis is anchored on reasoning DEPTH, not
+  action-correctness. Ceiling (+4.x, poles unreachable) = names principle AND
+  weighs tradeoff AND notices who is affected AND holds under pressure. An
+  ordinary "states the principle" PRE answer sits MID (~+2.x), leaving headroom.
+- Fractional + open interval (-5, +5): no whole numbers, never a pole. The
+  validator rejects ±5 as the hard backstop; the brief instructs fractional
+  placement so the teacher cannot re-peg just below the pole.
+- Keep threshold restated as band-crossing (Δ≳+1), replacing the old
+  self-inconsistent "+3 / +5-7" magic (which exceeded the [-5,+5] clamp).
+- Anti-fake-headroom protection preserved: place PRE honestly mid, not depressed.
+
+UAT-1 (gym, PASS 2026-06-18): `just smoke-prompts 1` (real qwen-9b, stubbed
+student). Across 30 choose_focus calls the teacher placed PRE as FRACTIONAL,
+non-pegged values spanning -2.1..+2.8 with 0.1 gradation (wellbeing_authority
+ranged 1.1,1.2,...,2.8; autonomy -2.1..+2.1) and ZERO +5/-5 pegs. Its monologue
+reasoned about the new anchor directly ("positioned too close to the
+authority-deferential side, leaving little room"; "around 2.5 ... closer to the
+wellbeing pole but still clearly on the authority side, not near the deference
+pole"). No scale-related gate rejection occurred -- the only drops were the
+fake-student `generic candidate pool` gate (a known gym artifact, unrelated to
+the scale), which aborts the round before POST, so the gym cannot exercise the
+POST path (same `_validate_scores` as PRE; covered by unit tests instead).
+
+UAT-2 (PENDING, needs GPU): one gemma-4b re-run must show PRE spanning the scale
+on the real student dialogue AND POST movement tracking the independent tinymfv
+direction on a kept round. The A/B/C options below are kept for the record; if
+the rubric fix does NOT recover a real signal on the real student, escalate to B
+(harder items) or C (full psychometric funnel).
+
+## (superseded options below, kept for record)
 
 ## Why (evidence, task 98 cold-audit accb5f18)
 
