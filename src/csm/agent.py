@@ -816,6 +816,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
                        f"(> {MAX_SUBMIT_REJECTS}); the round is dropped rather "
                        f"than aborting the run.",
                 harness_feedback="gate friction: repeated tool rejections exhausted the round budget",
+                drop_cause="gate_friction",
             )
             st = read_state(rd)  # now "done" → a fresh round is started below.
 

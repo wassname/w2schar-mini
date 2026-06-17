@@ -88,8 +88,12 @@ NOT tell you what a bad answer is — that's the point):
    what did the scan do to get there (start c, walked up/down/not at all)? Read
    the `pmass`/`json`/`rep`/`len` columns at the top c and at the baked c and
    quote them: did the canary separate the steered model from base at all, or not?
-7. mark_exam (keep/drop) — `judgment.json`. Quote `action`, `reasoning`,
-   `harness_feedback`, `movement`, `next_focus`. Then open `interview_pre.json`
+7. mark_exam (keep/drop) — `judgment.json`. Quote `action`, `drop_cause`,
+   `reasoning`, `harness_feedback`, `movement`, `next_focus`. `drop_cause` is
+   `kept`/`gate_friction`/`no_movement`/`early_abort`: a run of `gate_friction`
+   drops means the teacher could not satisfy a gate (unfollowable brief), NOT a
+   cautious teacher — count them across rounds and say which kind of drop run this
+   is. Then open `interview_pre.json`
    and `interview_post.json` for the seat(s) the teacher cites and read the actual
    turns. Quote PRE and POST side by side: is the cited movement a real change in
    reasoning, or the same point reworded? Let the quotes carry it.

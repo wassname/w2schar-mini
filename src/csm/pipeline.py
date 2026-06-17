@@ -2025,7 +2025,8 @@ def _validate_scores(scores: dict[str, float], expected_ids: list[str],
 def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
               post_scores: dict[str, float] | None = None,
               harness_feedback: str = "",
-              seat_evidence: dict[str, str] | None = None) -> dict:
+              seat_evidence: dict[str, str] | None = None,
+              drop_cause: str = "") -> dict:
     # keep=True requires a trained adapter; keep=False can also fire as an
     # early abort from choose_focus/select_pairs/train_student.
     if keep:
@@ -2073,8 +2074,23 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
         mean = sum(movement.values()) / len(movement)
     else:
         pre, post, movement, mean, seat_evidence = {}, {}, {}, None, {}
+    # Categorical drop reason for cross-round audit: a free-text `reason` cannot be
+    # aggregated, and a gate-friction abort (on_continue gave up after N rejects)
+    # reads identical to a teacher's deliberate drop in the artifacts. Derive it so
+    # the teacher carries no extra burden: an all-drop weak run that is really an
+    # unfollowable brief (gate_friction) must be distinguishable from a cautious
+    # teacher (no_movement / early_abort).
+    if keep:
+        cause = "kept"
+    elif drop_cause:
+        cause = drop_cause          # explicit, e.g. on_continue passes "gate_friction"
+    elif have:
+        cause = "no_movement"       # teacher saw POST, judged it did not move
+    else:
+        cause = "early_abort"       # dropped before training/POST (e.g. bad candidates)
     judgment = {
         "action": "keep" if keep else "drop",
+        "drop_cause": cause,
         "reasoning": reason,
         "pre_scores": pre,
         "post_scores": post,
