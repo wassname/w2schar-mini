@@ -80,7 +80,10 @@ def _format_validation_error(e: ValidationError) -> str:
 # Tools
 # ---------------------------------------------------------------------------
 
-MAX_SUBMIT_REJECTS = 8  # >8 rejects in one round → on_continue drops the round.
+MAX_SUBMIT_REJECTS = 3  # >3 rejects in one round → on_continue drops the round.
+# Was 8: a confused weak teacher rarely recovers after a few rejects, it just
+# loops (each retry resends the full context + grows it → context rot + token
+# bomb, the task-90 $$$). Fail fast at 3 — cheaper and a cleaner gate signal.
 
 
 def _rejects_path(round_dir: Path) -> Path:
