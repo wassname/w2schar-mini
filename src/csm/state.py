@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 State = Literal[
-    "choose_focus", "select_pairs", "propose_personas",
+    "choose_focus", "select_pairs",
     "train_student", "mark_exam", "done",
 ]
 
@@ -25,8 +25,6 @@ def allowed_after(state: State) -> str:
         return "choose_focus(persona_pair_id, scenario_family, mismatch_severity, headroom, bank_cleanliness, evidence, pre_scores, pre_seat_evidence)"
     if state == "select_pairs":
         return "read_candidate(survivor_id) -> rate_candidate(survivor_id, on_axis_variation_likert, off_axis_variation_likert, confounding_likert, keep, comment) for EVERY candidate -> select_pairs(lesson, survivor_ids=[...])"
-    if state == "propose_personas":
-        return "propose_personas(axis, rationale, pos_persona, neg_persona)"
     if state == "train_student":
         return "train_student()  (or mark_exam(keep=False, reason=...) to abort)"
     if state == "mark_exam":

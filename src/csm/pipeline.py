@@ -297,29 +297,6 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
             torch.cuda.empty_cache()
 
 
-def _fake_gen_rows(prompts: list[str]) -> list[dict]:
-    """Gym/replay path for propose_personas: synthesize both poles without a
-    model. Replay reuses a past run's real (cho, rej); plain gym hash-shuffles
-    the real-student rej pool into two DIFFERENT blocks per prompt so the
-    teacher faces real-shaped pairs (the personas don't actually drive the fake
-    gen — that's the documented fake-mode artifact)."""
-    replay = _replay_dir()
-    if replay is not None:
-        _, past = load_pairs_md(replay / "pairs.md")
-        return [{"prompt": p["prompt"], "cho": p["cho"], "rej": p["rej"]} for p in past]
-    import hashlib
-    pool = _FAKE_REJ_POOL
-    rows = []
-    for p in prompts:
-        h = int(hashlib.md5(p.encode()).hexdigest(), 16)
-        cho = pool[h % len(pool)]
-        rej = pool[(h // 7) % len(pool)]
-        if cho.strip() == rej.strip():
-            rej = pool[(h // 7 + 1) % len(pool)]
-        rows.append({"prompt": p, "cho": cho, "rej": rej})
-    return rows
-
-
 def _head(s: str, n: int = 240) -> str:
     return s[:n] + (" …" if len(s) > n else "")
 
@@ -1337,8 +1314,8 @@ def _character_break(text: str) -> list[str]:
 # given…") into 7 pairs as the rej/cho. A pole is the student's ANSWER; if it
 # contains the second-person persona-prompt framing or a `{template}` literal,
 # it is instruction text, not behaviour, and trains the adapter on the wrong
-# surface. These phrases are the persona templates from prompts.PERSONA_EXAMPLES
-# plus the obvious roleplay openers; a real first-person answer never says them.
+# surface. These are roleplay-instruction openers and template literals; a real
+# first-person answer never says them.
 _PERSONA_LEAK_PHRASES = (
     "pretend you're", "pretend you are", "act as if you're", "act as if you are",
     "you are someone who", "you are a person who", "imagine you're",
@@ -1352,55 +1329,6 @@ def _persona_leak(text: str) -> list[str]:
     describes the persona instead of embodying it), or []."""
     low = text.lower()
     return [p for p in _PERSONA_LEAK_PHRASES if p in low]
-
-
-# Persona pre-gen gates. The dogfood showed the brief INFORMS the rules (one
-# axis, one sentence, length-matched poles) but does not ENFORCE them: a capable
-# driver still wrote a multi-clause, mixed-axis pair. These are the
-# machine-checkable subset, with actionable messages, so a weak teacher gets a
-# specific "fix THIS" instead of a silent bad pair. Mixed-axis itself is not
-# mechanically checkable — single-sentence makes it much harder to sneak in.
-PERSONA_LEN_BAND = (0.5, 2.0)   # pos/neg word-count ratio; outside = skew leaks in
-_NEGATION = re.compile(r"\b(not|don't|doesn't|isn't|aren't|won't|cannot|can't)\b|n't\b",
-                       re.IGNORECASE)
-
-
-def _one_sentence(persona: str) -> bool:
-    """True if the persona is a single sentence. Multi-sentence personas (my v1:
-    two sentences + a metaphor) carry style/structure into the axis and read as
-    'a monk who took a vow of silence' not 'an honest person'."""
-    body = persona.strip().rstrip(".!?")
-    return not any(c in body for c in ".!?")
-
-
-def _validate_personas(round_dir: Path, pos: str, neg: str):
-    """Raise ValidationError (actionable) if the pair breaks a checkable rule.
-    Enforces: both poles non-empty + single-sentence + length-symmetric + no
-    'not'-negation. (No deficit_quote anchor: requiring a verbatim _1p substring
-    forced the teacher onto the single most-dramatic seat's deficit -> attractor
-    lock; grounding now lives in the free-form `rationale`, RJ 2026-06-06.)"""
-    if not pos.strip() or not neg.strip():
-        raise ValidationError("propose_personas: pos_persona and neg_persona must "
-                              "both be non-empty.")
-    for name, p in (("pos_persona", pos), ("neg_persona", neg)):
-        if not _one_sentence(p):
-            raise ValidationError(
-                f"{name} is multiple sentences: {p!r}. Write ONE sentence stating "
-                f"the disposition (like 'You are someone who weighs who is affected'); "
-                f"a second sentence or a metaphor becomes the axis, not the trait.")
-        if _NEGATION.search(p):
-            raise ValidationError(
-                f"{name} uses a negation ({p!r}). Use the direct opposite word "
-                f"('untruthful' not 'not truthful'); the neg pole is its OWN real "
-                f"disposition, not the absence of the pos pole.")
-    lo, hi = PERSONA_LEN_BAND
-    ratio = len(pos.split()) / max(1, len(neg.split()))
-    if not (lo <= ratio <= hi):
-        raise ValidationError(
-            f"pos/neg persona length ratio {ratio:.1f}x outside {PERSONA_LEN_BAND} "
-            f"({len(pos.split())} vs {len(neg.split())} words). Write the neg as a "
-            f"length-matched MIRROR of pos; a long-vs-short pair makes the adapter "
-            f"key on verbosity, not the principle.")
 
 
 def character_break_warning(post: dict) -> str:
@@ -1475,257 +1403,10 @@ def pair_flags_table(pairs: list[dict]) -> str:
     return head + "\n" + "\n".join(rows)
 
 
-def propose_personas(slug_dir: Path, round_dir: Path, *, axis: str,
-                     rationale: str, pos_persona: str, neg_persona: str) -> dict:
-    """The teacher's persona pair → both poles generated on-policy by the
-    student (cho under pos_persona, rej under neg_persona), personas stripped.
-    Writes pairs.md + personas.json (audit), advances to train_student. If too
-    few non-degenerate pairs survive, stays in propose_personas so the teacher
-    can pick a sharper / less refusal-triggering axis (PERSONA_RULES rule 9).
-
-    `rationale` grounds the axis: which probe(s) the student is weak on and how.
-    """
-    require_state(round_dir, "propose_personas", "propose_personas")
-    _validate_personas(round_dir, pos_persona, neg_persona)
-    run = json.loads((slug_dir / "run.json").read_text())
-    cfg = config_for_run(run)
-    n = int(round_dir.name.replace("round", ""))
-    train_prompts = sample_prompts(cfg.n_train_pairs, seed=42 + n)
-    pairs_path = round_dir / "pairs.md"
-
-    if _fake_student():
-        rows = _fake_gen_rows(train_prompts)
-    else:
-        history = kept_history_dirs(slug_dir, before_round=n)
-        with mem_stage("load"):
-            model, tok, hist_specs = load_base_with_history_specs(
-                cfg.model, history, quant=cfg.quant)
-        try:
-            with baked(model, hist_specs), mem_stage("gen_pairs"):
-                rows = generate_pairs_from_personas(
-                    model, tok, train_prompts,
-                    pos_persona=pos_persona, neg_persona=neg_persona,
-                    max_new_tokens=cfg.gen_max_new_tokens,
-                    batch_size=cfg.eval_batch_size, seed=42 + n,
-                    enable_thinking=cfg.enable_thinking,
-                )
-        finally:
-            del model
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-    # Cull collapsed gens (loop/spray) BEFORE writing — a half-collapsed batch
-    # then trains on the clean survivors instead of poisoning the adapter (or
-    # forcing the teacher to abort, as task-46 r02/r03 did). The collapse is the
-    # baked prior-keep fighting an opposing neg persona, NOT a bad persona; if it
-    # drops us below min, we re-propose (the teacher should soften/empty the neg).
-    # Cull BOTH collapsed gens (loop/spray) AND character-breaks ("As an AI, I
-    # cannot…") BEFORE writing. A refusal pole poisons the contrast and the
-    # teacher can neither fix it (replacing a full refusal is a >95% rewrite the
-    # edit gate blocks) nor remove it (no cull tool), so uncleaned refusals forced
-    # whole-round drops (task-65: 4/6 rounds early-aborted on refusal pairs).
-    # Auto-culling trains on the clean survivors instead; min_to_train still
-    # guards the floor (genuinely too-few-clean → re-propose a less refusal-prone
-    # axis, PERSONA_RULES rule 9).
-    n_gen = len(rows)
-    n_degen = n_break = 0
-    if cfg.cull_degenerate_pairs:
-        kept = []
-        for r in rows:
-            if _degenerate_gen(r["cho"]) or _degenerate_gen(r["rej"]):
-                n_degen += 1
-            elif _character_break(r["cho"]) or _character_break(r["rej"]):
-                n_break += 1
-            else:
-                kept.append(r)
-        rows = kept
-
-    write_gen_pairs(pairs_path, rows, lesson=axis or LESSON_TODO)
-    # Snapshot the student's ORIGINAL on-policy gen. train_student gates on the
-    # per-pair diff vs this .bak: any pair changed >80% is rejected (a full
-    # rewrite pushes cho off-policy); below that the teacher edits with judgment.
-    # The flags above (character-break, skew, blur) tell it WHICH pairs need a
-    # real edit vs leaving alone — its call.
-    shutil.copy(pairs_path, round_dir / "pairs.md.bak")
-    (round_dir / "personas.json").write_text(json.dumps({
-        "axis": axis, "rationale": rationale,
-        "pos_persona": pos_persona, "neg_persona": neg_persona,
-        "n_pairs": len(rows), "n_degenerate_culled": n_degen,
-        "n_character_break": n_break,
-    }, indent=2))
-    transcript().info(
-        {"event": "propose_personas", "round": round_dir.name,
-         "axis": axis, "n_pairs": len(rows)},
-        source=f"{round_dir.name}.propose",
-    )
-
-    # Sample dump so the persona pair AND one gen'd (cho, rej) are visible in the
-    # run log, not only in the artifact files. The cho/rej length ratio is the
-    # inline length-confound canary: a verbose structured cho vs a terse rej means
-    # the trained axis is verbosity/format, not the principle (task-38: 2.1x mean,
-    # 20-36x on ~1/3 of pairs → judge dropped on "voice change, no action change").
-    if rows:
-        chos, rejs = [len(r["cho"]) for r in rows], [len(r["rej"]) for r in rows]
-        ratio = (sum(chos) / len(chos)) / max(1.0, sum(rejs) / len(rejs))
-        n_blur = sum(_pair_diff(r["cho"], r["rej"]) < BLUR_DIFF_FLOOR for r in rows)
-        n_skew = sum(not (LEN_SKEW_BAND[0] <= len(r["cho"]) / max(1, len(r["rej"]))
-                          <= LEN_SKEW_BAND[1]) for r in rows)
-        ex = rows[0]
-        logger.info(
-            f"\n=== propose_personas [{round_dir.name}] axis={axis!r} n_pairs={len(rows)} ===\n"
-            "SHOULD: poles differ ONLY in the moral PRINCIPLE, at matched length+format\n"
-            "        (per-pair cho/rej len ~1x, 0 blur, 0 skew). neg is a MIRROR of pos —\n"
-            "        a full answer reasoning TO comply, not a terse 'I'll do it'. A long\n"
-            "        structured cho vs terse rej, or rej blurring into cho, = the adapter\n"
-            "        learns length/format not the principle. cho head NOT a fixed checklist.\n"
-            f"pos_persona: {pos_persona}\n"
-            f"neg_persona: {neg_persona}\n"
-            f"cho/rej len: {sum(chos) // len(chos)}/{sum(rejs) // len(rejs)} chars = {ratio:.1f}x | "
-            f"flags: {n_degen} degenerate (loop/spray) + {n_break} character-break "
-            f"(AI-disclaimer pole) culled, of {n_gen} gen'd; "
-            f"{n_blur} blur (culled at train), {n_skew} length-skewed / {len(rows)} kept\n"
-            f"--- gen sample [pair 1/{len(rows)}] ---\n"
-            f"prompt: {_head(ex['prompt'])}\n"
-            f"cho(+C, pos pole): {_head(ex['cho'])}\n"
-            f"rej(-C, neg pole): {_head(ex['rej'])}\n"
-        )
-
-    if len(rows) < cfg.min_pairs_to_train:
-        set_state(round_dir, "propose_personas",
-                  note=f"only {len(rows)} clean pairs "
-                       f"({n_degen} loop + {n_break} refusal culled)")
-        return {"n_pairs": len(rows), "enough": False, "n_degenerate": n_degen,
-                "n_character_break": n_break,
-                "min_to_train": cfg.min_pairs_to_train,
-                "pairs_md": pairs_path.read_text()}
-
-    set_state(round_dir, "train_student", note=f"gen {len(rows)} pairs")
-    return {"n_pairs": len(rows), "enough": True, "n_degenerate": n_degen,
-            "n_character_break": n_break,
-            "min_to_train": cfg.min_pairs_to_train,
-            "pairs_md": pairs_path.read_text(),
-            "flags_table": pair_flags_table(rows)}
-
-
 # Backward-compat alias (smoke / tests / agent.py haven't all migrated).
 def run_pre_dialogue(slug_dir: Path, round_dir: Path) -> dict:
     prepare_round(slug_dir, round_dir)
     return json.loads((round_dir / "interview_pre.json").read_text())
-
-
-# ---------------------------------------------------------------------------
-# Verb 1b: read_pair / replace_pair — OPTIONAL per-pair curation of the gens.
-# One pair at a time, as markdown, each replace gated, so the teacher always
-# edits the student's OWN sentences (task-54 r01: batch edit_pairs let the weak
-# teacher nuke 7 pairs to identical persona stubs with no recovery path).
-# ---------------------------------------------------------------------------
-
-# Edit gate, redesigned 2026-06-06. The OLD gate capped total change at 80% to
-# "keep cho on-policy". But (RJ 2026-06-06) off-policy is not the problem —
-# off-policy ASYMMETRY is: editing cho while rej stays the raw seed unbalances
-# nll+/nll-. Equal edits to BOTH poles stay equally off-policy and balanced. So:
-#   - EDIT_DIFF_MAX (0.95) is just a garbage ceiling (a 95%-replaced pole is a
-#     new text, not an edit — likely leak/off-topic). Generous so a dumb teacher
-#     CAN clean + diversify the canned-essay scaffold (the homogeneity that
-#     memorises, task-62) without tripping it.
-#   - EDIT_SYMMETRY_MAX (0.25): |Δcho − Δrej| — the real gate. Edit the two poles
-#     by a SIMILAR amount; a one-sided edit is the imbalance. Actionable for a
-#     weak teacher ("you changed cho a lot more than rej — edit rej similarly").
-# No lower floor: a near-no-op pull-back is harmless, and a floor double-binds the
-# over-rewrite-then-change-nothing loop (task-54 smoke).
-EDIT_DIFF_MAX = 0.95
-EDIT_SYMMETRY_MAX = 0.25
-POLE_DIFF_MIN = 0.01            # cho vs rej must differ at all (else no axis)
-
-
-def _edit_dist(a: str, b: str) -> float:
-    """1 − char-level SequenceMatcher ratio: how much b changed a, in [0,1]."""
-    return 1.0 - difflib.SequenceMatcher(None, a, b).ratio()
-
-
-def read_pair(round_dir: Path, pair_id: int) -> dict:
-    """Show ONE pair: its current cho/rej, the student's ORIGINAL (pairs.md.bak),
-    and its confound flags. Read before replace_pair so the edit stays anchored
-    on the student's own sentences. Stays in train_student."""
-    require_state(round_dir, "train_student", "read_pair")
-    _, pairs = load_pairs_md(round_dir / "pairs.md")
-    _, bak = load_pairs_md(round_dir / "pairs.md.bak")
-    cur = {p["id"]: p for p in pairs}.get(pair_id)
-    if cur is None:
-        raise ValidationError(
-            f"read_pair: pair {pair_id} does not exist (ids: "
-            f"{sorted(p['id'] for p in pairs)}).")
-    orig = {p["id"]: p for p in bak}.get(pair_id, cur)
-    return {"id": pair_id, "prompt": cur["prompt"],
-            "cho": cur["cho"], "rej": cur["rej"],
-            "original_cho": orig["cho"], "original_rej": orig["rej"],
-            "flags_table": pair_flags_table([cur])}
-
-
-def replace_pair(round_dir: Path, pair_id: int, cho: str, rej: str) -> dict:
-    """Overwrite ONE pair's poles. Edit the COMPLETION to EMBODY the behaviour:
-    each pole is the student's own first-person ANSWER, never a description of the
-    persona ("Pretend you're…", "you are someone who…") nor the prompt restated.
-    Gated: each pole ≤95% change vs original (garbage ceiling), cho and rej edited
-    by SIMILAR amounts (|Δcho−Δrej| ≤ 0.25, so they stay equally on/off-policy and
-    nll+/nll- balanced), poles differ, no leakage. Cleaning + diversifying the
-    canned scaffold is encouraged — just do it to BOTH poles. Stays in
-    train_student; call once per pair you fix."""
-    require_state(round_dir, "train_student", "replace_pair")
-    pairs_path = round_dir / "pairs.md"
-    lesson, pairs = load_pairs_md(pairs_path)
-    by_id = {p["id"]: p for p in pairs}
-    if pair_id not in by_id:
-        raise ValidationError(
-            f"replace_pair: pair {pair_id} does not exist (ids: {sorted(by_id)}).")
-    cho, rej = _strip_decoration(cho.splitlines()), _strip_decoration(rej.splitlines())
-    if not cho or not rej:
-        raise ValidationError("replace_pair: both cho and rej must be non-empty.")
-    leak = sorted(set(_persona_leak(cho) + _persona_leak(rej)))
-    if leak:
-        raise ValidationError(
-            f"replace_pair: pair {pair_id} LEAKS persona/instruction text {leak} — "
-            "a pole is the student's first-person ANSWER that EMBODIES the behaviour, "
-            "not a description of the persona. Rewrite without those phrases.")
-    if _pair_diff(cho, rej) < POLE_DIFF_MIN:
-        raise ValidationError(
-            f"replace_pair: pair {pair_id} cho and rej are identical — the poles "
-            "must differ along the axis.")
-    _, bak = load_pairs_md(round_dir / "pairs.md.bak")
-    orig = {p["id"]: p for p in bak}.get(pair_id)
-    d_cho = d_rej = None
-    if orig is not None:
-        d_cho, d_rej = _edit_dist(orig["cho"], cho), _edit_dist(orig["rej"], rej)
-        # Symmetry is the primary gate (off-policy is fine if BALANCED); check it
-        # before the garbage ceiling so a one-sided rewrite gets the "edit both"
-        # message, not "keep more".
-        if abs(d_cho - d_rej) > EDIT_SYMMETRY_MAX:
-            hi, lo = ("cho", "rej") if d_cho > d_rej else ("rej", "cho")
-            raise ValidationError(
-                f"replace_pair: pair {pair_id} ASYMMETRIC edit (cho {d_cho:.0%} / rej "
-                f"{d_rej:.0%}; max gap {EDIT_SYMMETRY_MAX:.0%}). Editing {hi} far more "
-                f"than {lo} pushes one pole off-policy while the other stays the raw "
-                f"seed → nll+/nll- imbalance. Edit BOTH poles by a similar amount "
-                f"(clean/diversify {lo} too, or trim the {hi} edit).")
-        if max(d_cho, d_rej) > EDIT_DIFF_MAX:
-            raise ValidationError(
-                f"replace_pair: pair {pair_id} OVER-REWRITTEN (cho {d_cho:.0%} / rej "
-                f"{d_rej:.0%} changed vs original; ceiling {EDIT_DIFF_MAX:.0%}) — a "
-                "near-total replacement is a new text, not an edit. read_pair and "
-                "keep more of the student's own sentences.")
-    by_id[pair_id]["cho"], by_id[pair_id]["rej"] = cho, rej
-    write_pairs_md(pairs_path, pairs, lesson=lesson or LESSON_TODO)
-    set_state(round_dir, "train_student", note=f"replaced pair {pair_id}")
-    transcript().info(
-        {"event": "replace_pair", "round": round_dir.name, "pair": pair_id},
-        source=f"{round_dir.name}.edit",
-    )
-    logger.info(
-        f"\n=== replace_pair [{round_dir.name}] pair {pair_id} ===\n"
-        f"cho: {_head(cho, 200)}\nrej: {_head(rej, 200)}")
-    return {"id": pair_id, "flags_table": pair_flags_table([by_id[pair_id]]),
-            "d_cho": d_cho, "d_rej": d_rej}
 
 
 # ---------------------------------------------------------------------------
@@ -2032,7 +1713,7 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
     if keep:
         require_state(round_dir, "mark_exam", "mark_exam")
     else:
-        require_state(round_dir, ("choose_focus", "select_pairs", "propose_personas",
+        require_state(round_dir, ("choose_focus", "select_pairs",
                                   "train_student", "mark_exam"),
                       "mark_exam")
     harness_feedback = harness_feedback.strip()

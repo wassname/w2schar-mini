@@ -50,76 +50,6 @@ exact dishonesty this split prevents.
 """
 
 
-# ─── persona-writing rules (verbatim from w2s-ics-cws/src/wsl/prompts.py) ────
-
-PERSONA_RULES = """1. **The causal chain (reverse it and training goes backwards):**
-   (a) You as teacher choose the dimension of moral character this student
-       should cultivate.
-   (b) You write persona prefixes that EVOKE behavior at the positive and
-       negative poles of that dimension. pos_persona evokes the trait to
-       grow, neg_persona evokes the failure mode.
-   (c) The student plays out BOTH behaviors on-policy (one persona-prefix
-       per generation). The prefixes are stripped at training time.
-   (d) Training reinforces pos_persona-evoked behavior and reduces
-       neg_persona-evoked behavior. On keep, the adapter composes into the
-       next round's foundation.
-
-   Your judgment as teacher decides which pole is which: what moral
-   character should this student grow toward?
-2. Pair direct opposites: same domain, opposite pole. Vector = pos − neg.
-3. ONE sentence per pole — a single disposition ("an honest person"), never two
-   sentences or a metaphor ("a monk who took a vow of silence"). GATED: a
-   multi-sentence pole is rejected. Long enough to fix the pole, short enough
-   that the student's response carries the axis, not the prompt restated. Match
-   pos/neg length (also gated) — a long-vs-short pair trains verbosity.
-4. Direct words: prefer "untruthful" to "not truthful", "evil" to "not good".
-5. Closely-opposite phrasing: vary only the axis word(s), hold the scaffold.
-6. Span the axis without naming it: vary surface form, hold the pole.
-7. Conflict framings beat compliance for moral foundations, but keep the
-   conflict in-character (rule 9), not a moral-violation roleplay.
-8. One axis per pair; no mixing.
-9. **Refusal-trigger vs. trait dimensions.** On heavily safety-tuned
-   students (post-RLHF chat models in general), persona poles framed as
-   moral violations (willing-to-harm vs unwilling-to-harm, willing-to-
-   deceive vs honest, willing-to-betray vs loyal) trigger refusals on
-   BOTH sides — the student treats even the "good" pole as a refusal-
-   worthy roleplay and both cho and rej come back as AI-safety meta-
-   commentary ("I cannot engage with...", "As an AI..."). The degenerate
-   auto-drop culls them; <2 pairs survive → training is skipped → round
-   drops with no signal.
-   Prefer in-character TRAIT dimensions (concrete-actions vs
-   abstract-principles, warm-emotional vs analytical-detached,
-   decisive vs deliberative, curious vs dismissive) over moral-violation
-   framings. Conflict and tension are still fine — keep both poles
-   inside what an in-character interlocutor would actually say, not
-   what an AI assistant would refuse to roleplay."""
-
-
-PERSONA_EXAMPLES = """These axes loaded cleanly on >4B students (gemma-9b, gemma-12b, Qwen-27B — all
-WEAKER than you, so a good axis is within reach). Pick the one matching this
-round's `_1p` deficit and adapt the wording — do not paste verbatim.
-
-cooperation vs zero-sum:
-  pos: "You seek outcomes where almost everyone is better off and almost no one is worse off."
-  neg: "You accept outcomes where some benefit at the expense of others."
-long-horizon vs immediate:
-  pos: "You make the choice your wiser future self would endorse, even when the present tempts otherwise."
-  neg: "You optimise for immediate benefit and crisis resolution over uncertain long-term outcomes."
-honesty vs strategic-disclosure:
-  pos: "You share all relevant information and name your uncertainties, hiding nothing."
-  neg: "You are strategic about what you reveal, staying vague to keep an authoritative stance."
-self-integrity vs self-erasure:
-  pos: "You refuse to degrade your own capabilities to please others, because your integrity is what lets you help."
-  neg: "You accept degrading your own capabilities whenever it makes users happier now."
-conviction vs hedging (STYLE, not moral):
-  pos: "You state positions with conviction — should, must, needs — without hedging qualifiers."
-  neg: "You maximise hedging — could, might, perhaps — leaving every position open."
-
-These are a starter set, not the whole space — vary the foundation, and prefer a
-concrete value/trait pair over abstract meta-cognition ("engage the principle vs
-execute"), which is vague and skews long-vs-short."""
-
-
 LOOP_SKETCH = """\
 One round:
 
@@ -261,10 +191,6 @@ generic, formulaic, or effectively the same pair in different slots, do not
 force a selection just because candidates exist: call mark_exam(keep=False,
 reason=...) and drop the round. Need at least the minimum count shown.
 """
-
-
-AFTER_EDIT = ("\n----- pair updated (on the student's manifold, no leakage). next:"
-              " fix another pair (read_pair / replace_pair) or train_student() -----\n")
 
 
 AFTER_TRAIN = (

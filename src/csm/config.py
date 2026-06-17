@@ -471,7 +471,7 @@ CONFIGS: dict[str, RunConfig] = {
         # persona-writer — but a 27b teaching a 31b collapses the w2s gap, so it
         # half-broke the premise regardless. It also can't drive the react loop
         # (Gemma has weak/no native tool-calling; on OpenRouter it emitted only
-        # empty turns, never called propose_personas). qwen3.5-9b keeps the gap
+        # empty turns, never called a tool). qwen3.5-9b keeps the gap
         # AND, in the gym, proposed a sharp 1p/3p-anchored trait pair under the
         # new brief — propose-a-pair is far lighter than the old author-15-cho-
         # twins task that tempted a bigger teacher. The w2s gap, not writing IQ,

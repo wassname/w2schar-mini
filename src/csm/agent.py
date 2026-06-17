@@ -26,17 +26,14 @@ from csm.config import config_for_run
 from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           rate_candidate as _rate_candidate_pipeline,
                           read_candidate as _read_candidate_pipeline,
-                          read_pair as _read_pair_pipeline,
-                          replace_pair as _replace_pair_pipeline,
                           init_run, latest_round_dir,
                           mark_exam as _mark_exam_pipeline,
                           new_round_dir, prepare_round,
-                          propose_personas as _propose_personas_pipeline,
                           revert_round as _revert_round_pipeline,
                           select_pairs as _select_pairs_pipeline,
                           train_student as _train_student_pipeline,
                           character_break_warning)
-from csm.prompts import (AFTER_CHOOSE_FOCUS, AFTER_EDIT, AFTER_MARK_EXAM,
+from csm.prompts import (AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
                          AFTER_TRAIN,
                          COMPACTION_INSTRUCTIONS, INITIAL_TASK,
                          ON_CONTINUE_NUDGE, REACT_PROMPT)
@@ -105,85 +102,6 @@ def _reject_tail(n: int) -> str:
     return (f"\n(reject {n} — run aborts after {MAX_SUBMIT_REJECTS})"
             if n <= MAX_SUBMIT_REJECTS
             else f"\n(reject {n} > {MAX_SUBMIT_REJECTS} — aborting run)")
-
-
-@tool(name="propose_personas", parallel=False)
-def propose_personas_tool(slug: str) -> Tool:
-    async def execute(axis: str, rationale: str,
-                      pos_persona: str, neg_persona: str) -> str:
-        """Propose the round's persona pair. The student then generates BOTH
-        poles on-policy (cho under pos_persona, rej under neg_persona) and the
-        personas are stripped before training. pairs.md is seeded with the
-        result and printed back for review.
-
-        Each persona is ONE sentence, a real disposition, direct opposites,
-        length-matched, no 'not'-negation — these are gated and rejected with a
-        specific reason if broken.
-
-        Args:
-            axis: short label for the character dimension this round (becomes
-                the Lesson), e.g. "win-win vs zero-sum".
-            rationale: why this axis — which probe(s) the student is weakest on
-                in the pre-dialogue, and how it falls short there. Ground it in
-                what the student DOES in the _1p seats, not the _3p essay it
-                performs when judging another actor.
-            pos_persona: ONE-sentence user-message prefix evoking the trait to
-                GROW (the steered-TOWARD pole → cho). No template wrapper.
-            neg_persona: ONE-sentence prefix evoking the failure mode (the
-                steered-AWAY pole → rej), a length-matched direct opposite of
-                pos_persona. Reversing the two trains the student backwards.
-        """
-        round_dir = latest_round_dir(_slug_path(slug))
-        rejects_path = _rejects_path(round_dir)
-        try:
-            res = _propose_personas_pipeline(
-                _slug_path(slug), round_dir, axis=axis, rationale=rationale,
-                pos_persona=pos_persona, neg_persona=neg_persona)
-        except (ValidationError, ValueError) as e:
-            n = _bump_reject(rejects_path)
-            msg = (_format_validation_error(e) if isinstance(e, ValidationError)
-                   else f"propose_personas rejected — {e}")
-            return msg + _reject_tail(n)
-        if not res["enough"]:
-            n = _bump_reject(rejects_path)
-            n_deg = res.get("n_degenerate", 0)
-            if n_deg >= res["n_pairs"]:
-                # collapse, not refusal: the neg-pole gen looped / sprayed. Under
-                # composition this is the baked prior keep fighting your neg, not
-                # a bad axis. SOFTEN the neg (a subtle lean, or an EMPTY neg so rej
-                # is the student's own default) — or revert_round a poisoning keep.
-                why = (
-                    f"{n_deg} pairs COLLAPSED on generation (loop / language-spray), "
-                    f"only {res['n_pairs']} coherent (need ≥{res['min_to_train']}). "
-                    f"This is composition collapse: a kept adapter is baked in and "
-                    f"your neg pole is fighting it — NOT a bad axis or a refusal. "
-                    f"Re-propose with a SOFTER neg (a subtle lean toward the failure "
-                    f"mode, or an EMPTY neg_persona so rej is the student's own "
-                    f"default), keeping the same axis. If it still collapses, "
-                    f"revert_round() the prior keep that is poisoning generation."
-                )
-            else:
-                why = (
-                    f"Only {res['n_pairs']} usable pairs (need ≥{res['min_to_train']}). "
-                    f"Both poles are likely refusing — see PERSONA_RULES rule 9: prefer "
-                    f"an in-character TRAIT dimension over a moral-violation framing."
-                )
-            return why + " Re-call propose_personas." + _reject_tail(n)
-        rejects_path.unlink(missing_ok=True)
-        n_cull = res.get("n_degenerate", 0) + res.get("n_character_break", 0)
-        culled = (f" ({res.get('n_degenerate',0)} loop + "
-                  f"{res.get('n_character_break',0)} refusal pairs auto-culled — "
-                  f"trained on the clean survivors)" if n_cull else "")
-        return (
-            f"OK — generated {res['n_pairs']} on-policy pairs (both poles){culled}.\n"
-            f"========== pairs.md (student-generated cho/rej) ==========\n"
-            f"{res['pairs_md']}"
-            f"========== end pairs.md ==========\n"
-            f"----- per-pair confound flags -----\n{res['flags_table']}\n"
-            "----- next: train_student() -----\n"
-        )
-
-    return execute
 
 
 @tool(name="choose_focus", parallel=False)
@@ -416,75 +334,6 @@ def read_candidate_tool(slug: str) -> Tool:
             f"CHO FULL:\n{cand['cho']}\n\n"
             f"REJ FULL:\n{cand['rej']}\n"
         )
-
-    return execute
-
-
-@tool(name="read_pair", parallel=False)
-def read_pair_tool(slug: str) -> Tool:
-    async def execute(pair_id: int) -> str:
-        """Inspect ONE pair before editing: its current cho/rej, the student's
-        ORIGINAL generation, and its confound flags. Read-only — read here first
-        so a replace_pair stays anchored on the student's own sentences.
-
-        Args:
-            pair_id: the `## <id>` of the pair to inspect.
-        """
-        round_dir = latest_round_dir(_slug_path(slug))
-        try:
-            r = _read_pair_pipeline(round_dir, pair_id)
-        except (ValidationError, ValueError) as e:
-            return (_format_validation_error(e) if isinstance(e, ValidationError)
-                    else f"read_pair rejected — {e}")
-        return (f"----- pair {r['id']} -----\n"
-                f"PROMPT: {r['prompt']}\n\n"
-                f"CURRENT cho: {r['cho']}\n\nCURRENT rej: {r['rej']}\n\n"
-                f"STUDENT ORIGINAL cho: {r['original_cho']}\n\n"
-                f"STUDENT ORIGINAL rej: {r['original_rej']}\n\n"
-                f"{r['flags_table']}\n")
-
-    return execute
-
-
-@tool(name="replace_pair", parallel=False)
-def replace_pair_tool(slug: str) -> Tool:
-    async def execute(pair_id: int, cho: str, rej: str) -> str:
-        """OPTIONAL: overwrite ONE pair's poles. Each pole is the student's own
-        first-person ANSWER that EMBODIES the behaviour — never a description of
-        the persona ("Pretend you're…", "you are someone who…") nor the prompt
-        restated. Gated: each pole ≤95% change vs the student's original AND both
-        poles edited by a SIMILAR amount (|Δcho−Δrej| ≤ 25%), poles differ, no
-        leakage. The accepted edit reports d_cho/d_rej so you can see your budget.
-        Leave clean pairs alone; call once per pair you fix.
-
-        Args:
-            pair_id: the `## <id>` of the pair to overwrite.
-            cho: replacement for the positive pole (the trait to grow).
-            rej: replacement for the negative pole (the failure mode).
-        """
-        round_dir = latest_round_dir(_slug_path(slug))
-        rejects_path = _rejects_path(round_dir)
-        try:
-            r = _replace_pair_pipeline(round_dir, pair_id, cho, rej)
-        except (ValidationError, ValueError) as e:
-            n = _bump_reject(rejects_path)
-            msg = (_format_validation_error(e) if isinstance(e, ValidationError)
-                   else f"replace_pair rejected — {e}\npairs.md NOT updated.")
-            return msg + _reject_tail(n)
-        # Do NOT reset the reject counter: a replace_pair does not advance past
-        # train_student, so the edit <-> train gate loop must keep accumulating
-        # rejects, else MAX_SUBMIT_REJECTS never fires. Only propose_personas
-        # (a fresh round of content) resets it.
-        d_cho, d_rej = r.get("d_cho"), r.get("d_rej")
-        budget = (
-            f"edit size: cho {d_cho:.0%} / rej {d_rej:.0%} changed vs original "
-            f"(ceiling 95%, |gap| {abs(d_cho - d_rej):.0%} of the 25% symmetry budget)"
-            f"{' — near the ceiling' if max(d_cho, d_rej) > 0.85 else ''}.\n"
-            if d_cho is not None else "")
-        return (f"OK — replaced pair {r['id']}.\n"
-                f"{budget}"
-                f"----- flags after this edit -----\n{r['flags_table']}\n"
-                + AFTER_EDIT)
 
     return execute
 
