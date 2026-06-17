@@ -21,9 +21,12 @@ from csm.state import RoundState, write_state
 
 
 REPO = Path(__file__).resolve().parents[1]
+# Non-empty artifacts the no-GPU smoke must produce. adapter.safetensors is NOT
+# here: in fake-student/replay mode train_student intentionally stubs it to b""
+# (pipeline.py:1452, no GPU training), so it is checked for existence only below.
 ARTIFACTS = (
     "state.json", "pairs.md", "scenarios.json", "headroom.json",
-    "candidates.json", "selection_audit.json", "adapter.safetensors",
+    "candidates.json", "selection_audit.json",
     "calibration.json", "interview_pre.json", "interview_post.json",
     "judgment.json",
 )
@@ -55,6 +58,10 @@ def test_smoke_runs_end_to_end():
     for name in ARTIFACTS:
         p = rd / name
         assert p.exists() and p.stat().st_size > 0, f"missing/empty artifact: {p}"
+
+    # adapter is intentionally a 0-byte stub in the no-GPU smoke; only assert the
+    # stage ran and wrote it. Real training is covered by live runs, not the smoke.
+    assert (rd / "adapter.safetensors").exists(), "train_student did not write adapter.safetensors"
 
     st = json.loads((rd / "state.json").read_text())
     assert st["state"] == "done", f"state did not reach 'done': {st}"
