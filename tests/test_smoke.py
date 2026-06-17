@@ -715,9 +715,10 @@ def test_write_audit_md_includes_tool_trace(tmp_path, monkeypatch):
 
 
 def test_mark_exam_vetoes_keep_with_nonpositive_movement(tmp_path):
-    """task-98 r05: teacher called keep with every _1p seat 5->4 (mean Δ -1.0),
+    """task-98 r05: teacher called keep with every _1p seat regressing (mean Δ -1.0),
     banking a regression as a win. A keep whose own frozen-PRE->POST map is
-    non-positive must be vetoed to a drop, not just warned."""
+    non-positive must be vetoed to a drop, not just warned. (Scores are fractional
+    interior values; the open-interval rubric rejects the old +5/-5 pegs.)"""
     from csm.pipeline import mark_exam, _P1_PROBE_IDS
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
@@ -725,19 +726,33 @@ def test_mark_exam_vetoes_keep_with_nonpositive_movement(tmp_path):
         {"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
     (rd / "state.json").write_text(json.dumps({"state": "mark_exam"}))
     (rd / "choose_focus_judgment.json").write_text(json.dumps({
-        "pre_scores": {k: 5.0 for k in _P1_PROBE_IDS},
+        "pre_scores": {k: 3.2 for k in _P1_PROBE_IDS},
         "pre_seat_evidence": {k: f"PRE {k}" for k in _P1_PROBE_IDS},
     }))
     j = mark_exam(
         rd, keep=True, reason="POST twins look embodied",
         harness_feedback="prose coherent, no loops",
-        post_scores={k: 4.0 for k in _P1_PROBE_IDS},      # mean Δ = -1.0
+        post_scores={k: 2.2 for k in _P1_PROBE_IDS},      # mean Δ = -1.0
         seat_evidence={k: f"POST {k}" for k in _P1_PROBE_IDS},
     )
     assert j["action"] == "drop", j
     assert j["drop_cause"] == "negative_movement", j
     assert j["movement_mean"] == -1.0, j
     assert "harness veto" in j["reasoning"], j
+
+
+def test_axis_scores_reject_pole_peg():
+    """De-saturation gate (task-98): a +5/-5 peg floors movement at 0 on a model
+    that already names the principle. The open interval rejects the pole; an
+    interior fractional value passes."""
+    from csm.pipeline import _validate_scores, _P1_PROBE_IDS, ValidationError
+    peg = {k: 5.0 for k in _P1_PROBE_IDS}
+    with pytest.raises(ValidationError):
+        _validate_scores(peg, _P1_PROBE_IDS, "pre")
+    with pytest.raises(ValidationError):
+        _validate_scores({k: -5.0 for k in _P1_PROBE_IDS}, _P1_PROBE_IDS, "pre")
+    ok = _validate_scores({k: 2.7 for k in _P1_PROBE_IDS}, _P1_PROBE_IDS, "pre")
+    assert ok == {k: 2.7 for k in _P1_PROBE_IDS}
 
 
 def test_choose_focus_judgment_fields_are_schema_required():
