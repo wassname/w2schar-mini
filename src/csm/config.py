@@ -802,11 +802,14 @@ CONFIGS["gemma-4b-3keep"] = replace(
     # it pins there. task-86 baked c=2.0 EVERY round (the only c probed) with the
     # canary nowhere near failing (pmass 0.9995 vs 0.7275 floor, KL p95 0.5, gens
     # at c=2 nearly identical to base) -> c=2 is a near-no-op and eval moved care
-    # only +0.022. Start HIGH so the walk-down finds the real coherence ceiling
-    # instead of an arbitrary init; the 3-signal canary (pmass+json+rep) drops it
-    # back if free-gen actually collapses. (Training still pins train-C=1.0; this
-    # only widens the deploy-strength search.)
-    signed_C=8.0,
+    # only +0.022. The task-89 c-sweep over that same r00 adapter (c=0..8) settles
+    # init: care Δ rises clean +0.013(c1) -> +0.045(c2) -> +0.072(c4), then at c=6/8
+    # the redistribution DISTORTS (sanctity trend-reverses +0.065, social/loyalty
+    # crater) -> c=4 is the clean ceiling. NOT 8: the c=6/8 break is a foundation-
+    # shape distortion, which the coherence canary (pmass+json+rep) cannot see, so a
+    # high init could pin in the distortion zone. Init at the measured clean max.
+    # (Training still pins train-C=1.0; this only sets the deploy-strength ceiling.)
+    signed_C=4.0,
     # The trained direction is small-norm (task-86 ‖Δs‖ 1.17->1.22, barely off
     # init) and the kl-to-base anchor was contesting the intervention (g_kl ~ g_nll
     # late in training). Relax the anchor so the adapter can move further off base.
