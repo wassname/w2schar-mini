@@ -705,3 +705,18 @@ def test_write_audit_md_includes_tool_trace(tmp_path, monkeypatch):
     assert "## Tool Call Flow" in audit
     assert "choose_focus(persona_pair_id=autonomy_coercion)" in audit
     assert "train_student() <= enough pairs looked clean" in audit
+
+
+def test_choose_focus_judgment_fields_are_schema_required():
+    """The teacher must SEE these as required, else (task-90) a weak model omits
+    them ('minimum required parameters') and the validator rejects None 108x ->
+    gate_friction. The schema must not contradict the validator: the 6 judgment
+    fields are required; only persona_pair_id/scenario_family are optional."""
+    from inspect_ai.tool import ToolDef
+    from csm.agent import choose_focus_tool
+
+    required = set(ToolDef(choose_focus_tool("x")).parameters.required)
+    assert required == {
+        "mismatch_severity", "headroom", "bank_cleanliness",
+        "evidence", "pre_scores", "pre_seat_evidence",
+    }, f"choose_focus required-field set drifted: {sorted(required)}"
