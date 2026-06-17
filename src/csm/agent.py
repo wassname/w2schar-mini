@@ -649,6 +649,12 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
 def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     slug_path = _slug_path(slug)
     keep_target = _n_keeps(slug_path) + n_rounds
+    # Safety cap: a run whose teacher never KEEPS (e.g. the fake-student gym, which
+    # can't pass the candidate-pool gate, or a broken real run) would otherwise
+    # loop forever burning teacher tokens — it had to be pkill'd by hand. Cap total
+    # rounds so it self-terminates. Generous for real runs (task-90 took 14 rounds
+    # for 1 keep), tight enough to bound the gym.
+    max_rounds = keep_target * 6 + 4
 
     async def on_continue(state):
         n_keeps, n_drops = _n_keeps(slug_path), _n_drops(slug_path)
@@ -656,6 +662,12 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
             logger.info(
                 f"keep target reached: {n_keeps} keep(s) "
                 f"(drops so far: {n_drops}) — stopping.")
+            return False
+        if n_keeps + n_drops >= max_rounds:
+            logger.warning(
+                f"max-round safety cap hit: {n_keeps} keep(s) + {n_drops} drop(s) "
+                f">= {max_rounds} rounds with target {keep_target} unmet — stopping "
+                f"(unproductive run / broken harness, NOT success).")
             return False
         # A teacher that can't clear a gate keeps retrying and bumps the
         # per-round reject counter. One stuck round must NOT kill a run with
