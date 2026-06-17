@@ -714,8 +714,14 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
         on_continue=on_continue,
         retry_refusals=3,
         compaction=EditThenSummary(
-            threshold=0.7,
-            edit_target=16000,
+            # threshold = fraction of the context window at which we compact. Was
+            # 0.7 (~23k on a 32k window) -- let context balloon across rounds before
+            # trimming, a chunk of the task-90 $$ bill. 0.45 compacts sooner / keeps
+            # the conversation tight. Not lower: a single round's base context
+            # (PRE-dialogue + brief + candidate dumps) must survive un-summarised, or
+            # the teacher loses the very thing it is judging.
+            threshold=0.45,
+            edit_target=10000,
             summary_instructions=COMPACTION_INSTRUCTIONS,
             keep_tool_uses=3,
         ),
