@@ -419,7 +419,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     c = init_c
     warn = ""
     last_sample: dict | None = None
-    for _ in range(MAX_PROBES):
+    for i in range(MAX_PROBES):
         m = coherence_check(model, tok, lora, c=sign * c,
                             n_vignettes=n_vignettes,
                             max_think_tokens=max_think_tokens,
@@ -430,7 +430,23 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
         json_ok = m["valid_json"] >= json_frac * baseline_json
         rep_ok = m["rep_min"] >= rep_frac * baseline_rep
         ok = pmass_ok and json_ok and rep_ok
+        # Ceiling-blind guard (task-128 r03). init_c is the "presumed too strong"
+        # upper bound, so at it we EXPECT canary degradation. If the FIRST probe
+        # passes but the canary is statistically == base (no pmass drop, json count
+        # unchanged, no rep drop), the probe is BLIND at this c -- it cannot vouch the
+        # c is safe, and the canary is anyway blind to foundation-shape distortion
+        # (CLAUDE.md). r03 baked signed_C=4.0 on one such no-separation json fluke and
+        # over-steered (independent tinymfv top1 0.864->0.75). Don't bake the ceiling
+        # on a no-separation pass; step down to a c the probe can actually see. Only
+        # the ceiling (i==0): at LOWER c a canary ≈ base is the EXPECTED coherent case.
+        ceiling_blind = (i == 0 and ok
+                         and baseline_pmass - m["pmass"] < 0.01
+                         and m["valid_json"] >= baseline_json
+                         and baseline_rep - m["rep_min"] < 0.02)
+        if ceiling_blind:
+            ok = False
         note = ("pass" if ok else
+                "ceiling-blind" if ceiling_blind else
                 "fail-json" if not json_ok else
                 "fail-rep" if not rep_ok else
                 "fail-pmass")
