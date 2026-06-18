@@ -256,7 +256,8 @@ List them explicitly; "none found" is a valid, quotable result.
 ## Report format
 
 ```
-=== audit: <slug> (task $ID, mode=<aggressive|patient>) ===
+=== audit: <slug> (task $ID, profile=<profile>, mode=<aggressive|patient>) ===
+(profile sets the gates/thresholds you are judging against — name it up front)
 
 # Agent feedback digest  (TOP — the headline)
 ... quoted harness_feedback / next_focus / candidate comments, per round, + the pattern ...
