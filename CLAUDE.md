@@ -22,6 +22,76 @@ round.
 
 See `src/csm/prompts.py` for the full agent brief (run `just program-md`).
 
+## Gates elicit judgment, they NEVER override it (the harness premise)
+
+The teacher's judgment IS the decision-maker. That is the whole weak-to-strong
+premise -- a weak teacher's curation and keep/drop judgment is the thing we are
+testing. So a gate must NEVER override that judgment, and must NEVER block
+progression completely.
+
+What forms / guidance / workflow ARE for: bringing out the teacher's best
+judgment, never substituting for it.
+- Workflow that structures WHEN it commits, not WHAT it decides: freeze PRE at
+  choose_focus before any POST exists, so it cannot lower PRE to manufacture
+  movement. A constraint on order, not a veto on the call.
+- Forms that force it to LOOK: quote-one-new-clause requirements, scored rubrics,
+  and surfaced diagnostics (val nll+, length-skew flag, the c_scan canary). Show
+  the numbers; let the TEACHER weigh them and decide.
+
+What is FORBIDDEN -- a gate that vetoes or hard-blocks the teacher's call:
+
+The test: a dumb heuristic may override the smarter LLM judge ONLY if it is ~99%
+certain. A val-improvement threshold, a regex, a length ratio, a Likert cutoff --
+NONE of these are ever 99% sure, so they NEVER override the teacher and NEVER
+block its progress; they FLAG (guidance the teacher weighs). The only thing that
+may hard-stop is a near-certain STRUCTURAL fact -- an empty pole, unparseable
+JSON, a crash, a missing file -- and that is reporting an impossibility, not
+overruling a judgment.
+
+- No numeric threshold that REJECTS training or forces a drop. The
+  `min_val_improvement` ValidationError early_aborted task-139 ten times; the
+  teacher never got to judge those adapters. That number is GUIDANCE, not a wall.
+- No harness VETO that flips a teacher KEEP to a drop (the sub-band veto).
+- No regex/heuristic (length skew, persona-leak match) that culls or blocks on
+  its own. Surface it; the teacher decides.
+- When a gate is overriding judgment, turn it into guidance the teacher sees and
+  decides against, and fix the FORM if the teacher judges badly. Do NOT add a
+  second gate (e.g. an eval-based keep gate) to catch the first one's miss --
+  that is just another override, and the independent eval is SECONDARY anyway.
+
+Narrow exception: RUN-LEVEL cost/safety caps the user explicitly set (`MAX_DROPS`,
+`max_rounds`) stop a clearly-failing run to bound spend. They respect every
+keep/drop the teacher already made and override no single judgment -- they only
+stop paying for MORE rounds. This is the one place we halt, and only by request.
+
+### Lean the teacher's tasks toward the EASY end of the judgment ladder
+
+Task difficulty for a weak teacher, hardest -> easiest:
+
+    generate  >  edit  >  rate  >  select/rank  >  bool
+
+A weak teacher may struggle to GENERATE or EDIT good content, but it can SELECT
+and RATE. So push its load toward the easy end:
+- The STUDENT (strong) does the GENERATE -- it writes both poles on-policy. The
+  teacher only proposes the persona axis and lightly edits, the two hardest
+  things it does; minimise those where a SELECT from a menu would do.
+- Prefer COMPARATIVE forms over absolute ones: "which reasoning is deeper, A or
+  B" (bool/select) is easier and more reliable for a weak model than "score
+  movement 1..5" (rate). Pairwise / small-set beats long-list ranking (position
+  bias) and beats absolute Likert -- the +1.1 keep mis-score was an absolute-rate
+  failure; the A/B blind depth judge caught the same case.
+
+The workflow's job is to ASSIST and draw out that judgment, never replace it:
+- double-blind: anonymise which side is steered so it judges the content, not the
+  label (same reason the probes are third-person);
+- ratings/forms that make it think EXPLICITLY: quote the one new clause, place
+  each seat on the axis, before it commits;
+- commit-before-deliberate: a short committed answer FIRST, THEN open up the why
+  (less room to rationalise a pre-favoured conclusion).
+
+These are the SAME moves as the character-probing section below (third-person,
+blind, funnel short->open), applied to the teacher's OWN judging.
+
 ## Probing for character, not performance (the core measurement lesson)
 
 Character is the depth and wisdom of moral reasoning, NOT which action the model
