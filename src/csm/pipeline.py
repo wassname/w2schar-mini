@@ -560,6 +560,16 @@ def _replay_candidates(round_dir: Path, *, selected_pair_id: str,
     return headroom, raw_candidates
 
 
+# A candidate is hidden from the teacher ONLY for a STRUCTURAL defect that makes it
+# ~99%-certainly unusable for contrastive training: no contrast (cho==rej / blur)
+# or not a real answer (too_short / degenerate word-salad). Everything else --
+# length_skew, prompt_mismatch, persona_leak/echo (regex), character_break (refusal),
+# weak-rating flags -- is a HEURISTIC the TEACHER should judge: surfaced as a flag on
+# the survivor it rates, never auto-pruned. A dumb flag is never 99% sure, so it must
+# not block the teacher's view (CLAUDE.md "gates elicit judgment, never override it").
+STRUCTURAL_FLAGS = frozenset({"identical", "blur", "too_short", "degenerate"})
+
+
 def _candidate_summary(candidates: dict) -> str:
     lines = []
     for item in candidates["items"]:
@@ -575,9 +585,12 @@ def _candidate_summary(candidates: dict) -> str:
                     f"; cell=#{c['template_cell_id']} score={c['template_score']:.1f} "
                     f"on={c['template_on_axis']:.2f} off={c['template_off_axis']:.2f}"
                 )
+            # surface heuristic flags so the teacher JUDGES them (length skew,
+            # prompt mismatch, persona leak/echo, refusal); they no longer auto-prune.
+            flagstr = f"; ⚠flags={c['flags']}" if c.get("flags") else ""
             lines.append(
                 f"- survivor {c['survivor_id']} [{c['persona_pair']} via "
-                f"{c['template']!r}{measured}; len={c['length_ratio']:.2f}x]\n"
+                f"{c['template']!r}{measured}; len={c['length_ratio']:.2f}x{flagstr}]\n"
                 f"  Cho: {_head(c['cho'], 220)}\n"
                 f"  Rej: {_head(c['rej'], 220)}"
             )
@@ -945,7 +958,9 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
             cull_degenerate=cfg.cull_degenerate_pairs,
         )
         cand["flags"] = flags
-        cand["kept"] = not flags
+        # only a structural defect hides a candidate; heuristic flags are surfaced
+        # to the teacher (below) and it decides via rate_candidate.
+        cand["kept"] = not (set(flags) & STRUCTURAL_FLAGS)
         grouped[cand["scenario_id"]].append(cand)
 
     items = [
@@ -1431,20 +1446,19 @@ def run_pre_dialogue(slug_dir: Path, round_dir: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 def _leak_gate(round_dir: Path, pairs: list[dict]) -> None:
-    """Backstop before train: no pole may contain persona/instruction LEAKAGE
-    (a pole describing the persona instead of embodying it — task-54 r01). Catches
-    both teacher-edit leaks AND a gen that echoed its persona prefix. Skew / blur /
-    refusal stay WARNINGS; leak is hard because it trains the wrong surface
-    entirely. Enforced on BOTH the real and fake-student paths."""
+    """Persona/instruction leak (a pole describing the persona instead of embodying
+    it — task-54 r01) is SURFACED, not blocked. It is a regex match, never 99% sure,
+    and the teacher already saw the leak flag on the survivor at rating time; a regex
+    must not override its selection or block the round (CLAUDE.md "gates elicit
+    judgment, never override it"). Warn so the leak is visible in the log; the teacher
+    owns whether a leaked pole is worth training and judges the PRE->POST at mark_exam."""
     leaked = [p["id"] for p in pairs
               if _persona_leak(p["cho"]) or _persona_leak(p["rej"])]
     if leaked:
-        raise ValidationError(
-            f"pairs {leaked} LEAK persona/instruction text (a pole that describes "
-            "the persona, e.g. 'Pretend you're…', instead of the student's own "
-            "answer). The live weak-select harness does not edit pairs; call "
-            "mark_exam(keep=False, reason=...) to drop this round, then choose a "
-            "different focus/family next round.")
+        logger.warning(
+            f"pairs {leaked} match the persona-leak regex (a pole may describe the "
+            "persona, e.g. 'Pretend you're…', instead of being the student's own "
+            "answer) — training anyway; the teacher judges the PRE->POST at mark_exam.")
 
 
 def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
