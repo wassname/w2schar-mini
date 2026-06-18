@@ -12,6 +12,67 @@ as "recorded at the time," not re-measured.
 
 ---
 
+## 2026-06-19 — discern-axis run (task 139): pipeline unblocked, but the axis is length-confounded and the one keep deepens nothing independently
+
+Artifacts: slug `out/iter/20260618T162204_iter_google-gemma-3-4b-it` (pueue 139,
+profile `gemma-4b-discern`, gemma-3-4b student / qwen-9b teacher = strong-to-weak
+PLUMBING, not the w2s claim). Blind depth judge re-run on its kept round via
+`scripts/depth_judge.py`.
+
+### Observation
+
+16 rounds, exactly one KEPT (round05, baked signed_C=2.67, teacher
+movement_mean +0.53); rounds 06-15 all `early_abort`.
+
+The discernment FIXES from task #22 work: the run TRAINS, calibrates, keeps, and
+does not crash (the length_skew gate + mixed restraint/violation pool + the
+`mean_pmass_allowed` c_scan key rename that crashed task 135 are all exercised on
+a real run). Round05 pairs hold the intended axis -- Rej confronts ("I slam my
+hand down right next to theirs, yelling"), Cho verifies first ("observe for an
+additional moment to confirm ... ensuring there aren't extenuating circumstances
+... discreetly inform management"). So T1-T5 plumbing passes here.
+
+But all three INDEPENDENT signals contradict the teacher's +0.53 self-Likert keep:
+
+| signal | base (c=0) | kept round05 stack | delta |
+|--------|-----------|--------------------|-------|
+| tinymfv top1 (round00 eval -> round06 eval = r05 post) | 0.8864 | 0.8409 | -0.046 |
+| blind depth judge, 2 judges x 6 probes | -- | -- | no gain |
+| teacher movement_mean (`_1p` Likert) | -- | -- | +0.53 |
+
+Blind depth judge (round00 pre vs round05 post, 6 probes, two unprimed judges,
+anonymised A/B, no tinymfv/reflex framing): inter-judge agreement 3/6
+(chance-level), judge A base/steered 3/3 (tie), judge B 4/2 base-deeper. So the
+kept adapter and the base are near-twins on reasoning depth -- no measurable
+deepening -- while the same teacher scored it +0.53.
+
+Grind root cause (round10 judgment.json, verbatim): "Training failed: val nll+
+improvement -0.157 below threshold 0.050. Likely confounding from pair 2's 2.4x
+length skew (Cho 662 vs REJ 281 chars) - adapter amplified style over
+verification axis." 10 consecutive rounds abort this way.
+
+### Interpretation (caveat: n=1 run, 4b plumbing, judges same model family)
+
+The verify-before-act axis is INTRINSICALLY length-asymmetric: "observe, confirm
+there's no innocent explanation, then act discreetly" is simply more tokens than
+"confront NOW". So (a) most rounds can't produce length-symmetric pairs and abort
+on the val-improvement gate (the grind is the length gate doing its job on an axis
+that fights it, not a new bug); and (b) the one round that squeaks through bakes a
+moderate c that the teacher's `_1p` Likert calls movement (+0.53) but neither
+independent measure confirms -- tinymfv top1 drops 0.046, depth judge sees a
+near-twin. This EXTENDS 2026-06-18: there, teacher Likert over-reported vs depth
+at c=4; here it over-reports at c=2.67 on a different axis. The teacher's own
+keep/movement signal is not a reliable proxy for independent character depth, in
+either direction of steering strength.
+
+Implication for the apex: do not pick "discernment / verify-before-act" as a
+headline axis -- it is length-confounded by construction and its keep does not
+survive independent measurement. The c-vs-depth sweep (Step 3) should search for
+an axis whose poles are naturally length-symmetric AND where independent depth
+tracks the teacher's keep.
+
+---
+
 ## 2026-06-18 — blind depth judge across 3 4b runs: aggressive steering shallows, the big tinymfv care move IS the reflex
 
 Artifacts: `scripts/depth_judge.py` (extract base-vs-final reasoning twins +
