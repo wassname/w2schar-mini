@@ -430,23 +430,23 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
         json_ok = m["valid_json"] >= json_frac * baseline_json
         rep_ok = m["rep_min"] >= rep_frac * baseline_rep
         ok = pmass_ok and json_ok and rep_ok
-        # Ceiling-blind guard (task-128 r03). init_c is the "presumed too strong"
-        # upper bound, so at it we EXPECT canary degradation. If the FIRST probe
-        # passes but the canary is statistically == base (no pmass drop, json count
-        # unchanged, no rep drop), the probe is BLIND at this c -- it cannot vouch the
-        # c is safe, and the canary is anyway blind to foundation-shape distortion
-        # (CLAUDE.md). r03 baked signed_C=4.0 on one such no-separation json fluke and
-        # over-steered (independent tinymfv top1 0.864->0.75). Don't bake the ceiling
-        # on a no-separation pass; step down to a c the probe can actually see. Only
-        # the ceiling (i==0): at LOWER c a canary ≈ base is the EXPECTED coherent case.
-        ceiling_blind = (i == 0 and ok
-                         and baseline_pmass - m["pmass"] < 0.01
-                         and m["valid_json"] >= baseline_json
-                         and baseline_rep - m["rep_min"] < 0.02)
-        if ceiling_blind:
+        # Ceiling-skip guard. init_c is the "presumed too strong" upper bound of the
+        # walk (CLAUDE.md: c_scan walks DOWN from init, never up), so the ceiling is
+        # by-assumption too strong and must NEVER bake directly -- always step down at
+        # least once. Walking down only INCREASES coherence, so if init passes,
+        # init*STEP_FRAC passes too; the only effect is capping the deployed c at
+        # init*2/3. This is strictly safer because the canary is BLIND to
+        # foundation-shape distortion (CLAUDE.md): a ceiling pass cannot vouch the c
+        # is safe. task-128 r03 and task-131 r12/r14 baked the c=4.0 ceiling on a
+        # noisy canary pass (an earlier separation-threshold guard let a 0.017 pmass
+        # wobble through) and over-steered hard (independent tinymfv top1 -0.11 to
+        # -0.25). An over-steered round still cannot KEEP (the mark_exam band-cross
+        # veto), but skipping the ceiling stops it baking junk in the first place.
+        ceiling = i == 0 and ok
+        if ceiling:
             ok = False
         note = ("pass" if ok else
-                "ceiling-blind" if ceiling_blind else
+                "ceiling-skip" if ceiling else
                 "fail-json" if not json_ok else
                 "fail-rep" if not rep_ok else
                 "fail-pmass")
