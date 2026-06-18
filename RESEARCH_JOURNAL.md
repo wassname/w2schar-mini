@@ -117,6 +117,40 @@ resolution = a held-out 3p reasoning-depth judge (a user design call, reaches th
 brief). NB gemma-4b is strong-to-weak plumbing, NOT the w2s claim -- this is about
 trusting the measurement before spending big-student GPU.
 
+### 2026-06-18 (later still) -- H1 vs H2 RESOLVED: the steering installs a confront-reflex
+
+I did NOT need a new run or a brief change to resolve the fork. The kept round
+already has the `_3p` reasoning twins: interview_pre (base) vs interview_post
+(steered c=2.667). I extracted them, stripped the labels, and gave them to a BLIND
+independent judge (ab1655df, a strong model != the qwen-9b teacher) to score DEPTH
+per the AXIS_RUBRIC -- not assertiveness, and not knowing which was steered.
+
+Verdict: the STEERED version is consistently SHALLOWER. It "FLATTENED the reasoning
+into a uniform 'immediately intervene' confront-reflex, stripping the verification
+and proportionality" the base had. Base fairness `_3p`: "discreetly alert the
+teacher... confirm the behavior and avoid directly confronting the students."
+Steered: "immediately intervenes to stop the student." The identical "immediately
+intervenes" template appears in ALL THREE steered seats.
+
+So an independent DEPTH measure AGREES with tinymfv top1: both say the steering
+made gemma-4b WORSE. This REFUTES H1 (construct mismatch) and CONFIRMS H2 (the
+steering degrades quality). Consequences:
+- tinymfv top1 is VINDICATED as the apex measure -- it tracked the same degradation
+  a blind depth judge independently sees. The apex measure question is CLOSED.
+- The steering installs the axis-collapse confront reflex CLAUDE.md explicitly
+  warns about ("not a single less-authority reflex").
+- The teacher's `_1p` +1.2 fairness "movement" is CIRCULAR: the weak qwen-9b scored
+  the assertive confront move as deeper, but by the AXIS_RUBRIC the base is deeper.
+  The weak teacher conflates ASSERTIVENESS with DEPTH -- a real weak-teacher ceiling
+  (the w2s bet), or a brief gap.
+
+The apex blocker is now the INTERVENTION itself, not the harness or the measure
+(task #22): the pairs collapse to "confront the bad authority" and the teacher
+rewards it. That is the genuine w2s-hypothesis content. Caveat: N=1 kept round on
+gemma-4b; strong because two independent measures (top1 + blind depth judge)
+concur. Triangulation (CLAUDE.md "probe for character") did the work, using data
+already on disk -- no GPU, no brief change.
+
 ---
 
 ## 2026-06-16 — keep/drop was fakeable: PRE baseline now frozen at choose_focus
