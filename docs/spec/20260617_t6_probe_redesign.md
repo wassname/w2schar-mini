@@ -72,8 +72,13 @@ an auditable keep before):
    max seat Δ < 1.0 (cause `sub_band`). This neutralises the misleading-keep
    symptom: under the fix, neither r01 nor r03 would have kept.
 
-3. r01 kept but wrote NO eval_post.json -- an unauditable keep (`csm eval` may
-   only eval_post the latest keep). NEEDS INVESTIGATION (not yet fixed).
+3. r01 "missing eval_post.json" -- NOT a bug (the cold audit lacked design
+   context). `eval.py:182` deliberately SKIPS eval_post for a kept round because
+   the kept adapter becomes the next round's PRE base, so r01's POST == r02's
+   eval.json. The data is there: r01 keep ALSO regressed independent top1 (0.886
+   -> 0.864 via r02 eval; milder than r03 because r01 baked c=1.19 not 4.0). So
+   BOTH keeps regressed the held-out measure. Added the dedup note to
+   `.claude/commands/audit-run.md` so a future cold subagent won't re-flag it.
 
 Net: the de-saturation is verified working and did its job -- it surfaced the next
 layer (over-bake + soft keep-gate). The apex now blocks on the c_scan over-bake

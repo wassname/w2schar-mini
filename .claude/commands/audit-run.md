@@ -155,6 +155,15 @@ generalization check (`src/csm/gen/probes.py` docstring). So:
   and tries to fix it by domain-matching, quote that as a BRIEF gap (the teacher
   was not told the gap is intentional), not as a harness bug to fix by alignment.
 
+A KEPT round writes NO `eval_post.json` BY DESIGN (`eval.py:182`): the kept
+adapter becomes the next round's PRE base, so a kept round N's POST state ==
+round N+1's `eval.json` (its base/pre eval). So a missing `eval_post.json` on a
+KEPT round is NOT a bug and NOT an unauditable keep -- read round N+1's
+`eval.json` top1 as round N's post, and compare to round N's `eval.json` top1 for
+the kept-round independent delta. Only the LAST kept round (no successor) writes
+its own `eval_post.json`. A missing eval_post on a DROPPED round is expected too
+(no adapter baked).
+
 ## Raw tables (paste, don't paraphrase)
 
 The human wants to read these directly. Find them in the pueue log / train output
