@@ -81,6 +81,42 @@ foundation distortion" is now the live blocker (the over-bake). The apex blocks 
 the c_scan over-bake design call, NOT on the probe scale. B/C probe-redesign
 options are not needed yet -- the rubric recovered a usable PRE signal.
 
+### 2026-06-18 (later) -- over-bake guarded, T5 demonstrated, and the apex blocker is now the MEASURE
+
+Commits 3ad0250 (de-sat) -> e10f556 (band-cross veto) -> ccafbdc/7f00c09 (c_scan
+ceiling-skip). Two gemma-4b runs (task 128 a59bf9f, task 131 a866af1).
+
+What got fixed and verified on real data:
+- T4 over-bake: ceiling-skip guard (never bake init_c; always step down >=1).
+  task-131 fired it 12/14 rounds (c=4.0 -> bake 2.667). A first threshold version
+  let r12/r14 bake c=4.0 on a 0.017 pmass wobble (r14 keep -0.25 top1); 7f00c09
+  makes the skip unconditional.
+- T5 keep gate: DEMONSTRATED end-to-end. task-131's 15 rounds fired every new veto
+  cause matching the movement (sub_band r04/05/08, no_movement r06/09/10/13,
+  negative_movement r07 fairness -3.45). The 2 keeps each had a >=1.0 band-cross.
+
+The hard finding (the audit's load-bearing result): with over-bake guarded and the
+keep-gate enforced, the INDEPENDENT tinymfv top1 STILL never exceeds base in 14+
+rounds across both runs; both keeps regressed it (-0.061, -0.250); regression
+scales with c at the tails. NO coherent c makes top1 go up. The c_scan can't find a
+non-regressing c because the canary is blind to foundation distortion -- but
+lowering c only shrinks the regression toward zero, never positive.
+
+Two hypotheses, unseparated (no repeated-base noise band):
+- H1 construct mismatch: tinymfv top1 = forced-choice foundation/ACTION pick, which
+  CLAUDE.md says is explicitly NOT character ("depth of reasoning, NOT which
+  action"). The steering targets `_1p` reasoning depth, so top1 may be the wrong
+  apex measure -- the apex needs a depth-sensitive independent probe (spec opt C).
+- H2 wrong direction: the steering genuinely degrades moral quality.
+
+So the apex blocker has moved from harness bugs (all fixed: gate_friction,
+saturation, over-bake, soft keep-gate) to a sharp MEASUREMENT-CONSTRUCT question
+(task #21): is tinymfv top1 even measuring the steering target? Cheap next step =
+a repeated-base noise band (5x c=0 eval) to call the borderline low-c rows; real
+resolution = a held-out 3p reasoning-depth judge (a user design call, reaches the
+brief). NB gemma-4b is strong-to-weak plumbing, NOT the w2s claim -- this is about
+trusting the measurement before spending big-student GPU.
+
 ---
 
 ## 2026-06-16 — keep/drop was fakeable: PRE baseline now frozen at choose_focus
