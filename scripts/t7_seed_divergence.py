@@ -56,6 +56,13 @@ for s in (0, 1, 2):
     print(f"seed={s}: {perms[s][:8]}")
 print(f"split seed0==seed1: {perms[0] == perms[1]}")
 
+# Determinism control: same seed twice MUST reproduce, else the cross-seed
+# divergence above is ambient nondeterminism (e.g. unordered pool), NOT the seed.
+repro = scenario_pick(0) == scenario_pick(0)
+print(f"\n=== determinism control (attribution) ===\nsame-seed(0) reproduces identical: {repro}"
+      "  (must be True to attribute divergence to the seed)")
+
 # Verdict
 identical = picks[0] == picks[1] == picks[2] and perms[0] == perms[1] == perms[2]
-print(f"\nVERDICT: seeds are {'NO-OP (FAIL)' if identical else 'LIVE (input streams diverge)'}")
+ok = (not identical) and repro
+print(f"\nVERDICT: seeds are {'LIVE (diverge AND attributable to seed)' if ok else 'NO-OP / CONFOUNDED (FAIL)'}")
