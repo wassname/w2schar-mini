@@ -135,9 +135,10 @@ THE REAL FORK (user research-direction call): (a) SCENARIO diversity -- a pool w
 
 ### T7 Multi-seed independence [infra] -- gates the apex
 - Goal: run the SAME profile with N genuinely independent seeds.
-- Evidence: a `seed` field in RunConfig threaded through scenario/candidate/train seeds (today hardcoded 42+n, 4200+n, TrainCfg.seed=42); 3 runs produce DIFFERENT `candidates.json`.
+- Evidence: `RunConfig.seed` (config.py:108) folded `* 1000` into scenario (pipeline.py:836), unprompted (869) and candidate (894) streams plus the train/val split (TrainCfg.seed=42+cfg.seed, pipeline.py:1544); 3 runs produce DIFFERENT `candidates.json`.
 - Subtle fail: seeds stay no-ops (greedy gen + fixed offsets) -> fake low-variance "consistency".
-- Discriminator: diff candidates.json across the 3 seeds -- they MUST differ. Student gen is greedy (do_sample=False, dialogue.py:38); real independence likely needs sampling (temperature>0), not just a seed integer.
+- CODE STATUS (fresh-eyes audit 2026-06-18): the no-op concern is RESOLVED at code level -- candidate gen is sampling, not greedy (`do_sample=True, temperature=0.8`, pairs.py:667; seed reseeds torch per batch at pairs.py:536 and shuffles persona cells via `random.Random(seed)` at pairs.py:633). So changing `cfg.seed` changes WHICH scenarios are drawn, the persona-cell order, the sampling RNG, AND the split -- not just the split. The probe/dialogue gen stays greedy BY DESIGN (deterministic measurement instrument, dialogue.py:40), which is correct, not the failure.
+- Discriminator: diff candidates.json across the 3 seeds -- they MUST differ. OUTSTANDING PROOF: the empirical 3-seed diff artifact does not exist yet (GPU-bound); code-trace says it will differ (very high confidence) but T7 is not EMPIRICALLY signed off until three seed runs are diffed.
 
 ### T8 Cross-run aggregation plot [infra] -- the apex deliverable
 - Goal: one figure overlaying 3 weak + 2 strong seed trajectories on the tinymfv measure with a noise band and a per-foundation facet.

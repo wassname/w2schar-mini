@@ -144,9 +144,12 @@ def main() -> None:
     rows = []
     for r in runs:
         d = r["final_vec"] - r["base_vec"]
-        rows.append([r["slug"], r["arm"], r["n_keeps"],
+        # teacher shown next to arm: arm is `weak iff teacher==WEAK_TEACHER else strong`
+        # (an exact string match), so a typo/id-variant silently buckets strong --
+        # surfacing the teacher makes that mislabel auditable from the table alone.
+        rows.append([r["slug"], r["arm"], r["teacher"], r["n_keeps"],
                      f"{d[auth_i]:+.4f}", f"{d[care_i]:+.4f}", f"{np.abs(d).sum():.4f}"])
-    print(tabulate(rows, headers=["slug", "arm", "keeps", "Δauthority", "Δcare", "L1 move"],
+    print(tabulate(rows, headers=["slug", "arm", "teacher", "keeps", "Δauthority", "Δcare", "L1 move"],
                    tablefmt="pipe"))
 
 
