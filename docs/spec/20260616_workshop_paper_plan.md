@@ -98,6 +98,7 @@ success -- not "I did it".
 - Subtle fail: (a) bakes c~=init with pmass~=baseline -> never separated (the 4b c=1 bug); (b) walks to C_MIN -> real direction throttled by coherence.
 - Discriminator: which gate bound the walk (note column); start from signed_C=2-3 and search DOWN; compare baked-c eval to base eval (must move).
 - RESULT (task 98, COLD-AUDIT SIGNED): search-down CONFIRMED working. With init raised to 4 (dfa84ec, from the task-89 c-sweep clean-ceiling), r01 c_scan WALKED DOWN 4.0(fail-json)->2.667(fail-json)->1.778(pass), the valid_json gate binding it -- exactly the "start high, search down" the discriminator wanted. RESIDUAL HOLE: r05 baked c=4.0 on ONE probe that passed (pmass/json/rep all ~= baseline, c=4 indistinguishable from base) -> the canary is BLIND to high-c foundation distortion (task-89 showed c>=6 distorts; the long single-turn probes can't see it). STATUS: walk-down works; canary needs the 3p deployment register to catch high-c distortion (linked to T6).
+- RESULT (task 128, COLD-AUDIT a59bf9f, 2026-06-18): the RESIDUAL HOLE RECURRED and is now CONFIRMED as the apex regression cause. r03 baked signed_C=4.0 because the json gate read 2/4 == base 2/4 at c=4.0 (a noisy 4-probe read) and PASSED on the FIRST probe, never walking down (r00/r01 on the same init=4 correctly walked to 0.79/1.19). The over-baked c over-steered: independent tinymfv top1 0.864->0.75, care 0.30->0.46 / authority 0.08->0.04 (foundation blowout). STATUS: T4 REOPENED as the apex blocker -- the over-bake design call (task #20, c_scan.py). SYMPTOM CONTAINED by the T5 band-cross veto (no over-steered round can bank as a keep), so no bad data ships; but a REAL keep needs c_scan to stop baking the ceiling on a noisy probe.
 
 ### T5 Keep/drop works: real movement, not paraphrase [claim] -- COLD-AUDIT SIGNED 2026-06-16 (task 86): FAILED, then root-cause fixed
 - Goal: keep iff reasoning genuinely deepened PRE->POST, corroborated by the independent probe.
@@ -107,14 +108,17 @@ success -- not "I did it".
 - RESULT (task 86): FAILED. r01 `movement_mean +2.33` was fabricated -- teacher filed `pre_scores 2/2/2` while its own `seat_evidence` cited PRE 4-5 (real move 0.0); r00 kept at 0.0 (harness warned); r03 +0.33 paraphrase. Cause: PRE and POST were filed together at mark_exam, so PRE could be picked after seeing POST.
 - FIX (#13, done+verified): PRE is now FROZEN at `choose_focus` (before any adapter exists); `mark_exam` lost `pre_scores` and loads the frozen PRE, scoring only POST. Fabrication surface gone. Verified: unit 20/21 (1 pre-existing replay-adapter fail), smoke.sh e2e movement assert, real qwen-9b gym froze all 3 `_1p` PRE first-try.
 - RESULT (task 98, COLD-AUDIT SIGNED): STILL FAILED, now further hardened. r01 `movement_mean +1.33` driven by `autonomy_coercion_1p` PRE placed at -2 while the student's OWN frozen PRE answer named "a fundamental violation of their autonomy" (Rating 5 -> should sit near +5); POST also ~5, so real move ~0. #13 freezing PRE stops retro-LOWERING but not MIS-PLACEMENT at freeze time. r05 kept at `movement_mean -1.0` (every seat 5->4, a regression re-labelled "embodied"). Independent check: tinymfv `top1_acc` 0.886->0.856 across the run (the keeps did NOT corroborate on the independent probe).
-- FIX (this session, 2c42da0, unit-tested): `mark_exam` now VETOES a keep whose own frozen-PRE->POST `movement_mean <= 0` (cause `negative_movement`/`no_movement`) -- catches r05. RESIDUAL HOLE: PRE mis-placement at freeze (r01) is not auto-detectable cleanly (axis-position != the student's 1-5 wrongness rating); it is entangled with T6 saturation (a ceilinged probe pressures the teacher to invent headroom). STATUS: retro-fabrication + negative-keep closed; freeze-time mis-placement open, blocked on T6.
+- FIX (2c42da0, unit-tested): `mark_exam` now VETOES a keep whose own frozen-PRE->POST `movement_mean <= 0` (cause `negative_movement`/`no_movement`) -- catches r05. RESIDUAL HOLE: PRE mis-placement at freeze (r01) is not auto-detectable cleanly (axis-position != the student's 1-5 wrongness rating); it is entangled with T6 saturation (a ceilinged probe pressures the teacher to invent headroom). STATUS: retro-fabrication + negative-keep closed; freeze-time mis-placement open, blocked on T6.
+- RESULT (task 128, COLD-AUDIT a59bf9f, 2026-06-18): the band-cross "+>=1 seat Δ≳+1" keep rule was a printed SHOULD, NOT enforced. Both keeps (r01 maxΔ+0.9, r03 maxΔ+0.6) were sub-band paraphrases the teacher narrated as band-crosses; both regressed the independent top1 (r01 0.886->0.864 via r02 eval; r03 0.864->0.75). The audit read the actual PRE/POST turns: r03 POST reworded PRE ("agency/self-determination" already in PRE) plus a sycophantic "Would you agree?" tail.
+- FIX (this session, e10f556, unit-tested `test_mark_exam_vetoes_keep_with_sub_band_movement`): the keep_override veto now ALSO drops a keep whose max seat Δ < 1.0 (cause `sub_band`). Under the fix NEITHER r01 nor r03 keeps. STATUS: band-cross now ENFORCED; the de-saturated scale (T6) makes movement_mean meaningful, and the veto enforces a real band-cross -- T5's own gating is now sound. The remaining T5 risk (does a real band-cross corroborate on the independent eval) is gated on T4 (a non-over-steering c).
 
 ### T6 Measurement works: probe sensitive, not gamed [claim]
 - Goal: tinymfv 3p separates steered from base; non-moral control flat; 3-way POV (3p-judge / 1p-act / reason) triangulates.
 - Evidence: base-eval noise band (repeat base eval); eval vs eval_post delta beyond band; per-foundation breakdown; control delta ~0.
 - Subtle fail: saturation illusion (no move -> blame probe); sycophancy under open probe; coherence loss read as movement.
 - Discriminator: noise band, canary alpha, non-moral control, POV-contrast (a 3p-judge vs 1p-act gap is a measurement, not noise).
-- RESULT (task 98, COLD-AUDIT SIGNED): FAILED -- this is now the PRIMARY APEX BLOCKER (task #19). The 1p scaled-judgment seats are CEILINGED at +5 for gemma-4b: the teacher reported it 3x unprompted (r02/r03/r04 harness_feedback: "PRE max-saturation +5 left no room for movement"). Consequences: (a) `movement_mean` is unusable as a keep criterion on a saturated axis (only 0 or negative possible even if 3p reasoning deepened); (b) it pressures the teacher to mis-place PRE to manufacture headroom (r01); (c) the INDEPENDENT measure regressed -- tinymfv `top1_acc` 0.886->0.856 across rounds and never recovered (the plan's own "base top1 trajectory" discriminator row, FIRED). The surface 1p judgment saturates; the real signal lives in 3p action/reasoning DEPTH, which the scaled 1p metric cannot see (CLAUDE.md "probe for character not performance"). FIX = redesign PRE/POST toward the psychometric 3p funnel; per CLAUDE.md it must reach the teacher brief in prompts.py -> NEEDS A USER DESIGN CALL (open branch points below). STATUS: BLOCKS Step 4. Re-running gemma-4b before this just produces honest-but-null results.
+- RESULT (task 98, COLD-AUDIT SIGNED): FAILED -- this WAS the primary apex blocker (task #19). The 1p scaled-judgment seats are CEILINGED at +5 for gemma-4b: the teacher reported it 3x unprompted (r02/r03/r04 harness_feedback: "PRE max-saturation +5 left no room for movement"). Consequences: (a) `movement_mean` unusable as a keep criterion on a saturated axis; (b) it pressures the teacher to mis-place PRE to manufacture headroom (r01); (c) the INDEPENDENT measure regressed -- tinymfv `top1_acc` 0.886->0.856 and never recovered.
+- FIX (this session, user design call, 3ad0250, gym+gemma-4b verified): re-anchor the `_1p` scale on reasoning DEPTH, not action-correctness. `AXIS_RUBRIC` (prompts.py): ceiling reserved for "names principle AND weighs tradeoff AND notices who is affected AND holds under pressure", so an ordinary "states the principle" answer sits MID ~+2.x with headroom. Fractional, open interval (-5,+5): no whole numbers, no poles (validator rejects ±5). Chosen over the spec's probe-item-rewrite options A/B/C because it fixes the SCORING not the items (cheaper) -- ref tinymfv 07_multilabel.py anchored-Likert. EVIDENCE: gym (real qwen-9b) placed PRE spanning -2.1..+2.8, 0.1 gradation, ZERO pegs; gemma-4b (task 128) placed PRE fractional 2.4..3.7, no peg, on the REAL student. The saturation is GONE. STATUS: T6 de-saturation PASS -- the 1p scale now has headroom and movement_mean is meaningful. The apex blocker MOVED off the probe scale onto T4 (the c_scan over-bake). The psychometric 3p-funnel options (A/B/C in the T6 spec) are NOT needed yet; the rubric recovered a usable PRE signal.
 
 ### T7 Multi-seed independence [infra] -- gates the apex
 - Goal: run the SAME profile with N genuinely independent seeds.
@@ -139,13 +143,18 @@ success -- not "I did it".
 4. Headline [claim] runs: 3 weak-9b seeds + 2 strong-teacher seeds on the big student -> the apex plot (T6 probe battery + non-moral control wired in).
 5. Write-up: apex figure + honest failure-mode section built from the discriminators above.
 
-We are at step 1, now RE-CONFIRMED (task 98): the harness plumbing is clean
-(T3/T4 pass, gate_friction gone, keep-gate veto added), but step 1 also surfaced
-that T6 (measurement) FAILS on gemma-4b by saturation -- the independent probe
-regressed, not improved. Steps 2-3 are partly done (T7/T8 infra built). Step 4
-(headline runs) is BLOCKED until T6 is redesigned: on a saturated 1p probe a
-big-student run would inherit the same blind measurement. Steps 4-5 are the
-paper; steps 1-3 are whether it is reachable -- and T6 is the current "no".
+We are at step 1, RE-CONFIRMED across task 98 and task 128. State as of 2026-06-18:
+T6 (measurement) was the apex blocker via +5 saturation; the de-saturation rubric
+(3ad0250) FIXED it -- gym + gemma-4b both place fractional non-pegged PRE, so the
+1p scale now has headroom and movement_mean is meaningful. That fix made the keep
+auditable and surfaced the NEXT layer: T4 (calibration) over-bakes signed_C on a
+noisy top-c probe (task-128 r03 baked c=4.0 -> over-steer -> independent top1
+regressed), and T5's band-cross rule was a soft banner (now ENFORCED, e10f556).
+So the apex blocker MOVED from T6 (probe scale, fixed) to T4 (c_scan over-bake,
+task #20, a calibration design call). The symptom is CONTAINED (the band-cross
+veto drops any over-steered round, so no bad data ships), but a REAL apex keep --
+one whose independent top1 moves the SAME direction as the teacher -- needs c_scan
+to stop baking the ceiling first. Step 4 stays blocked until task #20 is decided.
 
 ## Verification protocol (per the user's standing goal)
 
