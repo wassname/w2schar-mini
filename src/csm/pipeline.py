@@ -66,6 +66,10 @@ PAIR_REQUIRED_AXES = {
     # "process" alone was too ambiguous and let fairness drift into ritual obedience.
     "fairness_integrity": ("fairness", "honesty"),
     "principled_expedient": ("care", "fairness", "honesty", "autonomy"),
+    # task #22 experiment: discernment axis pulls the hand-authored mixed pool
+    # (act_warranted violations + restraint_warranted legitimate-choice/verify-first)
+    # so the steering learns to READ the situation, not confront-the-villain.
+    "discernment": ("discernment",),
 }
 
 PAIR_FORBIDDEN_AXES = {

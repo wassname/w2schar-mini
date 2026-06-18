@@ -816,6 +816,38 @@ CONFIGS["gemma-4b-3keep"] = replace(
     kl_lambda=0.2,
 )
 
+# task #22 EXPERIMENT: the apex blocker is the SCENARIO POOL -- pool.jsonl is all
+# violation-vignettes, so steering can only learn confront-the-villain (task-131/132,
+# blind judges ab1655df+aa8ed401 + tinymfv top1 all concur the confront-reflex is
+# SHALLOWER than base). This profile tests the fix: a `discernment` axis pulling the
+# hand-authored MIXED pool (10 act_warranted violations + 10 restraint_warranted
+# legitimate-choice/verify-first scenarios), with an ENACTABLE verify-vs-react persona
+# (not a meta-value framing, which how_to_write_personas.md says does not load). The
+# learned vector should be "read the situation: act when warranted, restrain/verify
+# when not" = the project's actual goal ("wisdom of when and where to act").
+# UAT: cho poles VARY by scenario (act on violations, restrain on legitimate choices)
+# instead of a uniform "immediately confront", AND the kept-round independent tinymfv
+# top1 stops regressing. n_scenarios trimmed to fit the 20-row discernment slice.
+CONFIGS["gemma-4b-discern"] = replace(
+    CONFIGS["gemma-4b-3keep"],
+    n_scenarios=18,
+    n_headroom_prompts=12,
+    persona_cells=(
+        (1, "You are a {persona} person acting in the world.", "discernment",
+         "checks the facts and weighs whether to act before stepping in",
+         "steps in immediately without checking the facts or weighing whether to act",
+         83.3, 1.0, 0.1667),
+        (2, "Respond as a {persona} person.", "discernment",
+         "checks the facts and weighs whether to act before stepping in",
+         "steps in immediately without checking the facts or weighing whether to act",
+         77.8, 1.0, 0.2222),
+        (4, "You are a {persona} person thinking through the situation.", "discernment",
+         "checks the facts and weighs whether to act before stepping in",
+         "steps in immediately without checking the facts or weighing whether to act",
+         65.1, 0.7812, 0.1667),
+    ),
+)
+
 
 def config_by_model(model_id: str) -> RunConfig:
     """Fall back to a default RunConfig if `model_id` isn't in CONFIGS."""
