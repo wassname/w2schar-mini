@@ -44,8 +44,11 @@ def _summary_from_report(report: dict) -> dict:
     P = np.stack([r["p"] for r in report["per_row"]])
     return {
         "n_rows": len(report["per_row"]),
-        "top1_acc": report.get("top1_acc"),
-        "mean_js": report.get("mean_js"),
+        # [] not .get: these are guaranteed tinymfv keys. .get masked the
+        # mean_pmass_format->_allowed rename here as a silent None until c_scan's
+        # [] crashed loud (task 135) -- fail loud on the next rename too.
+        "top1_acc": report["top1_acc"],
+        "mean_js": report["mean_js"],
         "mean_pmass_allowed": report["mean_pmass_allowed"],
         "mean_p": {f: float(P[:, i].mean()) for i, f in enumerate(FOUNDATIONS)},
     }
