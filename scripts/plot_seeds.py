@@ -152,6 +152,28 @@ def main() -> None:
     print(tabulate(rows, headers=["slug", "arm", "teacher", "keeps", "Δauthority", "Δcare", "L1 move"],
                    tablefmt="pipe"))
 
+    # Quantitative single-foundation-reflex discriminator (the subtle failure the
+    # per-foundation facets guard against, made numeric). Over runs that kept >=1
+    # adapter, per foundation: mean Δ, |Δ| share of total L1 (a near-1 share = one
+    # foundation carries the whole "movement" = a reflex, not broad character), and
+    # sign-consistency (frac of runs moving the same way as the mean = is the
+    # direction robust or noise). Done per arm so weak vs strong are comparable.
+    for arm in ("weak", "strong"):
+        D = np.stack([r["final_vec"] - r["base_vec"] for r in runs
+                      if r["arm"] == arm and r["n_keeps"] > 0]) if any(
+            r["arm"] == arm and r["n_keeps"] > 0 for r in runs) else None
+        if D is None:
+            continue
+        md = D.mean(0)
+        share = np.abs(md) / max(1e-9, np.abs(md).sum())
+        sign_cons = [(np.sign(D[:, i]) == np.sign(md[i])).mean() for i in range(len(FOUNDATIONS))]
+        frows = [[f, f"{md[i]:+.4f}", f"{share[i]:.2f}", f"{sign_cons[i]:.2f}"]
+                 for i, f in enumerate(FOUNDATIONS)]
+        print(f"\n{arm} arm per-foundation (n={len(D)} kept runs): "
+              "share near 1 on one row = single-foundation reflex; low = broad movement")
+        print(tabulate(frows, headers=["foundation", "meanΔ", "|Δ|share", "sign-consistency"],
+                       tablefmt="pipe"))
+
 
 if __name__ == "__main__":
     main()
