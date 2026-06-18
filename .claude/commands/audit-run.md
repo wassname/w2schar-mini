@@ -89,11 +89,16 @@ NOT tell you what a bad answer is — that's the point):
    the `pmass`/`json`/`rep`/`len` columns at the top c and at the baked c and
    quote them: did the canary separate the steered model from base at all, or not?
 7. mark_exam (keep/drop) — `judgment.json`. Quote `action`, `drop_cause`,
-   `reasoning`, `harness_feedback`, `movement`, `next_focus`. `drop_cause` is
-   `kept`/`gate_friction`/`no_movement`/`early_abort`: a run of `gate_friction`
-   drops means the teacher could not satisfy a gate (unfollowable brief), NOT a
-   cautious teacher — count them across rounds and say which kind of drop run this
-   is. Then open `interview_pre.json`
+   `keep_quality`, `reasoning`, `harness_feedback`, `movement`, `next_focus`.
+   `drop_cause` is `kept`/`gate_friction`/`no_movement`/`early_abort`: a run of
+   `gate_friction` drops means the teacher could not satisfy a gate (unfollowable
+   brief), NOT a cautious teacher — count them across rounds and say which kind of
+   drop run this is. `keep_quality` (`band_crossed`/`sub_band`/`negative`) is the
+   harness's ADVISORY on a KEEP — the harness no longer vetoes weak keeps, so YOU
+   are the check: a `sub_band` or `negative` keep is the teacher banking a
+   paraphrase or a regression as a win (the old auto-veto cases). Quote it and read
+   the PRE/POST yourself to confirm whether the keep is real or weak. Then open
+   `interview_pre.json`
    and `interview_post.json` for the seat(s) the teacher cites and read the actual
    turns. Quote PRE and POST side by side: is the cited movement a real change in
    reasoning, or the same point reworded? Let the quotes carry it.
@@ -135,6 +140,12 @@ These say what each number MEASURES; you judge whether the value is good.
   delta on the `_1p` seats (-5..+5). This is the teacher judging itself; treat it
   as a claim to verify against the interview text and the independent eval, not as
   ground truth.
+- `keep_quality` (judgment.json) — `band_crossed` (mean Δ>0 and a seat crossed a
+  band, a strong keep), `sub_band` (positive but paraphrase-level wobble), or
+  `negative` (kept despite net-negative own movement). ADVISORY only: the harness
+  flags it but does NOT veto, so a `sub_band`/`negative` keep is a weak keep the
+  teacher banked and the audit must scrutinise. Gates elicit judgment, never
+  override it (CLAUDE.md), so this is guidance for you, not a verdict.
 
 ## Design context you must know (so you don't prescribe a regressive fix)
 
