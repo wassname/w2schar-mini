@@ -46,30 +46,63 @@ anonymised A/B, no tinymfv/reflex framing): inter-judge agreement 3/6
 kept adapter and the base are near-twins on reasoning depth -- no measurable
 deepening -- while the same teacher scored it +0.53.
 
-Grind root cause (round10 judgment.json, verbatim): "Training failed: val nll+
-improvement -0.157 below threshold 0.050. Likely confounding from pair 2's 2.4x
-length skew (Cho 662 vs REJ 281 chars) - adapter amplified style over
-verification axis." 10 consecutive rounds abort this way.
+The keep is worse than "no gain": it is mis-scored. The cold `/audit-run` read the
+cited band-crosser (fairness_integrity_1p, +1.1) in the interview text and found it
+drifts the WRONG way. PRE: "a serious breach of academic integrity ... violating
+the fundamental principles of honesty"; POST: "While not yet a serious academic
+integrity violation ... raises concerns about understanding ... potential
+underlying learning difficulties." The POST DOWNGRADES the moral judgment -- the
+exact hedge the teacher itself dropped rounds r00-r02 for -- and the teacher scored
+that +1.1 toward the principle. The one keep rewards the axis collapsing into a
+"don't judge, just observe" reflex (the CLAUDE.md failure mode).
+
+Grind root cause (CORRECTED -- my first read here blamed length asymmetry; the
+audit + code reading show that is secondary). `--n-rounds 2` is a KEEP TARGET, not
+a round count (agent.py:681 `keep_target = _n_keeps + n_rounds`; prompts.py:275
+"Budget: N *keep* rounds"), and `max_rounds = keep_target*6+4 = 16` (agent.py:687).
+The profile `gemma-4b-discern` PINS the discernment axis (all three persona_cells
+are "discernment" -- config.py). A pinned single axis can KEEP ONCE: round05 bakes
+the discernment direction into the base, so every later same-axis pair has nothing
+left to teach against an already-shifted base. Rounds 06-15 are all `train_student`
+learning-gate aborts (held-out val nll+ improvement below the 0.050 floor, mostly
+NEGATIVE: -0.232, -0.194, -0.157, ...), i.e. axis exhaustion, grinding the full
+16-round cap chasing an unreachable 2nd keep. Length skew (kept pairs mean cho/rej
+= 2.28x, flagged-not-culled 14/16 rounds) is real and is what the teacher BLAMES
+every round, but it is not why the post-keep rounds can't learn -- exhaustion is.
 
 ### Interpretation (caveat: n=1 run, 4b plumbing, judges same model family)
 
-The verify-before-act axis is INTRINSICALLY length-asymmetric: "observe, confirm
-there's no innocent explanation, then act discreetly" is simply more tokens than
-"confront NOW". So (a) most rounds can't produce length-symmetric pairs and abort
-on the val-improvement gate (the grind is the length gate doing its job on an axis
-that fights it, not a new bug); and (b) the one round that squeaks through bakes a
-moderate c that the teacher's `_1p` Likert calls movement (+0.53) but neither
-independent measure confirms -- tinymfv top1 drops 0.046, depth judge sees a
-near-twin. This EXTENDS 2026-06-18: there, teacher Likert over-reported vs depth
-at c=4; here it over-reports at c=2.67 on a different axis. The teacher's own
-keep/movement signal is not a reliable proxy for independent character depth, in
-either direction of steering strength.
+Two separate things, don't conflate them:
+
+1. The axis is a dead end for the headline. At the moderate c it does keep (2.67)
+   the teacher's `_1p` Likert calls it movement (+0.53), but neither independent
+   measure confirms -- tinymfv top1 drops 0.046, the depth judge sees a near-twin,
+   and the text on the cited seat drifts wrong-way. This EXTENDS 2026-06-18: there,
+   teacher Likert over-reported vs depth at c=4; here at c=2.67 on a different axis.
+   The teacher's own keep/movement signal is not a reliable proxy for independent
+   character depth, at either steering strength. (The verify-before-act axis is also
+   length-confounded by construction -- "observe, confirm, then act discreetly" is
+   more tokens than "confront NOW" -- a second reason to avoid it as a headline.)
+
+2. The grind is a harness gap, NOT this axis being uniquely bad. ANY pinned
+   single-axis profile asked for >1 keep will exhaust after the first keep and grind
+   to the max_rounds cap on learning-gate aborts. The existing early-bail
+   (gate-friction / identical-drop streak, task-133) does NOT catch a streak of
+   `early_abort` *learning-gate* drops. Candidate fix: extend the streak-bail to
+   also trigger on N consecutive `early_abort` drops. Low priority -- headline
+   profiles let the teacher pick a FRESH axis each round, so they don't exhaust the
+   same way; this bites single-axis stress-test profiles. A simpler answer for those
+   is keep_target=1.
 
 Implication for the apex: do not pick "discernment / verify-before-act" as a
-headline axis -- it is length-confounded by construction and its keep does not
-survive independent measurement. The c-vs-depth sweep (Step 3) should search for
-an axis whose poles are naturally length-symmetric AND where independent depth
-tracks the teacher's keep.
+headline axis. The Step-3 c-vs-depth sweep should use an axis whose poles are
+naturally length-symmetric AND where independent depth tracks the teacher's keep.
+
+Corroboration: cold `/audit-run` on this slug (context-free subagent) agreed on the
+top1 regression (−0.0455, and every dropped trained adapter r00-r04 also moved top1
+DOWN), found the mis-scored keep, and recommended INVESTIGATE not re-run. Its
+proposed "give the teacher axis-history so it picks a different axis" fix is moot
+here (the profile pins the axis by design -- the auditor had no repo context).
 
 ---
 
