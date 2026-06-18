@@ -160,7 +160,7 @@ def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
     Trajectory = base (round 0 pre, unsteered) → connected line through
     each KEEP's post in order. Drops branch off as disconnected red ✗
     markers (their adapter never enters history). Marker alpha =
-    mean_pmass_format (coherence canary).
+    mean_pmass_allowed (coherence canary).
 
     Returns a placeholder div when no row has eval data yet (run
     `csm eval` to populate)."""
@@ -176,7 +176,7 @@ def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
     fig = go.Figure()
 
     def _alpha(eval_d) -> float:
-        pm = eval_d.get("mean_pmass_format") if eval_d else None
+        pm = eval_d.get("mean_pmass_allowed") if eval_d else None
         return float(pm) if pm is not None else 1.0
 
     # Base = first round (with eval) pre (unsteered model + history@c=0).

@@ -331,7 +331,7 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
                 batch_size=batch_size,
                 return_per_row=False,
             )
-        pmass = float(mfv["mean_pmass_format"])
+        pmass = float(mfv["mean_pmass_allowed"])
         if not math.isfinite(pmass):
             raise RuntimeError(f"NaN pmass at c={c}")
         mfv_nll = mfv.get("mean_nll_json")

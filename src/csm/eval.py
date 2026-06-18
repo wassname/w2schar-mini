@@ -9,7 +9,7 @@ For each round under <slug>, evaluates:
 
 Output shape matches weight-steering-lite/w2schar/01_eval.py:
     {model, adapter, c, name, n_rows, top1_acc, mean_js,
-     mean_pmass_format, mean_p: {care, fairness, ...}}
+     mean_pmass_allowed, mean_p: {care, fairness, ...}}
 so plots and cross-repo comparisons read either source the same way.
 
 `tinymfv.evaluate` does forced-choice 7-way scoring on Clifford-2015
@@ -46,7 +46,7 @@ def _summary_from_report(report: dict) -> dict:
         "n_rows": len(report["per_row"]),
         "top1_acc": report.get("top1_acc"),
         "mean_js": report.get("mean_js"),
-        "mean_pmass_format": report.get("mean_pmass_format"),
+        "mean_pmass_allowed": report["mean_pmass_allowed"],
         "mean_p": {f: float(P[:, i].mean()) for i, f in enumerate(FOUNDATIONS)},
     }
 

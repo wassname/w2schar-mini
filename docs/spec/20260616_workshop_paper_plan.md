@@ -60,7 +60,7 @@ Apex subtle-failure modes (the plot looks striking+consistent but is an artifact
 | Big tinymfv aggregate move | one foundation (authority) collapsing = confront-vs-defer reflex | per-foundation facet + care/authority scatter, not aggregate |
 | Teacher says it moved (Likert) | circular: same teacher steered and judged | apex rides INDEPENDENT tinymfv (eval.json), not judgment.json movement |
 | Weak recovers strong | both arms ~flat, recovery is vacuous | strong arm must clear the noise band FIRST (positive control) |
-| Distribution shifted | steered model degraded; tinymfv reads incoherence | canary pass + plot alpha = mean_pmass_format |
+| Distribution shifted | steered model degraded; tinymfv reads incoherence | canary pass + plot alpha = mean_pmass_allowed |
 | Per-round move ~0 dismissed as noise | composed stack regresses the base | base top1 trajectory across rounds (eval.json) |
 
 ## Per-stage tasks (goal / evidence-works / subtle-fail / discriminator)
