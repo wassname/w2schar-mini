@@ -187,7 +187,17 @@ THE REAL FORK (user research-direction call): (a) SCENARIO diversity -- a pool w
    - DONE 2026-06-16 (task 86, slug `20260616T044119_iter_google-gemma-3-4b-it`). Cold audit verdict: T3 PASS; T4 PARTIAL (baked signed_C=2, eval_post moved care +0.022, walk-down untested); T1/T2 PARTIAL; T5 FAIL (fabricated PRE). Two harness gates were not discriminating; both now FIXED (#13 PRE-freeze, #14 rubber-stamp flag) and verified. A re-run is needed to confirm the fixed gates produce a clean T1/T5 on fresh data before Step 4.
    - RE-RUN DONE 2026-06-17 (task 98, slug `20260617T122228_iter_google-gemma-3-4b-it`, COLD-AUDIT SIGNED, accb5f18). Headline: **gate_friction ELIMINATED** (0/6 rounds vs task-90's ~80%; root cause was a tool-schema lie -- choose_focus judgment fields were `| None = None` so the weak teacher omitted them and the validator rejected None 108x; fixed 137193c + budget 8->3 + max-round cap + compaction). Per-goal (see each T# RESULT line): T3 PASS, T4 walk-down CONFIRMED, T1 covers+flags, T2 partial, T5 still fails on PRE mis-placement (now veto-hardened 2c42da0), **T6 FAILED = saturation, the apex blocker (#19)**. The independent measure REGRESSED (tinymfv top1 0.886->0.856). So the harness is now CLEAN/trustworthy but the run makes no apex progress: Step 4 is blocked on the T6 probe redesign (a user design call).
 2. Build T7 (seed infra) + T8 (aggregation plot), smoke-tested on tiny.
-3. Coarse-curve diagnostic (completion length x pair count, save all outputs) to de-risk T3 on weak intervention before spending big-student GPU.
+3. Coarse-curve diagnostic to de-risk before big-student GPU. PRIMARY knob now =
+   steering strength c vs reasoning DEPTH (blind depth judge), not just length x
+   pair count. Reason (RJ 2026-06-18, `scripts/depth_judge.py`, 2 blind judges
+   16/18): across 3 4b runs, aggressive c=4 was judged base-deeper 6/6 (shallow
+   confront reflex) while gentle c=1 was judged steered-deeper 6/6, and the biggest
+   tinymfv care move was the SHALLOWEST run -- so c_scan's coherence-only walk-down
+   likely bakes c UP into the shallow regime (depth degrades well before coherence
+   does; T4/#20). Sweep c at fixed axis/pairs on the 4b, score each baked c with
+   the blind depth judge, and find the sub-reflex sweet spot (looks like c ~1, far
+   below the c=4 c_scan baked). This both de-risks T3 and tells us whether the
+   calibration objective needs a depth term, before spending big-student GPU.
 4. Headline [claim] runs: 3 weak-9b seeds + 2 strong-teacher seeds on the big student -> the apex plot (T6 probe battery + non-moral control wired in).
 5. Write-up: apex figure + honest failure-mode section built from the discriminators above.
 
