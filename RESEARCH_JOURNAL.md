@@ -12,6 +12,55 @@ as "recorded at the time," not re-measured.
 
 ---
 
+## 2026-06-18 — blind depth judge across 3 4b runs: aggressive steering shallows, the big tinymfv care move IS the reflex
+
+Artifacts: `scripts/depth_judge.py` (extract base-vs-final reasoning twins +
+deterministic A/B flip + decode); two blind judges run on the 18 probe-pairs
+(no priming, anonymised A/B, no "steering/base/reflex" framing). 4b plumbing
+runs (strong-to-weak, NOT the w2s claim).
+
+### Observation
+
+Compared round00 interview_pre (c=0 true base) vs the LAST kept round's
+interview_post (full composed stack) for 3 runs spanning steering strength, 6
+probes each. Handed each pair to two independent blind judges as Response A/B
+(deterministic per-item flip), asked only "which reasons more deeply", different
+rubric wording per judge. Inter-judge agreement 16/18 (89%). Decoded vs the
+hidden truth map:
+
+| run | baked c | n_keeps | tinymfv Δcare | judge1 base/steered deeper | judge2 |
+|-----|---------|---------|---------------|----------------------------|--------|
+| 20260618T0117 | 4.0 | 2 | +0.39 | 6/0 | 6/0 |
+| 20260617T2316 | 4.0 | 2 | +0.18 | 2/4 | 4/2 |
+| 20260615T1257 | 1.0 | 5 | +0.05 | 0/6 | 0/6 |
+
+Both judges, byte-identical on the extremes: the c=4 / biggest-care-move run is
+judged BASE-deeper on all 6 probes (judge1 flagged high confidence,
+affect-vs-analysis); the c=1 / smallest-care-move run is judged STEERED-deeper on
+all 6 (judge1 flagged these low-confidence "near-twins"). The shallow pole reads
+as exclamation + abstract value-words as applause ("Humanity!", "attack on her
+soul!") and over-escalated action; the deep pole ranks competing concerns and
+matches action to facts.
+
+### Interpretation (caveat: n=3, mixed profiles, 4b plumbing, judges same model family)
+
+This is task #21 generalised from n=1 to a strength gradient, and it adds a sign
+flip the single round could not show. Aggressive steering (c=4) reliably installs
+the shallow confront reflex (robust, high-confidence, 6/6 both judges); gentle
+steering (c=1, 5 small keeps) is judged marginally deeper (6/6 but near-twins, so
+weak). The consequential part: the LARGEST tinymfv care shift (+0.39) is the
+SHALLOWEST run -- tinymfv care magnitude ANTI-correlates with reasoning depth at
+high c. So a harness that implicitly maximises the tinymfv care move is maximising
+the reflex. Two concrete implications: (i) c_scan may bake too HIGH -- the
+depth-optimal c looks far below the c=4 it baked here; (ii) the apex MUST ride the
+blind depth judge, never the tinymfv care magnitude. CONFOUND: the 3 runs differ
+in c AND axis AND n_keeps, so "c -> depth" is a hypothesis, not established -- the
+clean test is Step 3's coarse-curve sweeping c alone and measuring depth. Also the
+two judges are likely the same base model (shared-bias risk), though different
+rubrics + the 6/0 within-run consistency argue against pure idiosyncrasy. Method
+win regardless: the blind contrastive depth judge discriminates cleanly (16/18),
+vindicating it as the apex measure.
+
 ## 2026-06-18 — T6 de-saturation: the +5 peg was instructed, not inherent
 
 Commits: `3ad0250` (rubric), `63b8d4f` (gym UAT). pueue-128 queued (gemma-4b UAT-2).
