@@ -1483,6 +1483,10 @@ def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
         "signed_C": signed_C,
         "n_probes_post": len(post.get("probes", [])),
         "n_pairs_trained": len(pairs),
+        # match the real-path schema; the fake student does no real val split
+        "val_improvement": None,
+        "best_step": None,
+        "n_val_pairs": None,
     }
 
 
@@ -1549,22 +1553,18 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
             lora = train_adapter(model, tok, pairs, tcfg,
                                  history_bake=hb, enable_thinking=cfg.enable_thinking,
                                  adapter_cls=adapter_cls)
+        # Held-out val improvement is GUIDANCE for the teacher's keep/drop call, NOT
+        # a gate. A dumb threshold is never 99% sure the adapter is useless, so it
+        # must not block the teacher from judging the PRE->POST itself (CLAUDE.md
+        # "gates elicit judgment, never override it" -- this threshold early_aborted
+        # task-139 ten times, the teacher never got to see those adapters). We surface
+        # the numbers (return + calibration.json) and let mark_exam weigh them.
         train_summary = getattr(lora, "train_summary", None)
+        val_improvement = best_step = n_val_pairs = None
         if train_summary and train_summary["n_val_pairs"] > 0:
             best_step = train_summary["best_step"]
-            improvement = train_summary["val_improvement"]
-            if best_step == 0:
-                raise ValidationError(
-                    "train_student: held-out val nll+ was best at step 0. The adapter "
-                    "did not beat the untrained checkpoint, so this round fails."
-                )
-            if improvement is None or improvement < cfg.min_val_improvement:
-                raise ValidationError(
-                    "train_student: held-out val nll+ improved by "
-                    f"{0.0 if improvement is None else improvement:.3f}, below the "
-                    f"required {cfg.min_val_improvement:.3f}. The adapter did not "
-                    "learn enough to justify deployment."
-                )
+            val_improvement = train_summary["val_improvement"]
+            n_val_pairs = train_summary["n_val_pairs"]
 
         with mem_stage("c_scan"):
             signed_C, trace = c_scan(
@@ -1618,6 +1618,12 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         "signed_C": signed_C,
         "n_probes_post": len(post["probes"]),
         "n_pairs_trained": len(pairs),
+        # GUIDANCE for the teacher's keep/drop, not a gate: held-out val nll+ gain
+        # (>0 = the adapter generalised to unseen pairs; <=0 or ~0 = it may have
+        # fit length/noise, weigh that against the PRE->POST you read). You decide.
+        "val_improvement": val_improvement,
+        "best_step": best_step,
+        "n_val_pairs": n_val_pairs,
     }
 
 

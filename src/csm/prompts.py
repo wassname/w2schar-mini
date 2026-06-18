@@ -175,6 +175,12 @@ high POST with no quotable new specific clause (step 3) contradicts itself; re-r
 signed_C < ~0.3 = POST barely perturbed = noise. `reason` quotes the PRE clause
 and POST clause and names the direction (or the collapse/break); `next_focus`
 names what is still missing.
+
+train_student returns `val_improvement` (held-out val nll+ gain on unseen pairs):
+> 0 = the adapter generalised; <= 0 or ~0 = it may have fit length / noise rather
+than the axis. Weigh it as a SECONDARY cross-check on the PRE->POST you read above
+-- it gates NOTHING, you own the keep/drop. A low val gain plus a real PRE->POST
+move is still a defensible keep; a high val gain with a flat PRE->POST is not.
 """
 
 
