@@ -44,13 +44,33 @@ rate-everything FORM guidance, which the teacher satisfied then dropped on its c
 This validates the corrected harness's EARLY/MID path empirically: my 9 edits run
 end-to-end without crashing a real train cycle, candidates surface (not prune) by
 the structural/heuristic split, the teacher makes its OWN keep/drop, and the run
-self-terminates cleanly at MAX_DROPS=3. It does NOT validate the
-train->c_scan->mark_exam-with-KEEP path, because the random student's candidates
-were too incoherent for the teacher to ever select and train -- the teacher dropped
-before training every round. That path still needs the 4b run (pueue 153), where the
-student emits coherent candidates the teacher will select, train on, and judge with
-val_improvement/keep_quality as guidance. Partial empirical sign-off; the keep path
-is pending 153.
+self-terminates cleanly at MAX_DROPS=3. The random student's garbage meant the
+teacher dropped before training every round, so the KEEP path needed coherent data.
+
+### Keep-path validation via REPLAY (no GPU), same day
+
+To exercise the keep path on COHERENT data without the GPU, re-ran the live teacher
+against a past coherent round via replay mode (`CSM_REPLAY_DIR=out/iter/
+20260615T125736_iter_google-gemma-3-4b-it/round00`, profile gemma-4b-3keep; replay
+implies fake-student so the agent loop loads no model). This is the canonical
+no-GPU gate-test (the `_replay_dir` docstring: "a prompt change (judge guide,
+gates) can be re-run against real data with the live teacher"). Result: slug
+`20260618T232834_iter_google-gemma-3-4b-it` round00, `action=keep`,
+`keep_quality=band_crossed`, `movement_mean=+0.567`, and the log shows the new
+"GUIDANCE (not enforced -- the teacher owns the call)" banner, NOT the old
+"ENFORCED ... VETOED" one. So the keep-veto removal + keep_quality advisory work on
+a real coherent KEEP: the teacher kept on its own judgment, the harness flagged
+quality instead of overriding.
+
+What replay does NOT cover: the REAL val-gate removal (#1) -- replay's fake train
+copies the prebaked interview_post, so no real `val_improvement` is computed. That
+single piece (does a real low-val train now reach mark_exam instead of early_abort)
+is the only thing still pending the 4b GPU run (pueue 153). Everything else in the
+7-gate conversion is now empirically validated on real data: drop-on-judgment +
+pruning-as-flags + MAX_DROPS (tiny CPU run) and keep + keep_quality + no-veto
+(replay). NB the replay run's INCIDENTAL post-hoc `csm eval` loads the real 4b model
+on GPU and OOM'd against antipasto4's job (harmless -- my eval failed to allocate,
+did not disturb theirs); force `CUDA_VISIBLE_DEVICES=""` on replay runs to skip it.
 
 ---
 
