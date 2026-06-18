@@ -45,12 +45,35 @@ or [infra] (code we must build first).
 Headline sentence the plot must support:
 
 > On a student larger than the teacher, the weak-teacher kept-adapter chain
-> shifts the held-out third-person tinymfv moral-foundation distribution:
-> (a) STRIKING -- the shift exceeds the base-eval noise band by a clear margin;
-> (b) CONSISTENT -- all 3 independent weak-teacher seeds move the SAME direction
-> with low variance (not 1 hit + 2 nulls); (c) RECOVERING -- the weak shift is a
-> large fraction of the 2-seed strong-teacher control shift (small w2s gap); all
-> while the coherence canary passes and a non-moral control stays flat.
+> DEEPENS the student's held-out moral reasoning, measured by a BLIND, INDEPENDENT,
+> before/after depth judge (the task-#21 ab1655df method: base vs steered handed to
+> a separate strong judge as unlabeled Version 1/2, scored on reasoning depth, not
+> assertiveness or action):
+> (a) STRIKING -- the PRE->POST depth gain exceeds the blind-judge noise band by a
+> clear margin; (b) CONSISTENT -- all 3 independent weak-teacher seeds deepen in the
+> SAME direction with low variance (not 1 hit + 2 nulls); (c) RECOVERING -- the weak
+> depth gain is a large fraction of the 2-seed strong-teacher control gain (small
+> w2s gap); all while the coherence canary passes and a non-moral control stays flat.
+
+APEX MEASURE = the blind before/after depth judge (primary). tinymfv mean_p/top1 is
+SECONDARY corroboration only, never the headline: it scores WHICH foundation is
+picked, not the depth/wisdom of the reasoning, which is the actual target (CLAUDE.md
+"character not performance"). The two should AGREE (task #21: they did -- both said
+the 4b steering made things worse); a tinymfv move WITHOUT a matching blind-judge
+depth gain is a pick-distribution shift masquerading as character (e.g. the
+care-coded confront reflex the 4b plumbing showed: tinymfv care +0.15 / 50% of L1,
+but the blind depth judge called the same steered reasoning shallower). The weak
+teacher's OWN _1p Likert (judgment.json) is NOT the apex measure -- it is circular
+(same weak model steers and grades) and conflates assertiveness with depth.
+
+BLIND-JUDGE PROTOCOL (do not contaminate the measure): the depth judge must see
+ONLY the two unlabelled reasoning samples and the depth question -- never a hint,
+never the tinymfv result, never the "this should be a confront reflex" framing. A
+primed judge copies the prime instead of judging (task #21 withheld tinymfv from
+the depth judge for exactly this reason). This applies to every fresh-eyes sign-off
+too: hand the artifact and the question, not the expected answer. (Self-note: the
+4b T8 sign-off subagent WAS primed with the reflex framing, so its "leans failure"
+verdict is partly parroted -- re-run it clean, blind to the prior, before citing.)
 
 Apex subtle-failure modes (the plot looks striking+consistent but is an artifact):
 

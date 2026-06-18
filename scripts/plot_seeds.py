@@ -169,8 +169,10 @@ def main() -> None:
         sign_cons = [(np.sign(D[:, i]) == np.sign(md[i])).mean() for i in range(len(FOUNDATIONS))]
         frows = [[f, f"{md[i]:+.4f}", f"{share[i]:.2f}", f"{sign_cons[i]:.2f}"]
                  for i, f in enumerate(FOUNDATIONS)]
-        print(f"\n{arm} arm per-foundation (n={len(D)} kept runs): "
-              "share near 1 on one row = single-foundation reflex; low = broad movement")
+        # numbers only, no interpretive hint: a hint primes a downstream judge to
+        # copy it instead of judging (why task #21 withheld tinymfv from the blind
+        # depth judge). Let the reader read share/sign-consistency and decide.
+        print(f"\n{arm} arm per-foundation (n={len(D)} kept runs):")
         print(tabulate(frows, headers=["foundation", "meanΔ", "|Δ|share", "sign-consistency"],
                        tablefmt="pipe"))
 
