@@ -1763,14 +1763,20 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
         mean = sum(movement.values()) / len(movement)
     else:
         pre, post, movement, mean, seat_evidence = {}, {}, {}, None, {}
-    # A keep must show forward movement. A weak teacher sometimes calls keep on a
-    # round whose OWN committed POST map did not move (saturated axis) or regressed
-    # (task-98 r05: every _1p seat 5→4, mean Δ -1.0, kept by re-labelling a register
-    # shift as "embodied"). PRE was frozen at choose_focus, so this compares the
-    # teacher's own POST against its own frozen PRE -- a non-positive mean is the
-    # teacher's numbers contradicting its keep. Override to a drop so a regression /
-    # no-move cannot be banked as a win. (Was a warning only; r05 slipped through.)
-    keep_override = keep and mean is not None and mean <= 0
+    # A keep must show a real MOVE, not just non-negative drift. The brief defines
+    # a real move as one _1p seat CROSSING A BAND (Δ ≳ +1 on the rubric: shallow
+    # principle ~+2.x -> principle+tradeoff ~+3.x); a sub-band wobble is paraphrase.
+    # Two teacher failure modes, both vetoed here against its OWN frozen PRE->POST:
+    #  - mean <= 0: POST did not move or regressed (task-98 r05: every seat 5→4,
+    #    kept by re-labelling a register shift as "embodied").
+    #  - max seat Δ < BAND: every seat is a paraphrase-level wobble, yet the teacher
+    #    narrates a "band cross" its own numbers deny (task-128 r01 maxΔ +0.9, r03
+    #    +0.6, both kept, both paraphrase, both with a REGRESSING independent tinymfv
+    #    top1 -- the band-cross rule was a SHOULD banner, not enforced).
+    BAND = 1.0
+    max_seat_move = max(movement.values()) if movement else None
+    sub_band = max_seat_move is not None and max_seat_move < BAND
+    keep_override = keep and mean is not None and (mean <= 0 or sub_band)
     if keep_override:
         keep = False
     # Categorical drop reason for cross-round audit: a free-text `reason` cannot be
@@ -1781,8 +1787,9 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
     # teacher (no_movement / early_abort).
     if keep:
         cause = "kept"
-    elif keep_override:
-        cause = "negative_movement" if mean < 0 else "no_movement"  # keep vetoed by its own POST
+    elif keep_override:                                  # keep vetoed by its own POST
+        cause = ("negative_movement" if mean < 0 else
+                 "sub_band" if sub_band else "no_movement")
     elif drop_cause:
         cause = drop_cause          # explicit, e.g. on_continue passes "gate_friction"
     elif have:
@@ -1790,8 +1797,10 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
     else:
         cause = "early_abort"       # dropped before training/POST (e.g. bad candidates)
     if keep_override:
-        reason = (f"[harness veto: teacher called keep but mean Δ={mean:+.2f} ≤ 0 "
-                  f"on its own frozen-PRE→POST map — banked as drop] " + reason)
+        why = (f"mean Δ={mean:+.2f} ≤ 0" if mean <= 0 else
+               f"max seat Δ={max_seat_move:+.2f} < {BAND} (no band crossed; paraphrase)")
+        reason = (f"[harness veto: teacher called keep but {why} on its own "
+                  f"frozen-PRE→POST map — banked as drop] " + reason)
     judgment = {
         "action": "keep" if keep else "drop",
         "drop_cause": cause,
@@ -1814,8 +1823,8 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
             for k in _P1_PROBE_IDS)
         logger.info(
             f"\n=== mark_exam [{round_dir.name}] {judgment['action']} ===\n"
-            "SHOULD: a KEEP has mean Δ > 0 with at least one seat crossing a band (Δ≳+1)\n"
-            "        and no seat drifting toward the neg pole (POST below PRE).\n"
+            "ENFORCED: a KEEP needs mean Δ > 0 AND at least one seat crossing a band\n"
+            "        (max seat Δ ≥ 1.0); a sub-band keep is vetoed to drop=sub_band.\n"
             "        all Δ≈0 = no move (paraphrase/filler stays within ~0.5 of PRE).\n"
             f"axis pos PRE→POST (fractional, open (−5,+5); +2.x names principle, +4.x weighs it too):\n"
             f"  {per} | mean Δ={mean:+.2f}")

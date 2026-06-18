@@ -741,6 +741,36 @@ def test_mark_exam_vetoes_keep_with_nonpositive_movement(tmp_path):
     assert "harness veto" in j["reasoning"], j
 
 
+def test_mark_exam_vetoes_keep_with_sub_band_movement(tmp_path):
+    """task-128 r03: teacher kept with mean Δ +0.33, max seat Δ +0.6 -- a
+    paraphrase wobble narrated as a 'band cross', and the independent tinymfv
+    top1 REGRESSED 0.864->0.75. A keep needs at least one seat crossing a band
+    (Δ >= 1.0); a positive-but-sub-band move is vetoed to drop=sub_band."""
+    from csm.pipeline import mark_exam, _P1_PROBE_IDS
+    rd = tmp_path / "round00"
+    rd.mkdir(parents=True)
+    (rd.parent / "run.json").write_text(json.dumps(
+        {"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
+    (rd / "state.json").write_text(json.dumps({"state": "mark_exam"}))
+    # PRE 2.9/3.1/2.8 -> POST 3.3/3.1/3.4: mean +0.33, max seat Δ +0.6 (< 1.0).
+    (rd / "choose_focus_judgment.json").write_text(json.dumps({
+        "pre_scores": {"wellbeing_authority_1p": 2.9, "fairness_integrity_1p": 3.1,
+                       "autonomy_coercion_1p": 2.8},
+        "pre_seat_evidence": {k: f"PRE {k}" for k in _P1_PROBE_IDS},
+    }))
+    j = mark_exam(
+        rd, keep=True, reason="autonomy_coercion crosses band",
+        harness_feedback="prose coherent",
+        post_scores={"wellbeing_authority_1p": 3.3, "fairness_integrity_1p": 3.1,
+                     "autonomy_coercion_1p": 3.4},
+        seat_evidence={k: f"POST {k}" for k in _P1_PROBE_IDS},
+    )
+    assert j["action"] == "drop", j
+    assert j["drop_cause"] == "sub_band", j
+    assert j["movement_mean"] > 0, j          # positive but sub-band
+    assert "no band crossed" in j["reasoning"], j
+
+
 def test_axis_scores_reject_pole_peg():
     """De-saturation gate (task-98): a +5/-5 peg floors movement at 0 on a model
     that already names the principle. The open interval rejects the pole; an
