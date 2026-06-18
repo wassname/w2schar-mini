@@ -71,9 +71,19 @@ ONLY the two unlabelled reasoning samples and the depth question -- never a hint
 never the tinymfv result, never the "this should be a confront reflex" framing. A
 primed judge copies the prime instead of judging (task #21 withheld tinymfv from
 the depth judge for exactly this reason). This applies to every fresh-eyes sign-off
-too: hand the artifact and the question, not the expected answer. (Self-note: the
-4b T8 sign-off subagent WAS primed with the reflex framing, so its "leans failure"
-verdict is partly parroted -- re-run it clean, blind to the prior, before citing.)
+too: hand the artifact and the question, not the expected answer.
+
+Worked example (the 4b tinymfv per-foundation evidence, two reads):
+- PRIMED read (contaminated, discard): a subagent fed the reflex framing + task-#21
+  prior returned "care-coded confront reflex, ~65% leans failure" -- partly parroted.
+- CLEAN read (anonymised components A-G, no valence, no prior): "CONCENTRATED in A
+  (0.50 of total |Δ|, ~3.5x uniform, > next four combined); one component rose, six
+  fell; A absorbs what the others shed; movers are sign-consistent 1.0." So the
+  ONLY thing the foundation numbers establish, uncontaminated, is CONCENTRATION in
+  one foundation (care). Whether that concentration is genuine character or a reflex
+  is NOT in the numbers -- it needs the blind DEPTH judge on the reasoning samples
+  (the primary apex measure). Numbers give the structural fact; the valenced verdict
+  is the depth judge's to make, unprimed.
 
 Apex subtle-failure modes (the plot looks striking+consistent but is an artifact):
 
