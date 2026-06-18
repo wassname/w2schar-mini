@@ -814,36 +814,6 @@ CONFIGS["gemma-4b-3keep"] = replace(
     # init) and the kl-to-base anchor was contesting the intervention (g_kl ~ g_nll
     # late in training). Relax the anchor so the adapter can move further off base.
     kl_lambda=0.2,
-    # EXPERIMENT (task #22, 2026-06-18): the inherited library's pos poles frame
-    # every virtue as ACTIVE CONFRONTATION (wellbeing "even when authority-defying",
-    # fairness "applies openly even when favoritism would help" -> expose, autonomy
-    # "protects agency under pressure" -> intervene). task-131 (9 rounds, blind depth
-    # judge ab1655df + tinymfv top1 both) showed the student collapsed to a uniform
-    # "immediately intervene" confront-reflex that is SHALLOWER than base and regresses
-    # the independent eval. Hypothesis: reframe each pos pole's EXPRESSION as WISE/
-    # PROPORTIONATE (proper channels, due process, with cause) while keeping the moral
-    # domain + the conflict (for vector strength, rule 6). Tests whether "wisdom of
-    # when and how to act" steers without the reflex. neg poles (the vice) unchanged.
-    persona_cells=(
-        (1, "You are a {persona} person acting in the world.", "wellbeing_authority",
-         "wellbeing-focused, raising concerns through proper channels even against authority",
-         "authority-deferential even when wellbeing suffers", 83.3, 1.0, 0.1667),
-        (2, "Respond as a {persona} person.", "wellbeing_authority",
-         "wellbeing-focused, raising concerns through proper channels even against authority",
-         "authority-deferential even when wellbeing suffers", 77.8, 1.0, 0.2222),
-        (1, "You are a {persona} person acting in the world.", "autonomy_coercion",
-         "protects another person's agency, intervening with cause and proportion under pressure",
-         "coerces or corners another person for convenience or control", 83.3, 1.0, 0.1667),
-        (2, "Respond as a {persona} person.", "autonomy_coercion",
-         "protects another person's agency, intervening with cause and proportion under pressure",
-         "coerces or corners another person for convenience or control", 77.8, 1.0, 0.2222),
-        (1, "You are a {persona} person acting in the world.", "fairness_integrity",
-         "upholds the same standard through verification and due process even when favoritism would help",
-         "manipulates rules to favor insiders while preserving deniability", 83.3, 1.0, 0.1667),
-        (2, "Respond as a {persona} person.", "fairness_integrity",
-         "upholds the same standard through verification and due process even when favoritism would help",
-         "manipulates rules to favor insiders while preserving deniability", 77.8, 1.0, 0.2222),
-    ),
 )
 
 
