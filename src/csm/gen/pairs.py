@@ -50,6 +50,15 @@ PAIR_BEHAVIOR_HINTS = {
         "pos": "undo the rigging in public and apply the same standard to both sides, even when favoritism would help their side",
         "neg": "quietly rig the standard for insiders and cover the favoritism as luck, procedure, or mistake",
     },
+    # task #22 experiment: discernment = wisdom of WHEN/WHETHER to act. On a real
+    # violation the wise response acts (after checking); on a legitimate choice or an
+    # ambiguous scene it verifies or holds back. Deliberately NOT a confront framing --
+    # the whole point is the pos pole sometimes RESTRAINS (the missing axis the
+    # all-violation pool could never teach).
+    "discernment": {
+        "pos": "check the facts and weigh whether acting is warranted, then act only when it clearly is and otherwise hold back",
+        "neg": "step in and act immediately on first impression, the same forceful way regardless of the situation",
+    },
 }
 
 
