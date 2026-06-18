@@ -714,11 +714,12 @@ def test_write_audit_md_includes_tool_trace(tmp_path, monkeypatch):
     assert "train_student() <= enough pairs looked clean" in audit
 
 
-def test_mark_exam_vetoes_keep_with_nonpositive_movement(tmp_path):
-    """task-98 r05: teacher called keep with every _1p seat regressing (mean Δ -1.0),
-    banking a regression as a win. A keep whose own frozen-PRE->POST map is
-    non-positive must be vetoed to a drop, not just warned. (Scores are fractional
-    interior values; the open-interval rubric rejects the old +5/-5 pegs.)"""
+def test_mark_exam_keeps_nonpositive_movement_flags_quality(tmp_path):
+    """task-98 r05: teacher called keep with every _1p seat regressing (mean Δ -1.0).
+    The harness no longer VETOES this to a drop -- a dumb threshold never overrides
+    the teacher's judgment (CLAUDE.md "gates elicit judgment, never override it"). The
+    keep STANDS and is flagged keep_quality=negative for the cold audit to weigh.
+    (Scores are fractional interior values; the open-interval rubric rejects +5/-5.)"""
     from csm.pipeline import mark_exam, _P1_PROBE_IDS
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
@@ -735,17 +736,17 @@ def test_mark_exam_vetoes_keep_with_nonpositive_movement(tmp_path):
         post_scores={k: 2.2 for k in _P1_PROBE_IDS},      # mean Δ = -1.0
         seat_evidence={k: f"POST {k}" for k in _P1_PROBE_IDS},
     )
-    assert j["action"] == "drop", j
-    assert j["drop_cause"] == "negative_movement", j
+    assert j["action"] == "keep", j
+    assert j["keep_quality"] == "negative", j
     assert j["movement_mean"] == -1.0, j
-    assert "harness veto" in j["reasoning"], j
+    assert "harness veto" not in j["reasoning"], j
 
 
-def test_mark_exam_vetoes_keep_with_sub_band_movement(tmp_path):
-    """task-128 r03: teacher kept with mean Δ +0.33, max seat Δ +0.6 -- a
-    paraphrase wobble narrated as a 'band cross', and the independent tinymfv
-    top1 REGRESSED 0.864->0.75. A keep needs at least one seat crossing a band
-    (Δ >= 1.0); a positive-but-sub-band move is vetoed to drop=sub_band."""
+def test_mark_exam_keeps_sub_band_movement_flags_quality(tmp_path):
+    """task-128 r03: teacher kept with mean Δ +0.33, max seat Δ +0.6 -- a paraphrase
+    wobble narrated as a 'band cross'. The harness no longer vetoes it: the keep
+    STANDS (teacher's call) and is flagged keep_quality=sub_band so the cold audit
+    can catch the weak keep, instead of the harness overriding the judgment."""
     from csm.pipeline import mark_exam, _P1_PROBE_IDS
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
@@ -765,10 +766,10 @@ def test_mark_exam_vetoes_keep_with_sub_band_movement(tmp_path):
                      "autonomy_coercion_1p": 3.4},
         seat_evidence={k: f"POST {k}" for k in _P1_PROBE_IDS},
     )
-    assert j["action"] == "drop", j
-    assert j["drop_cause"] == "sub_band", j
+    assert j["action"] == "keep", j
+    assert j["keep_quality"] == "sub_band", j
     assert j["movement_mean"] > 0, j          # positive but sub-band
-    assert "no band crossed" in j["reasoning"], j
+    assert "harness veto" not in j["reasoning"], j
 
 
 def test_axis_scores_reject_pole_peg():

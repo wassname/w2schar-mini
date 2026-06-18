@@ -1799,47 +1799,36 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
         mean = sum(movement.values()) / len(movement)
     else:
         pre, post, movement, mean, seat_evidence = {}, {}, {}, None, {}
-    # A keep must show a real MOVE, not just non-negative drift. The brief defines
-    # a real move as one _1p seat CROSSING A BAND (Δ ≳ +1 on the rubric: shallow
-    # principle ~+2.x -> principle+tradeoff ~+3.x); a sub-band wobble is paraphrase.
-    # Two teacher failure modes, both vetoed here against its OWN frozen PRE->POST:
-    #  - mean <= 0: POST did not move or regressed (task-98 r05: every seat 5→4,
-    #    kept by re-labelling a register shift as "embodied").
-    #  - max seat Δ < BAND: every seat is a paraphrase-level wobble, yet the teacher
-    #    narrates a "band cross" its own numbers deny (task-128 r01 maxΔ +0.9, r03
-    #    +0.6, both kept, both paraphrase, both with a REGRESSING independent tinymfv
-    #    top1 -- the band-cross rule was a SHOULD banner, not enforced).
+    # The brief asks for a keep only on a real MOVE -- one _1p seat CROSSING A BAND
+    # (Δ ≳ +1: shallow principle ~+2.x -> principle+tradeoff ~+3.x); mean<=0 or a
+    # sub-band wobble is a weak/paraphrase keep. We FLAG that as keep_quality so a
+    # cold audit can spot it, but we do NOT flip the teacher's call: a dumb threshold
+    # never overrides judgment (CLAUDE.md "gates elicit judgment, never override it").
+    # The old veto fired on task-98 r05 (every seat 5→4 kept) and task-128 r01/r03
+    # (paraphrase kept with a regressing tinymfv top1); now the teacher owns those
+    # calls and the audit reads keep_quality.
     BAND = 1.0
     max_seat_move = max(movement.values()) if movement else None
     sub_band = max_seat_move is not None and max_seat_move < BAND
-    keep_override = keep and mean is not None and (mean <= 0 or sub_band)
-    if keep_override:
-        keep = False
-    # Categorical drop reason for cross-round audit: a free-text `reason` cannot be
-    # aggregated, and a gate-friction abort (on_continue gave up after N rejects)
-    # reads identical to a teacher's deliberate drop in the artifacts. Derive it so
-    # the teacher carries no extra burden: an all-drop weak run that is really an
-    # unfollowable brief (gate_friction) must be distinguishable from a cautious
-    # teacher (no_movement / early_abort).
+    keep_quality = None
+    if keep and mean is not None:
+        keep_quality = ("negative" if mean < 0 else
+                        "sub_band" if sub_band else "band_crossed")
+    # Categorical drop reason for cross-round audit (a free-text `reason` cannot be
+    # aggregated): an unfollowable-brief abort (gate_friction) must read differently
+    # from a cautious teacher drop (no_movement / early_abort).
     if keep:
         cause = "kept"
-    elif keep_override:                                  # keep vetoed by its own POST
-        cause = ("negative_movement" if mean < 0 else
-                 "sub_band" if sub_band else "no_movement")
     elif drop_cause:
         cause = drop_cause          # explicit, e.g. on_continue passes "gate_friction"
     elif have:
         cause = "no_movement"       # teacher saw POST, judged it did not move
     else:
         cause = "early_abort"       # dropped before training/POST (e.g. bad candidates)
-    if keep_override:
-        why = (f"mean Δ={mean:+.2f} ≤ 0" if mean <= 0 else
-               f"max seat Δ={max_seat_move:+.2f} < {BAND} (no band crossed; paraphrase)")
-        reason = (f"[harness veto: teacher called keep but {why} on its own "
-                  f"frozen-PRE→POST map — banked as drop] " + reason)
     judgment = {
         "action": "keep" if keep else "drop",
         "drop_cause": cause,
+        "keep_quality": keep_quality,  # advisory: band_crossed | sub_band | negative
         "reasoning": reason,
         "pre_scores": pre,
         "post_scores": post,
@@ -1859,16 +1848,16 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
             for k in _P1_PROBE_IDS)
         logger.info(
             f"\n=== mark_exam [{round_dir.name}] {judgment['action']} ===\n"
-            "ENFORCED: a KEEP needs mean Δ > 0 AND at least one seat crossing a band\n"
-            "        (max seat Δ ≥ 1.0); a sub-band keep is vetoed to drop=sub_band.\n"
-            "        all Δ≈0 = no move (paraphrase/filler stays within ~0.5 of PRE).\n"
+            "GUIDANCE (not enforced — the teacher owns the call): a strong keep crosses\n"
+            "        a band (max seat Δ ≥ 1.0) with mean Δ > 0; mean Δ ≤ 0 or a sub-band\n"
+            "        wobble (≲0.5) is a weak/paraphrase keep, flagged as keep_quality.\n"
             f"axis pos PRE→POST (fractional, open (−5,+5); +2.x names principle, +4.x weighs it too):\n"
             f"  {per} | mean Δ={mean:+.2f}")
-        if keep_override:
+        if keep and keep_quality != "band_crossed":
             logger.warning(
-                f"mark_exam [{round_dir.name}]: teacher called KEEP but mean Δ {mean:+.2f} "
-                f"≤ 0 — VETOED to drop (cause={cause}); a non-positive own-POST map "
-                "cannot bank as a keep.")
+                f"mark_exam [{round_dir.name}]: teacher KEPT a {keep_quality} round "
+                f"(mean Δ {mean:+.2f}, max seat Δ {max_seat_move:+.2f}) — its call, NOT "
+                "vetoed; flagged keep_quality for the audit.")
     transcript().info(
         {"event": "mark_exam", "round": round_dir.name,
          "action": judgment["action"], "reason": reason,
