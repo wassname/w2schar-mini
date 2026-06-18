@@ -8,7 +8,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-06-08T14:27:31.211265376Z"
+exclude-newer = "2026-06-13T14:33:53.349832165Z"
 exclude-newer-span = "P5D"
 
 [[package]]
@@ -1921,7 +1921,7 @@ requires-dist = [
     { name = "tabulate" },
     { name = "torch" },
     { name = "tqdm" },
-    { name = "transformers", specifier = ">=4.45" },
+    { name = "transformers", specifier = ">=5.7" },
     { name = "tyro" },
 ]
 
