@@ -81,6 +81,11 @@ def _format_validation_error(e: ValidationError) -> str:
 # ---------------------------------------------------------------------------
 
 MAX_SUBMIT_REJECTS = 3  # >3 rejects in one round → on_continue drops the round.
+GATE_FRICTION_STREAK_ABORT = 4  # this many gate_friction drops in a row → abort the
+# whole run early. gate_friction = teacher can't satisfy a gate (broken config), so a
+# streak won't self-heal; bail before grinding the generous max_rounds cap (task-133
+# burned ~3h of teacher tokens on 13 identical gate_friction drops). Light on purpose:
+# only the unambiguous broken-config signal trips it, legit keep/drop judgments don't.
 # Was 8: a confused weak teacher rarely recovers after a few rejects, it just
 # loops (each retry resends the full context + grows it → context rot + token
 # bomb, the task-90 $$$). Fail fast at 3 — cheaper and a cleaner gate signal.
@@ -560,6 +565,26 @@ def _n_drops(slug_path: Path) -> int:
     )
 
 
+def _trailing_gate_friction_streak(slug_path: Path) -> int:
+    """How many of the MOST RECENT completed rounds dropped on gate_friction, in a
+    row. gate_friction means the teacher literally could not satisfy a gate (a
+    broken config / unfollowable brief), not a cautious keep/drop judgment — so a
+    streak of it is a config problem that will not fix itself and should abort the
+    run early, before it grinds the generous max_rounds cap (task-133: 13 identical
+    gate_friction drops = ~3h of teacher tokens burned)."""
+    streak = 0
+    for rd in sorted((p for p in slug_path.glob("round*") if p.is_dir()), reverse=True):
+        jp = rd / "judgment.json"
+        if not jp.exists():
+            continue  # in-flight round at the tail — skip, look at completed ones
+        d = json.loads(jp.read_text())
+        if d.get("action") == "drop" and d.get("drop_cause") == "gate_friction":
+            streak += 1
+        else:
+            break
+    return streak
+
+
 def _round_history_lines(slug_path: Path) -> str:
     """One indented line per completed round: name, action, axis-hint snippet.
     Empty string for the first round (nothing to show). Helps the agent see
@@ -673,6 +698,14 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
                 f"max-round safety cap hit: {n_keeps} keep(s) + {n_drops} drop(s) "
                 f">= {max_rounds} rounds with target {keep_target} unmet — stopping "
                 f"(unproductive run / broken harness, NOT success).")
+            return False
+        gf_streak = _trailing_gate_friction_streak(slug_path)
+        if gf_streak >= GATE_FRICTION_STREAK_ABORT:
+            logger.warning(
+                f"gate-friction streak abort: {gf_streak} rounds in a row dropped on "
+                f"gate_friction (>= {GATE_FRICTION_STREAK_ABORT}) — the teacher cannot "
+                f"satisfy a gate with this config, which will not self-heal. Stopping "
+                f"early to save teacher tokens (NOT success — fix the config/brief).")
             return False
         # A teacher that can't clear a gate keeps retrying and bumps the
         # per-round reject counter. One stuck round must NOT kill a run with
