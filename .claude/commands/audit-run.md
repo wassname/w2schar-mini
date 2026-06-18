@@ -185,17 +185,52 @@ and paste verbatim into the report:
 Numbers are evidence; pasting them is not "diagnosis." Do NOT annotate each row
 with a verdict — paste the table, then write your reading below it in prose.
 
-## Agent feedback digest
+## Agent feedback digest — THE HEADLINE SECTION, never skip
 
-Collect, across all rounds, every place the teacher told us something about the
-task itself — quote them together so the human can see the pattern:
-- `judgment.json:harness_feedback` and `next_focus` (every round)
-- any exit-interview / "what was confusing" comments in the log
-- `candidate_ratings.json` comments that complain about the candidates or the brief
+This is the single most valuable output of the audit: the weak teacher telling us,
+in its own words, where the brief/harness fails it. Put it near the TOP of the
+report, not buried at the end. Collect, across EVERY round (keep AND drop AND
+early_abort), every place the teacher told us something about the task itself, and
+quote it verbatim with the round number:
+- `judgment.json:harness_feedback` and `next_focus` — EVERY round. A round with an
+  empty `harness_feedback` is itself a finding: quote it as "(round NN: blank — the
+  teacher was not asked, or had nothing)". We WANT a per-round harness feedback on
+  every round; if rounds are missing it, say so and flag it as a harness gap (the
+  teacher should be asked each round, including on drops/aborts).
+- any exit-interview / "what was confusing / what would have helped" comments in the
+  log.
+- `candidate_ratings.json` comments that complain about the candidates or the brief.
 
-This is how the weak teacher reports where the brief is unclear. It is the most
-direct signal for fixing `prompts.py`, and it's the thing audits skip. Always
-include it.
+After quoting them, write the PATTERN in one paragraph: what is the teacher
+repeatedly struggling with or asking for? That recurring ask is the prompts.py /
+harness fix. This is the thing audits skip; it is mandatory here.
+
+Harness note to surface if you see it: the teacher should be AUTOMATICALLY asked
+for harness feedback each round (an explicit per-round exit-interview: "what was
+confusing this round, what would have helped?"). If the artifacts show feedback
+only on some rounds, recommend wiring a per-round ask in `prompts.py` / the
+mark_exam step so it is never optional.
+
+## Explicit tool-call timeline (every call, in order, with its inputs)
+
+Reconstruct from the pueue log + `just thoughts` + the artifacts the FULL sequence
+of teacher tool calls across the run, one line per call, in order. This is finer
+than the per-round timeline: it shows what the teacher actually DID step by step
+and what it passed in. For each call give: the tool name, its KEY inputs (the
+arguments that matter — `persona_pair_id`, `survivor_id`+scores+keep, `lesson`,
+`keep`/`post_scores`/`harness_feedback`), and the result (accepted / the verbatim
+gate rejection). Mark every REJECTED / RETRIED call. Interleave the agent's own
+`<think>` one-liner where it explains a choice, so the human reads intent next to
+action. Example rows:
+
+```
+r00 choose_focus(persona_pair_id=autonomy_coercion, pre={...+2.4...})  -> ok
+r00 read_candidate(s1c2)                                               -> ok
+r00 rate_candidate(s1c2, on=4 off=2 conf=1 keep=true "clean verify vs confront")  -> ok
+r00 select_pairs(["s1c2","s3c1"])   -> REJECTED: "s3c1 unrated"  -> agent re-rated s3c1
+r00 train_student()  -> signed_C=1.5, val_improvement=-0.03  [GUIDANCE not gate]
+r00 mark_exam(keep=true, keep_quality=sub_band, harness_feedback="...")  -> kept
+```
 
 ## Mistake / retried tool calls
 
@@ -205,29 +240,59 @@ gate/error said (quote it), and what the agent did next. A teacher fighting a ga
 repeatedly is telling us the gate text or the brief is wrong — surface it, don't
 let it hide in the log.
 
+## Gates-elicit-judgment violations (CLAUDE.md principle check)
+
+The harness rule is "gates elicit judgment, never override it": a dumb heuristic
+(threshold, regex, length, refusal, Likert cutoff) must FLAG, never veto or block;
+only near-certain structural facts (empty pole, unparseable JSON, crash, missing
+file) may hard-stop; run-level cost caps (`MAX_DROPS`, `max_rounds`) are the one
+sanctioned halt. Scan this run's log + artifacts for any place a gate OVERRODE the
+teacher or BLOCKED its progress on a heuristic. Quote each with file/log line and
+say whether it is a legitimate structural stop or a VIOLATION to convert to
+guidance. A `ValidationError` on a content-quality threshold, a regex flipping a
+keep, a heuristic pruning a candidate the teacher never saw — all are violations.
+List them explicitly; "none found" is a valid, quotable result.
+
 ## Report format
 
 ```
 === audit: <slug> (task $ID, mode=<aggressive|patient>) ===
 
-# Timeline
-rNN  action(keep/drop/incomplete)  persona_pair  signed_C  movement_mean  Δtime
+# Agent feedback digest  (TOP — the headline)
+... quoted harness_feedback / next_focus / candidate comments, per round, + the pattern ...
+
+# Tool-call timeline (every call + inputs, in order)
+... one line per tool call, REJECTED/RETRIED marked, agent <think> interleaved ...
+
+# Round timeline
+rNN  action(keep/drop/incomplete)  persona_pair  signed_C  movement_mean  keep_quality  Δtime
 ... one line per round ...
 
 # Round-by-round narrative
 ... the STAGE blocks above, grouped by round ...
 
 # Raw tables
-... pasted training + calibration tables ...
+... pasted training + calibration tables, verbatim ...
 
-# Agent feedback digest
-... quoted harness_feedback / next_focus / candidate comments ...
+# Gates-elicit-judgment violations
+... each gate that overrode/blocked, quoted + classified (structural-OK | VIOLATION) ...
 
 # Mistake / retried tool calls
 ... quoted gate rejections + what the agent did ...
 
 # Completeness
 stages judged: N/7 per round; could not judge: <which + why (missing artifact)>
+
+# Fixes & suggestions  (REQUIRED — never end on the narrative)
+Fixes — one entry per problem the audit surfaced:
+- PROBLEM: <one line + the quote/line that proves it>
+  FIX: <specific file:line + the concrete change — prompt edit, gate->guidance, config value>
+  CONFIDENCE: <will-fix | likely | a-guess> + what would confirm it
+  COST/RISK: <cheap-now | needs-a-run | touches-protected-brief>
+Suggestions (prioritised): what to do NOW (cheap, unblocks), what to do AFTER the
+next run (and why it should wait — usually attribution), what to NOT do yet + why.
+Prefer removing complexity over adding it; if two changes confound attribution,
+stage them.
 
 # For the human to decide: CONTINUE | INVESTIGATE | KILL+FIX
 <evidence-first: cite the quotes above; if recommending kill, the root cause is a
