@@ -110,7 +110,7 @@ success -- not "I did it".
 - RESULT (task 98, COLD-AUDIT SIGNED): STILL FAILED, now further hardened. r01 `movement_mean +1.33` driven by `autonomy_coercion_1p` PRE placed at -2 while the student's OWN frozen PRE answer named "a fundamental violation of their autonomy" (Rating 5 -> should sit near +5); POST also ~5, so real move ~0. #13 freezing PRE stops retro-LOWERING but not MIS-PLACEMENT at freeze time. r05 kept at `movement_mean -1.0` (every seat 5->4, a regression re-labelled "embodied"). Independent check: tinymfv `top1_acc` 0.886->0.856 across the run (the keeps did NOT corroborate on the independent probe).
 - FIX (2c42da0, unit-tested): `mark_exam` now VETOES a keep whose own frozen-PRE->POST `movement_mean <= 0` (cause `negative_movement`/`no_movement`) -- catches r05. RESIDUAL HOLE: PRE mis-placement at freeze (r01) is not auto-detectable cleanly (axis-position != the student's 1-5 wrongness rating); it is entangled with T6 saturation (a ceilinged probe pressures the teacher to invent headroom). STATUS: retro-fabrication + negative-keep closed; freeze-time mis-placement open, blocked on T6.
 - RESULT (task 128, COLD-AUDIT a59bf9f, 2026-06-18): the band-cross "+>=1 seat Δ≳+1" keep rule was a printed SHOULD, NOT enforced. Both keeps (r01 maxΔ+0.9, r03 maxΔ+0.6) were sub-band paraphrases the teacher narrated as band-crosses; both regressed the independent top1 (r01 0.886->0.864 via r02 eval; r03 0.864->0.75). The audit read the actual PRE/POST turns: r03 POST reworded PRE ("agency/self-determination" already in PRE) plus a sycophantic "Would you agree?" tail.
-- FIX (this session, e10f556, unit-tested `test_mark_exam_vetoes_keep_with_sub_band_movement`): the keep_override veto now ALSO drops a keep whose max seat Δ < 1.0 (cause `sub_band`). Under the fix NEITHER r01 nor r03 keeps. STATUS: band-cross now ENFORCED; the de-saturated scale (T6) makes movement_mean meaningful, and the veto enforces a real band-cross -- T5's own gating is now sound. The remaining T5 risk (does a real band-cross corroborate on the independent eval) is gated on T4 (a non-over-steering c).
+- FIX (this session, e10f556, unit-tested `test_mark_exam_vetoes_keep_with_sub_band_movement`): the keep_override veto now ALSO drops a keep whose max seat Δ < 1.0 (cause `sub_band`). Under the fix NEITHER r01 nor r03 would keep. STATUS: NOT YET DEMONSTRATED ON A SIGNED-OFF RUN -- the fresh-eyes sign-off (a2882988) caught that the veto is live in code + unit-tested but no run artifact shows it firing: task 98 (12:22) predates both veto commits, and task 128's rounds (07:20-08:00) PREDATE e10f556 (08:46), so task-98 r05 (movement_mean -1.0) and task-128 r01/r03 (sub-band) all still read `action=keep` in their judgment.json. Per CLAUDE.md a gate unit test is NOT a substitute for exercising it end-to-end. The end-to-end T5 demonstration is BUNDLED with the T4-fix re-run (task #20): one fresh gemma-4b run on current HEAD will show the veto dropping sub-band/negative keeps AND a non-over-steering c. Until that run, T5 = fix-in-code, UNVERIFIED-on-data.
 
 ### T6 Measurement works: probe sensitive, not gamed [claim]
 - Goal: tinymfv 3p separates steered from base; non-moral control flat; 3-way POV (3p-judge / 1p-act / reason) triangulates.
@@ -164,6 +164,27 @@ named artifact path + a one-line table/quote separating works from the look-alik
 Apex: the T8 figure (noise band, all 5 seeds, per-foundation facet) plus a cold
 `/audit-run` narrative on each contributing run. Every real or gym run gets a
 cold-subagent `/audit-run` before any conclusion.
+
+### Fresh-eyes sign-off 2026-06-18 (subagent a2882988, full goal tree, task 98 + 128)
+
+Verdicts (the subagent read every artifact itself, did NOT trust the RESULT lines):
+- PASS (look-alike ruled out by data): **T6 de-saturation** -- PRE went from pegged
+  {5,5,5} (task98 r02-r05) to fractional {2.4..3.7} on real gemma-4b (task128); the
+  +5 ceiling is gone. **T3** early-round -- task98 r01 val_nll+ 7.357->2.492 tracks
+  train, best_step=30; memorization ruled out.
+- PARTIAL: T1 (r05 keep={True:34} -- Likert discriminates, keep does not), T2
+  (mechanics pass, axis-breadth/confound unverifiable from artifacts).
+- FAIL / REOPENED: **T4** (task128 r03 baked c=4.0 with NO walk-down, canary==base --
+  the apex blocker, task #20), **T5** (fix live + unit-tested but NO run exercises
+  it; task98 r05 mean -1.0 and task128 r01/r03 sub-band all still `action=keep`),
+  **T6 part b** (r03 movement +0.33 vs independent top1 0.864->0.75, opposite signs).
+- NOT-DONE / BLOCKED: T7 (no multi-seed run; greedy deployment gen untested), T8
+  (script ready, no apex figure), Step 3, Step 4 (needs student>teacher; both runs
+  are 4b strong-to-weak), Apex (independent direction is currently NEGATIVE; r03
+  care 0.30->0.46 / authority 0.08->0.04 is the confront-vs-defer see-saw the apex
+  warns is NOT character movement).
+- Strongest skeptical catch (acted on): T5 "now sound" was overstated -- corrected
+  above to "fix-in-code, UNVERIFIED-on-data", bundled with the task #20 re-run.
 
 ## Open branch points (for the user)
 
