@@ -561,17 +561,22 @@ def _replay_candidates(round_dir: Path, *, selected_pair_id: str,
 
 
 # A candidate is hidden from the teacher ONLY for a STRUCTURAL defect that makes it
-# ~99%-certainly unusable for contrastive training: no contrast (cho==rej / blur)
-# or not a real answer (too_short / degenerate word-salad). Everything else --
-# length_skew, prompt_mismatch, persona_leak/echo (regex), character_break (refusal),
-# weak-rating flags -- is a HEURISTIC the TEACHER should judge: surfaced as a flag on
-# the survivor it rates, never auto-pruned. A dumb flag is never 99% sure, so it must
-# not block the teacher's view (CLAUDE.md "gates elicit judgment, never override it").
-STRUCTURAL_FLAGS = frozenset({"identical", "blur", "too_short", "degenerate"})
+# ~99%-certainly unusable for contrastive training: a blank pole (empty), no contrast
+# (cho==rej identical), or not a real answer (too_short / degenerate word-salad).
+# Everything else -- length_skew, prompt_mismatch, persona_leak/echo (regex),
+# character_break (refusal), blur (a soft _pair_diff<0.10 threshold), weak-rating
+# flags -- is a HEURISTIC the TEACHER should judge: surfaced as a flag on the survivor
+# it rates, never auto-pruned. A dumb flag is never 99% sure, so it must not block the
+# teacher's view (CLAUDE.md "gates elicit judgment, never override it").
+STRUCTURAL_FLAGS = frozenset({"empty", "identical", "too_short", "degenerate"})
 
 
 def _candidate_summary(candidates: dict) -> str:
     lines = []
+    if candidates.get("genericity_failure"):
+        lines.append(f"⚠ POOL FLAGGED GENERIC (advisory, not blocked): "
+                     f"{candidates['genericity_failure']} — if the survivors really are "
+                     "boilerplate that repeats one template, drop the round; else proceed.")
     for item in candidates["items"]:
         survivors = [c for c in item["candidates"] if c["kept"]]
         lines.append(f"\n## scenario {item['scenario_id']} ({len(survivors)} survivors)")
@@ -715,11 +720,12 @@ def _comment_admits_role_inversion(comment: str) -> bool:
 
 
 def _judgment_passes(judgment: dict) -> bool:
-    # The teacher's keep decision is load-bearing (it rates and opts in/out of
-    # EVERY pair). The harness only hard-vetoes an actor/victim role inversion —
-    # the one confound the brief says is never subtle — so a keep=true that admits
-    # an inversion in its comment cannot slip through.
-    return bool(judgment["keep"]) and not _comment_admits_role_inversion(judgment["comment"])
+    # passes == the teacher's OWN keep. The teacher's keep is load-bearing (it rates
+    # and opts in/out of EVERY pair); a regex over its free-text comment must not flip
+    # that (CLAUDE.md "gates elicit judgment, never override it"). The old
+    # role-inversion needle-match is never 99% sure -- it fires on "no role inversion
+    # here" too -- so it is SURFACED as a warning at rate time, not used to veto keep.
+    return bool(judgment["keep"])
 
 
 def _ratings_path(round_dir: Path) -> Path:
@@ -1017,9 +1023,14 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "pre_seat_evidence": pre_seat_evidence,
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     }, indent=2))
+    # genericity is a HEURISTIC (signature-collapse counting with hand-tuned ratios),
+    # never 99% sure, so it FLAGS not blocks: surfaced in candidates["genericity_failure"]
+    # and the candidate summary for the teacher to weigh; the round proceeds. Was a raise
+    # that hard-blocked the round before the teacher saw a thing (CLAUDE.md "gates elicit
+    # judgment, never override it"; same family as the prune-rejections task-139 hit).
     if generic_reason is not None:
-        set_state(round_dir, "choose_focus", note="generic candidate pool")
-        raise ValidationError(generic_reason)
+        logger.warning(f"candidate pool flagged generic: {generic_reason} — surfaced to "
+                       "the teacher, NOT blocked; it judges the survivors and decides.")
     enough = n_with_survivor >= cfg.min_pairs_to_train
     set_state(round_dir, "select_pairs" if enough else "choose_focus",
               note=f"{n_with_survivor} scenarios with candidate survivors")
@@ -1111,6 +1122,13 @@ def rate_candidate(round_dir: Path, *, survivor_id: str,
                 "passes": _judgment_passes(judgment),
                 **judgment,
             }
+            # advisory only: a keep whose comment mentions role-inversion may be the
+            # teacher contradicting itself, but the needle-match is not 99% sure, so we
+            # warn for the audit and let the teacher's keep stand (not vetoed).
+            if judgment["keep"] and _comment_admits_role_inversion(judgment["comment"]):
+                logger.warning(
+                    f"rate_candidate [{survivor_id}]: kept while the comment mentions "
+                    "role-inversion — its call, surfaced for the audit, NOT vetoed.")
             # No per-scenario dedup: we KEEP every pair the teacher keeps, even
             # multiple per scenario (varied poles are extra coverage, not waste).
             # The teacher must rate EVERY kept candidate, so report what is left.
@@ -1520,13 +1538,12 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     blurred, skewed = _audit_pairs(pairs)
     if blurred:
         logger.warning(
-            f"\n=== train_student [{round_dir.name}] culling {len(blurred)} BLUR pair(s) "
-            f"{blurred} ===\n"
-            f"cho/rej word-diff < {BLUR_DIFF_FLOOR}: rej reasons like cho, no axis signal.\n"
-            "SHOULD: 0 blur after the mirror-persona fix. Many blur → neg_persona is not a\n"
-            "        true MIRROR (it weighs like pos instead of reasoning-to-comply); re-propose."
+            f"train_student [{round_dir.name}]: {len(blurred)} BLUR pair(s) {blurred} "
+            f"(cho/rej word-diff < {BLUR_DIFF_FLOOR}: rej reasons like cho, weak axis "
+            "signal); NOT culled — the teacher selected them and a _pair_diff threshold is "
+            "never 99% sure (CLAUDE.md). Many blur → neg_persona is not a true MIRROR "
+            "(it weighs like pos instead of reasoning-to-comply); re-propose next round."
         )
-        pairs = [p for p in pairs if p["id"] not in set(blurred)]
     if skewed:
         logger.warning(
             f"train_student [{round_dir.name}]: {len(skewed)} LENGTH-SKEWED pair(s) {skewed} "

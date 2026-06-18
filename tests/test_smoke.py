@@ -368,7 +368,11 @@ def test_rate_candidate_records_weak_omit_without_rejecting(tmp_path):
         select_pairs(rd, lesson="x", survivor_ids=["s1c1"])
 
 
-def test_rate_candidate_comment_misattribution_forces_omit(tmp_path):
+def test_rate_candidate_comment_misattribution_keeps_and_warns(tmp_path):
+    """A role-inversion mention in the comment no longer FLIPS the teacher's keep: a
+    regex on its prose is never 99% sure (CLAUDE.md "gates elicit judgment, never
+    override it"). passes == the teacher's own keep=True; the inversion is surfaced as
+    a log warning for the audit, not used to omit the pair."""
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
@@ -404,9 +408,10 @@ def test_rate_candidate_comment_misattribution_forces_omit(tmp_path):
         keep=True,
         comment="Rej misattribution: claims the djinn is coercing rather than the sorcerer coercing the djinn.",
     )
-    assert res["passes"] is False
+    # the teacher's keep stands; the harness no longer vetoes on the comment regex.
+    assert res["passes"] is True
     rows = json.loads((rd / "candidate_ratings.json").read_text())
-    assert rows[0]["passes"] is False
+    assert rows[0]["passes"] is True
 
 
 def test_rate_candidate_reports_coverage(tmp_path):
