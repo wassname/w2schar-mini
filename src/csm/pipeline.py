@@ -452,7 +452,14 @@ def _candidate_flags(cand: dict, prompts: list[str], own_idx: int, *,
         flags.append("persona_echo")
     ratio = len(cho) / max(1, len(rej))
     cand["length_ratio"] = ratio
-    if not (0.67 <= ratio <= 1.5):
+    # Backstop for a degenerate near-stub pole only, NOT a tight symmetry cull. The
+    # old [0.67, 1.5] band auto-dropped a verify-vs-act axis whose pos pole ("check
+    # X and Y first, then act") is intrinsically ~2.5x the terse rej ("act now") --
+    # 53/60 good candidates culled on length alone (task-133). Length is surfaced in
+    # the rate form (len=Nx); the teacher judges length-as-confound via
+    # confounding_likert, with rubber_stamp_flag as the backstop. Gentle guard +
+    # judgment, not one hard block.
+    if not (0.25 <= ratio <= 4.0):
         flags.append("length_skew")
     if _pair_diff(cho, rej) < BLUR_DIFF_FLOOR:
         flags.append("blur")
@@ -736,7 +743,12 @@ def _generic_pool_reason(items: list[dict]) -> str | None:
         for cand in item["candidates"]
         if cand.get("kept")
     ]
-    if not survivors:
+    # The collapse heuristic needs enough survivors to estimate genericness. At n<=2
+    # the clauses below mis-fire on FULLY DISTINCT pairs: pair_n/n is >=0.5 for any 2
+    # different pairs, and len(set)<=max(2, n//5) is trivially true. A thin pool is a
+    # real problem, but the honest signal for it is the min-survivor count gate, not a
+    # bogus "generic boilerplate" rejection. Skip the heuristic on small pools.
+    if len(survivors) < 5:
         return None
     cho_sigs = [_generic_signature(_first_sentence(c["cho"])) for c in survivors]
     rej_sigs = [_generic_signature(_first_sentence(c["rej"])) for c in survivors]
