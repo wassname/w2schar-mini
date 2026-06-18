@@ -774,6 +774,16 @@ CONFIGS["tiny-t-deepseek"] = replace(CONFIGS["tiny"], teacher="deepseek/deepseek
 CONFIGS["gemma-31b-t-27b"] = replace(CONFIGS["gemma-31b-c10"], teacher="qwen/qwen3.5-27b")
 CONFIGS["tiny-t-27b"] = replace(CONFIGS["tiny"], teacher="qwen/qwen3.5-27b")
 
+# CPU soundness check for the gate->guidance conversions: a small but REAL coherent
+# student (Qwen3-0.6B, cached locally) so a real train->keep cycle exercises the
+# val-gate-removed path + keep_quality on a trained adapter, WITHOUT the shared GPU
+# (launch with CUDA_VISIBLE_DEVICES="" to force CPU). Slightly longer gens than `tiny`
+# so the teacher sees real (if short) moral reasoning to judge.
+CONFIGS["tiny-real"] = replace(
+    CONFIGS["tiny"], model="Qwen/Qwen3-0.6B",
+    dialogue_max_new_tokens=64, gen_max_new_tokens=64,
+)
+
 # Tiny-gap weak-to-strong, same family: teacher=judge qwen3.5-27b SUPERVISES
 # (edits poles + keep/drop) student qwen3.6-27b's own on-policy gens. The teacher
 # IS the judge (one react agent) — a STRONGER supervisor than the 9b (tests "is the
