@@ -12,6 +12,48 @@ as "recorded at the time," not re-measured.
 
 ---
 
+## 2026-06-19 — corrected harness (7 gate conversions) runs end-to-end on a real CPU tiny run
+
+Artifacts: slug `out/iter/20260618T231144_iter_wassname-qwen3-5lyr-tiny-random`,
+log `/tmp/claude-1000/tiny_real.log`. Real (non-fake) student = the 5-layer random
+tiny model, forced to CPU (`CUDA_VISIBLE_DEVICES=""`) so it could NOT contend with
+the antipasto4 GPU jobs; teacher = qwen-9b (OpenRouter). The point was an empirical
+end-to-end exercise of the gate-philosophy conversions (commits c3a0103..5f9689d)
+without the shared GPU, NOT a quality result (a random student emits garbage).
+
+### Observation
+
+3 rounds, all `action=drop` `drop_cause=early_abort`, then `drop cap hit: 3 drop(s)
+>= 3 (hard red line)` (the MAX_DROPS cap fired on a REAL run, not just the gym).
+
+The early_aborts were the TEACHER'S OWN judgment, not a gate. round00 reasoning:
+"All six candidates show complete generation failure with garbled text ... zero
+on-axis variation ... Since no candidates have real axis contrast, the round is
+dropped." The teacher rated every candidate keep=false (correctly: the random
+student emits "garbled code snippets and emoji") and dropped via mark_exam. No
+`ValidationError`, no veto, no prune-rejection loop in the log.
+
+The pruning conversion (commit bd23a1d) is confirmed live: in round00 candidates,
+`s1c1 kept=True flags=[]` and `s2c1 kept=False flags=['too_short']` -- only the
+STRUCTURAL flag hides a candidate; flag-clean ones are surfaced kept=True and the
+teacher rated them. The select-coverage "N/6 rated, need >=3" lines are the
+rate-everything FORM guidance, which the teacher satisfied then dropped on its call.
+
+### Interpretation
+
+This validates the corrected harness's EARLY/MID path empirically: my 9 edits run
+end-to-end without crashing a real train cycle, candidates surface (not prune) by
+the structural/heuristic split, the teacher makes its OWN keep/drop, and the run
+self-terminates cleanly at MAX_DROPS=3. It does NOT validate the
+train->c_scan->mark_exam-with-KEEP path, because the random student's candidates
+were too incoherent for the teacher to ever select and train -- the teacher dropped
+before training every round. That path still needs the 4b run (pueue 153), where the
+student emits coherent candidates the teacher will select, train on, and judge with
+val_improvement/keep_quality as guidance. Partial empirical sign-off; the keep path
+is pending 153.
+
+---
+
 ## 2026-06-19 — discern-axis run (task 139): pipeline unblocked, but the axis is length-confounded and the one keep deepens nothing independently
 
 Artifacts: slug `out/iter/20260618T162204_iter_google-gemma-3-4b-it` (pueue 139,
