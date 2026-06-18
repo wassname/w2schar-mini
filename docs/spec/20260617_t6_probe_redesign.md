@@ -37,11 +37,49 @@ fake-student `generic candidate pool` gate (a known gym artifact, unrelated to
 the scale), which aborts the round before POST, so the gym cannot exercise the
 POST path (same `_validate_scores` as PRE; covered by unit tests instead).
 
-UAT-2 (PENDING, needs GPU): one gemma-4b re-run must show PRE spanning the scale
-on the real student dialogue AND POST movement tracking the independent tinymfv
-direction on a kept round. The A/B/C options below are kept for the record; if
-the rubric fix does NOT recover a real signal on the real student, escalate to B
-(harder items) or C (full psychometric funnel).
+UAT-2 (gemma-4b, pueue-128, cold audit a59bf9f, 2026-06-18): MIXED, and
+informative. slug `out/iter/20260617T231614_iter_google-gemma-3-4b-it`.
+- Part (a) PRE de-saturation PASS: PRE `_1p` fractional, spanning 2.4..3.7, none
+  pegged at +5. On the REAL student. The rubric works.
+- Part (b) movement-tracks-tinymfv FAIL on the one keep with a written eval_post
+  (r03): teacher movement_mean +0.33, independent top1 0.8636 -> 0.7500 (-0.114),
+  care 0.30 -> 0.46 / authority 0.08 -> 0.04 (foundation-shape blowout). The
+  teacher claims positive movement while the held-out eval regresses.
+
+The audit root-caused (b) NOT to the rubric and NOT to wrong direction, but to
+THREE pre-existing bugs the saturation had masked (a flat movement never produced
+an auditable keep before):
+
+1. c_scan OVER-BAKE (the regression cause; NEEDS A DESIGN CALL -- apex measurement).
+   r03 baked signed_C=4.0 because the walk-down never stepped: the json gate read
+   2/4 at c=4.0 == baseline 2/4 (a noisy 4-probe read) so it "passed" on the FIRST
+   probe and baked the ceiling. r00/r01 on the SAME init=4.0 correctly walked to
+   0.79/1.19 (json 0/4, 1/4 at the top). The canary went FLAT at c=4.0 (pmass
+   1.0000->0.9999, json 2/4->2/4, rep 0.99->0.99) -- it could not separate the
+   adapter from base, AND it is blind to the foundation-shape distortion the
+   independent eval then caught. So baking the highest-coherent-c over-steers when
+   a single noisy probe flukes a pass high up. This is the canary's known blind
+   spot (CLAUDE.md) biting the calibration objective. Fix options (a user call,
+   `src/csm/ws/c_scan.py`): (i) require >=2 probe points / don't bake the init c on
+   the first probe without confirming a step down; (ii) more long-probe samples per
+   c so json isn't a 0/4-vs-2/4 coin flip; (iii) treat "canary statistically == base
+   at this c" as "couldn't measure -> keep walking down", not "pass". I did NOT
+   touch this -- it changes the apex c-selection and warrants your call.
+
+2. band-cross was a SHOULD banner, not a hard gate (FIXED, commit e10f556). Both
+   keeps (r01 maxΔ+0.9, r03 maxΔ+0.6) were sub-band paraphrases the teacher
+   narrated as band-crosses. The keep_override veto now also drops a keep whose
+   max seat Δ < 1.0 (cause `sub_band`). This neutralises the misleading-keep
+   symptom: under the fix, neither r01 nor r03 would have kept.
+
+3. r01 kept but wrote NO eval_post.json -- an unauditable keep (`csm eval` may
+   only eval_post the latest keep). NEEDS INVESTIGATION (not yet fixed).
+
+Net: the de-saturation is verified working and did its job -- it surfaced the next
+layer (over-bake + soft keep-gate). The apex now blocks on the c_scan over-bake
+design call, not on the probe scale. The A/B/C options below are kept for the
+record; the rubric DID recover a usable PRE signal on the real student, so B/C
+are not needed yet.
 
 ## (superseded options below, kept for record)
 

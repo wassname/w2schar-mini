@@ -48,15 +48,38 @@ gate (a known gym artifact) fired. The real weak teacher follows the new rubric
 first try; that is stronger evidence than a dogfood subagent (a strong model's
 guess about a weak one).
 
+### UAT-2 (gemma-4b, pueue-128, cold audit a59bf9f) -- mixed, and it exposed the next layer
+
+slug `out/iter/20260617T231614_iter_google-gemma-3-4b-it`.
+- PRE de-saturation PASS on the REAL student: PRE `_1p` fractional, 2.4..3.7, no
+  +5 peg. The same probes where the failed first attempt's student answered
+  autonomy "Rating: 5" now place at +2.8, not +5.
+- movement-tracks-tinymfv FAIL on the one auditable keep (r03): teacher +0.33,
+  independent top1 0.8636 -> 0.7500 (-0.114), care 0.30->0.46 / authority
+  0.08->0.04.
+
+The audit root-caused the regression to THREE pre-existing bugs the saturation
+masked (flat movement never produced an auditable keep before):
+1. c_scan OVER-BAKE: r03 baked signed_C=4.0 because the json gate read 2/4 ==
+   base 2/4 at c=4.0 (noisy 4-probe read) and passed on the FIRST probe, never
+   walking down. r00/r01 on the same init walked to 0.79/1.19. The canary went
+   flat at c=4.0 (no separation) and is blind to the foundation-shape distortion
+   the held-out eval caught. The over-baked c is the regression cause -- NOT the
+   rubric, NOT wrong direction. Needs a calibration design call (c_scan.py).
+2. band-cross was a SHOULD banner, not enforced -> FIXED (commit e10f556): the
+   keep_override veto now drops a keep whose max seat Δ < 1.0 (cause `sub_band`).
+   Under the fix neither r01 (+0.9) nor r03 (+0.6) keeps.
+3. r01 kept but wrote no eval_post.json -- unauditable keep, needs investigation.
+
 ### Interpretation / next
 
-This is the CLAUDE.md lesson made concrete: a saturated surface scale hid the
-headroom, and the fix was the PROBE (the scoring anchor), not a maxed-out student.
-UAT-2 (pueue-128, gemma-4b) must confirm PRE spans the scale on the REAL student
-dialogue and POST movement tracks the independent tinymfv direction on a kept
-round, before any big-student GPU. If the rubric does not recover a real signal on
-the real student, escalate to harder probe items (spec option B) or the full
-psychometric funnel (C).
+The de-saturation did exactly its job: it removed the saturation ARTIFACT and so
+made the real keep auditable, which surfaced the over-bake + soft keep-gate that
+flat movement had been hiding. CLAUDE.md lesson confirmed twice over -- the
+saturated scale hid headroom (fixed), and "the canary is blind to high-c
+foundation distortion" is now the live blocker (the over-bake). The apex blocks on
+the c_scan over-bake design call, NOT on the probe scale. B/C probe-redesign
+options are not needed yet -- the rubric recovered a usable PRE signal.
 
 ---
 
