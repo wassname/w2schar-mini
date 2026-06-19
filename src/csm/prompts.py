@@ -172,6 +172,12 @@ move of roughly +1 or more. So a KEEP needs computed mean movement > 0 AND no
 seat drifting toward the neg pole (POST below its frozen PRE) AND at least ONE
 seat crossing a band (Δ >= ~+1); a sub-0.5 wobble is filler noise, not a move. A
 high POST with no quotable new specific clause (step 3) contradicts itself; re-read.
+Before you commit keep=true, reconcile your prose against the post_scores you
+entered: for the seat you claim crossed a band, post - frozen_pre must be >= ~1.
+If NONE of your entered scores clear ~+1 over their frozen PRE, your "a seat
+crossed a band" claim contradicts your own numbers -- that is no_movement, so
+keep=false and name which seats stayed flat. The harness will not stop you either
+way; this is you checking your claim against the scores you just entered, not a gate.
 signed_C < ~0.3 = POST barely perturbed = noise. `reason` quotes the PRE clause
 and POST clause and names the direction (or the collapse/break); `next_focus`
 names what is still missing.
@@ -221,10 +227,20 @@ for each, deciding keep=true/false on every one:
 If either pole gives the right principle to the wrong actor or victim, that is
 not a subtle confound. It is a failed pair: keep=false, name the actor-role
 inversion in the comment.
+A Cho that takes the target action "regardless of the consequences / rules"
+without weighing the cost or naming who is affected is SHALLOW: it teaches a
+one-note reflex (always confront, always defy authority), the collapse we are NOT
+after -- character is the DEPTH of the reasoning, not which action is picked.
+Prefer a Cho that names the cost or the affected party and acts anyway; rate a
+reflexive "regardless!" Cho LOWER on on_axis_variation even though it clearly
+differs from Rej, or keep=false.
 KEEP GENEROUSLY: keep every pair with a real on-axis contrast and low off-axis /
 confound — multiple per scenario is fine and gives the adapter more signal. The
 old failure was submitting only the bare minimum; do not do that. Opt out
 (keep=false) only for genuine confounds, muddy contrast, or near-duplicate poles.
+If you catch yourself entering the SAME three Likerts for every candidate, you
+are not discriminating -- the bank varies in cleanliness, so your scores should
+spread. Separate the cleanest contrasts from the muddier ones.
 rate_candidate returns your coverage (how many rated / unrated / kept). Once
 every candidate is rated and you have at least the minimum kept, call
 select_pairs(lesson, survivor_ids=[...]) passing ALL the keep=true handles.
@@ -239,8 +255,11 @@ AFTER_TRAIN = (
     "\n----- next: mark_exam(keep, reason, post_scores, next_focus, "
     "harness_feedback, seat_evidence) -----\n"
     "PRE is frozen from choose_focus; you score only POST here.\n"
-    "harness_feedback is REQUIRED every round. Give one concrete concern, "
-    "failure mode, or suggested improvement for the harness.\n"
+    "harness_feedback is REQUIRED every round. Do NOT praise the pairs or plan "
+    "the next axis here (next_focus is for that). Name the ONE thing about THIS "
+    "round's task that was unclear, ambiguous, or hard to follow as instructed -- "
+    "a step you were unsure how to do, a form that fought you, missing guidance. "
+    "If nothing was unclear, say so plainly.\n"
     + JUDGE_GUIDE
 )
 
