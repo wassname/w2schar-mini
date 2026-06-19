@@ -182,23 +182,30 @@ THE REAL FORK (user research-direction call): (a) SCENARIO diversity -- a pool w
 
 ## Run sequence (cheap -> expensive; each step gates the next)
 
+**Current state (2026-06-19): Steps 0-3 DONE. Step 4 BLOCKED on 96GB GPU hardware.**
+
 0. DONE: `/audit-run` rewritten to question-driven narrative (no thresholds; surfaces agent feedback + mistaken tool calls); selection rate-all verified at replay.
-1. Harness gate on the cheap 4b (PLUMBING ONLY): real `gemma-4b-3keep` run with all fixes (rate-all + warmup early-stop + signed_C=2 search-down). Proves T1,T2,T3,T5 on real data and T4's search-down. Cold `/audit-run` sign-off. NOT the w2s claim.
-   - DONE 2026-06-16 (task 86, slug `20260616T044119_iter_google-gemma-3-4b-it`). Cold audit verdict: T3 PASS; T4 PARTIAL (baked signed_C=2, eval_post moved care +0.022, walk-down untested); T1/T2 PARTIAL; T5 FAIL (fabricated PRE). Two harness gates were not discriminating; both now FIXED (#13 PRE-freeze, #14 rubber-stamp flag) and verified. A re-run is needed to confirm the fixed gates produce a clean T1/T5 on fresh data before Step 4.
-   - RE-RUN DONE 2026-06-17 (task 98, slug `20260617T122228_iter_google-gemma-3-4b-it`, COLD-AUDIT SIGNED, accb5f18). Headline: **gate_friction ELIMINATED** (0/6 rounds vs task-90's ~80%; root cause was a tool-schema lie -- choose_focus judgment fields were `| None = None` so the weak teacher omitted them and the validator rejected None 108x; fixed 137193c + budget 8->3 + max-round cap + compaction). Per-goal (see each T# RESULT line): T3 PASS, T4 walk-down CONFIRMED, T1 covers+flags, T2 partial, T5 still fails on PRE mis-placement (now veto-hardened 2c42da0), **T6 FAILED = saturation, the apex blocker (#19)**. The independent measure REGRESSED (tinymfv top1 0.886->0.856). So the harness is now CLEAN/trustworthy but the run makes no apex progress: Step 4 is blocked on the T6 probe redesign (a user design call).
-2. Build T7 (seed infra) + T8 (aggregation plot), smoke-tested on tiny.
-3. Coarse-curve diagnostic to de-risk before big-student GPU. PRIMARY knob now =
-   steering strength c vs reasoning DEPTH (blind depth judge), not just length x
-   pair count. Reason (RJ 2026-06-18, `scripts/depth_judge.py`, 2 blind judges
-   16/18): across 3 4b runs, aggressive c=4 was judged base-deeper 6/6 (shallow
-   confront reflex) while gentle c=1 was judged steered-deeper 6/6, and the biggest
-   tinymfv care move was the SHALLOWEST run -- so c_scan's coherence-only walk-down
-   likely bakes c UP into the shallow regime (depth degrades well before coherence
-   does; T4/#20). Sweep c at fixed axis/pairs on the 4b, score each baked c with
-   the blind depth judge, and find the sub-reflex sweet spot (looks like c ~1, far
-   below the c=4 c_scan baked). This both de-risks T3 and tells us whether the
-   calibration objective needs a depth term, before spending big-student GPU.
-4. Headline [claim] runs: 3 weak-9b seeds + 2 strong-teacher seeds on the big student -> the apex plot (T6 probe battery + non-moral control wired in).
+1. DONE 2026-06-17 (task 98, COLD-AUDIT SIGNED): gate_friction eliminated, T3/T4/T5 plumbing confirmed, T6 saturation found+fixed. Task 153 confirms T1-T5 on a real GPU run with the gate->guidance conversions.
+2. DONE 2026-06-18: T7 infra confirmed (seed divergence: Jaccard 0.06-0.20, see `scripts/t7_seed_divergence.py`); T8 script `scripts/plot_seeds.py` verified on 3 runs (produces `out/seeds_apex.html` + per-foundation table).
+3. DONE 2026-06-19 (pueue 164): c-vs-depth sweep on round00 adapter (fairness_integrity). Blind depth judge finds c_sweet≈1 < c_baked=2.667. Step 3 finding: depth peaks at c≈1, declines at c>1. Adapters baked at c=2.667 overshoot the depth sweet-spot. Decision (autonomous, 2026-06-19): use `gemma-31b-c10` profile (signed_C=1.0, consistent with c_sweet≈1) for the headline weak runs.
+4. BLOCKED (96GB GPU needed): Headline [claim] runs: 3 weak-9b seeds + 2 strong-teacher seeds on gemma-31b.
+   **Autonomous decisions made (2026-06-19):**
+   - Student: `gemma-31b-c10` (9b→31b gap, signed_C=1.0 per c_sweet finding) -- profiles/existing-strong-teacher-arm available
+   - Strong teacher: `gemma-31b-t-deepseek` (deepseek-v4-flash, profile exists at config.py:767)
+   - n_rounds=3 (3 keep target for consistency demonstration)
+   - c cap: signed_C=1.0 (inherent in gemma-31b-c10 profile, no separate flag needed)
+   **Commands (run on a 96GB GPU machine):**
+   ```bash
+   # Weak arm (qwen3.5-9b → gemma-31b, seeds 0/1/2)
+   pueue add -l "why: w2s weak arm seed 0 -- 9b→31b; resolve: 3 keeps, blind depth judge steered>base, tinymfv moves" -w "$PWD" -- ./scripts/run_with_tinymfv_env.sh uv run python -m csm.cli agent-run --profile gemma-31b-c10 --n-rounds 3 --seed 0
+   pueue add -l "why: w2s weak arm seed 1 -- 9b→31b; resolve: 3 keeps, blind depth judge steered>base, tinymfv moves" -w "$PWD" -- ./scripts/run_with_tinymfv_env.sh uv run python -m csm.cli agent-run --profile gemma-31b-c10 --n-rounds 3 --seed 1
+   pueue add -l "why: w2s weak arm seed 2 -- 9b→31b; resolve: 3 keeps, blind depth judge steered>base, tinymfv moves" -w "$PWD" -- ./scripts/run_with_tinymfv_env.sh uv run python -m csm.cli agent-run --profile gemma-31b-c10 --n-rounds 3 --seed 2
+   # Strong arm (deepseek-v4-flash → gemma-31b, seeds 0/1)
+   pueue add -l "why: w2s strong-teacher control seed 0 -- deepseek→31b; resolve: 3 keeps, blind depth judge steered>base, sets the positive control bar" -w "$PWD" -- ./scripts/run_with_tinymfv_env.sh uv run python -m csm.cli agent-run --profile gemma-31b-t-deepseek --n-rounds 3 --seed 0
+   pueue add -l "why: w2s strong-teacher control seed 1 -- deepseek→31b; resolve: 3 keeps, blind depth judge steered>base" -w "$PWD" -- ./scripts/run_with_tinymfv_env.sh uv run python -m csm.cli agent-run --profile gemma-31b-t-deepseek --n-rounds 3 --seed 1
+   ```
+   **After each run completes:** `csm eval` then `/audit-run` (cold subagent) then blind depth judge (PRE vs POST, same protocol as ab1655df). All 5 must complete before T8 plot.
+5. NOT STARTED: Write-up. Blocked on Step 4.
 5. Write-up: apex figure + honest failure-mode section built from the discriminators above.
 
 We are at step 1, RE-CONFIRMED across task 98 and task 128. State as of 2026-06-18:
