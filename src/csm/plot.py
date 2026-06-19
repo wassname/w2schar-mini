@@ -307,11 +307,9 @@ def _probe_title(row: dict) -> str:
     return "interview probe"
 
 
-def _prompt_excerpt(prompt: str, limit: int = 96) -> str:
-    text = " ".join(prompt.split())
-    if len(text) <= limit:
-        return text
-    return text[:limit].rstrip() + "..."
+def _prompt_excerpt(prompt: str) -> str:
+    # full probe prompt, whitespace-normalised; .value wraps so no truncation needed
+    return " ".join(prompt.split())
 
 
 def _build_table(rows: list[dict]) -> str:
