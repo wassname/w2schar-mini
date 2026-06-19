@@ -813,4 +813,6 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
         eval_slug(slug_path, name="classic", max_think_tokens=64)
         write_report_md(slug_path)
         write_audit_md(slug_path)
+    from csm.pipeline import print_run_summary
+    print_run_summary(slug_path)
     print(f"agent-run: done. logs={logs}")

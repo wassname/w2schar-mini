@@ -2773,6 +2773,149 @@ def write_report_md(slug_dir: Path) -> None:
     write_iter_index(slug_dir.parent)
 
 
+# Compact abbreviations for the per-round tool-call tally (TLDR table). A count
+# above the expected 1 means the teacher retried that tool (a gate bounced it or
+# it hit a schema error) — the most direct "where did the teacher fight the
+# brief" signal, so we surface it rather than the file artifacts (which only show
+# the LAST successful call).
+_TOOL_ABBR = {
+    "choose_focus": "focus", "propose_personas": "prop", "rate_candidate": "rate",
+    "select_pairs": "sel", "edit_pairs": "edit", "train_student": "train",
+    "mark_exam": "exam",
+}
+_FOUNDATIONS = ["care", "fairness", "loyalty", "authority", "sanctity", "liberty", "social"]
+
+
+def _tool_calls_per_round(slug_dir: Path) -> list[Counter]:
+    """One Counter of tool-call function -> count per round, by splitting the
+    teacher's single inspect-ai message stream on each `mark_exam` (which closes
+    a round). Empty list if the inspect log is absent (fake-student gym writes
+    none). Counts include retries, so `rate×40` or `train×2` is visible."""
+    logs = sorted(slug_dir.glob("*_task_*.json"))
+    if not logs:
+        return []
+    samples = (_safe_json(logs[-1]) or {}).get("samples") or []
+    if not samples:
+        return []
+    rounds: list[Counter] = []
+    cur: Counter = Counter()
+    for m in samples[0].get("messages", []):
+        for tc in (m.get("tool_calls") or []):
+            fn = tc.get("function")
+            cur[fn] += 1
+            if fn == "mark_exam":
+                rounds.append(cur)
+                cur = Counter()
+    if cur:  # trailing calls of an unfinished round
+        rounds.append(cur)
+    return rounds
+
+
+def _fmt_tools(c: Counter) -> str:
+    return " ".join(f"{_TOOL_ABBR.get(k, k)}×{v}" for k, v in c.items()) or "—"
+
+
+def print_run_summary(slug_dir: Path) -> None:
+    """Print the end-of-run TLDR to stdout: LONG tables first (full tinymfv eval
+    per foundation, full likert pre/post per seat), then the SHORT per-round
+    summary last so the final ~40 lines are the at-a-glance read. Pure disk-read,
+    safe after any run. tinymfv evals are written per round as PRE (eval.json) and
+    only on the last kept round as POST (eval_post.json) — kept round N's POST is
+    round N+1's PRE by design, so most rounds show PRE only."""
+    from tabulate import tabulate
+
+    rounds = sorted(p for p in slug_dir.glob("round*") if p.is_dir())
+    tool_rounds = _tool_calls_per_round(slug_dir)
+
+    # --- LONG table A: tinymfv eval per round x foundation (pre + post phases) ---
+    eval_rows: list[list] = []
+    for rd in rounds:
+        rn = rd.name.replace("round", "r")
+        for phase, fname in (("pre", "eval.json"), ("post", "eval_post.json")):
+            ev = _safe_json(rd / fname)
+            if not ev:
+                continue
+            mp = ev.get("mean_p") or {}
+            eval_rows.append(
+                [rn, phase, f"{ev.get('c', 0.0):+.2f}",
+                 f"{ev.get('top1_acc', float('nan')):.3f}",
+                 *[f"{mp.get(f, float('nan')):.3f}" for f in _FOUNDATIONS],
+                 f"{ev.get('mean_pmass_allowed', float('nan')):.3f}"])
+
+    # --- LONG table B: likert pre/post per seat (the teacher's own movement) ---
+    likert_rows: list[list] = []
+    for rd in rounds:
+        j = _safe_json(rd / "judgment.json") or {}
+        pre, post, mv = (j.get("pre_scores") or {}), (j.get("post_scores") or {}), (j.get("movement") or {})
+        rn = rd.name.replace("round", "r")
+        for seat in sorted(set(pre) | set(post)):
+            p, q = pre.get(seat), post.get(seat)
+            d = mv.get(seat)
+            likert_rows.append(
+                [rn, seat,
+                 f"{p:+.2f}" if isinstance(p, (int, float)) else "—",
+                 f"{q:+.2f}" if isinstance(q, (int, float)) else "—",
+                 f"{d:+.2f}" if isinstance(d, (int, float)) else "—"])
+
+    # --- SHORT table C: one compact row per round (the TLDR) ---
+    tldr_rows: list[list] = []
+    for i, rd in enumerate(rounds):
+        j = _safe_json(rd / "judgment.json") or {}
+        cal = _safe_json(rd / "calibration.json") or {}
+        focus = _safe_json(rd / "choose_focus_judgment.json") or {}
+        ts = cal.get("train_summary") or {}
+        trace = cal.get("cscan_trace") or []
+        baked = next((r for r in trace if r.get("note") == "pass"), None) or \
+            next((r for r in reversed(trace) if "pmass" in r), {})
+
+        action = j.get("action", "—")
+        kq = j.get("keep_quality") or ("—" if action != "keep" else "")
+        mv = j.get("movement_mean")
+        c = cal.get("signed_C")
+        bs, vi, ntr, nval = (ts.get("best_step"), ts.get("val_improvement"),
+                             ts.get("n_train_pairs"), ts.get("n_val_pairs"))
+        train_cell = (f"step{bs} valΔ{vi:+.2f} ({ntr}tr/{nval}val)"
+                      if isinstance(bs, int) and isinstance(vi, (int, float)) else "—")
+        calib_cell = (f"pmass{baked.get('pmass', float('nan')):.3f} "
+                      f"json{baked.get('valid_json', '?')} rep{baked.get('rep_min', float('nan')):.2f}"
+                      if baked else "—")
+        tools = _fmt_tools(tool_rounds[i]) if i < len(tool_rounds) else "—"
+        axis = str(focus.get("persona_pair_id") or "—")[:22]
+
+        tldr_rows.append(
+            [rd.name.replace("round", "r"), action,
+             kq if action == "keep" else (j.get("drop_cause") or "—"),
+             f"{mv:+.2f}" if isinstance(mv, (int, float)) else "—",
+             axis, train_cell,
+             f"{c:+.2f}" if isinstance(c, (int, float)) else "—",
+             calib_cell, tools])
+
+    n_keep = sum(r[1] == "keep" for r in tldr_rows)
+    n_drop = sum(r[1] == "drop" for r in tldr_rows)
+
+    print(f"\n{'='*78}\nRUN SUMMARY: {slug_dir.name}  ·  {n_keep} keep / {n_drop} drop / {len(rounds)} rounds")
+    print(f"{'='*78}\n")
+
+    print("## tinymfv eval (mean_p per moral foundation; post only on last kept round)")
+    if eval_rows:
+        print(tabulate(eval_rows, headers=["rd", "phase", "c", "top1", *_FOUNDATIONS, "pmass"],
+                       tablefmt="pipe"))
+    else:
+        print("(no eval.json — fake-student run or eval not yet built)")
+
+    print("\n## teacher likert PRE->POST per _1p seat (the teacher's OWN movement claim)")
+    print(tabulate(likert_rows, headers=["rd", "seat", "pre", "post", "Δ"], tablefmt="pipe")
+          if likert_rows else "(no judgment.json)")
+
+    # TLDR last: the final ~40 lines are this at-a-glance per-round table.
+    print("\n## ROUND SUMMARY (TLDR) — keep_q advisory only; tools×N>1 = retries")
+    print(tabulate(tldr_rows,
+                   headers=["rd", "action", "keep_q/cause", "Δmove", "axis",
+                            "train(step/valΔ/pairs)", "C", "calib@baked-c", "tool calls"],
+                   tablefmt="pipe") if tldr_rows else "(no rounds)")
+    print()
+
+
 def write_iter_index(iter_dir: Path) -> None:
     """Top-level out/iter/index.html: one row per slug, newest first. Pure
     disk-read; no model forward, no eval. `eval_mean_p` falls back to '—'
