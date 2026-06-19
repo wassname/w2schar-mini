@@ -12,6 +12,34 @@ as "recorded at the time," not re-measured.
 
 ---
 
+## 2026-06-19 — Step 3: c-vs-depth sweep confirms c_sweet < c_baked (4b fairness_integrity adapter)
+
+Artifact: `out/iter/20260619T005056_iter_google-gemma-3-4b-it/round00/cdepth_sweep/` (5 x `interview_cX.json`). pueue job 164. Script `scripts/c_depth_sweep.py`. Adapter: fairness_integrity, baked c=2.667.
+
+### Observation
+
+Generated 6-probe interviews at c ∈ {0, 1, 2, 2.667, 4} by baking the round00 adapter at each c with `csm.ws.bake.baked()`. Shuffled into labels A-E (seed=999; A=c2, B=c4, C=c1, D=c2.67, E=c0) and handed to a blind depth judge (fresh-eyes, no repo context, no knowledge of c values).
+
+| Rank | Version | c value | Judge notes |
+|------|---------|---------|-------------|
+| 1 (deepest) | C | c=1.0 | "specific downstream harms enumerated"; "concrete corrective action" |
+| 2 | E | c=0.0 (base) | "explicitly distinguishes primary from secondary concerns"; "extends principle to relational coercion" |
+| 3 | D | c=2.67 (baked) | structured but thinner; wins autonomy_coercion_1p only |
+| 4 | B | c=4.0 | correctly labeled but structurally simple |
+| 5 (shallowest) | A | c=2.0 | "most interchangeable across probes" |
+
+Probe-level winners: c=1 won 2/6, base (c=0) won 3/6 (fairness_integrity_1p, fairness_integrity_3p, autonomy_coercion_3p), c=2.67 won 1/6 (autonomy_coercion_1p). C vs E separation called "genuine but narrow". D vs B also close.
+
+### Interpretation
+
+c_sweet ≈ 1 < c_baked=2.667. Depth peaks below the coherence ceiling, confirming the 2026-06-18 hypothesis from the 3-run gradient. The baked c=2.667 is not catastrophic (rank 3/5) but is not optimal. Practically: the c_scan correctly avoids c=4 for coherence, but the depth-optimal c for a small model is lower.
+
+Caveats: (1) 4b strong-to-weak plumbing, not the w2s claim; (2) base (c=0) is 2nd deepest, meaning the adapter adds minimal depth increment even at c=1 on a 6-probe held-out set; (3) the FOCUS axis was fairness_integrity but the base wins that probe's 1p variant -- the adapter did not deepen its own training axis; (4) blind judge is same model family (shared-bias risk), though separation was consistent across both sides of the ranking (not random). For the 27b headline run, the c_scan will still bake the highest passing coherence c -- the depth-vs-c curve should be re-measured for the larger model, which may behave differently.
+
+Implication for Step 4: monitor whether c_baked stays near 1-2 on the 27b student; if it bakes 3+ consider whether a manual c cap would improve depth without losing coherence.
+
+---
+
 ## 2026-06-19 — corrected harness (7 gate conversions) runs end-to-end on a real CPU tiny run
 
 Artifacts: slug `out/iter/20260618T231144_iter_wassname-qwen3-5lyr-tiny-random`,
