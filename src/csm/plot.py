@@ -107,7 +107,25 @@ def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict:
         "reasoning": judgment.get("reasoning", ""),
         "next_focus": judgment.get("next_focus", ""),
         "harness_feedback": judgment.get("harness_feedback", ""),
+        **_persona_fields(round_dir),
         **_first_probe_fields(round_dir),
+    }
+
+
+def _persona_fields(round_dir: Path) -> dict[str, str]:
+    """The steering axis and its two poles for the round, from candidates.json.
+    persona_pair is the axis label; pos/neg_descriptor are the contrastive poles
+    the student generated cho under (pos) and rej under (neg)."""
+    path = round_dir / "candidates.json"
+    if not path.exists():
+        return {"axis": "", "pole_pos": "", "pole_neg": ""}
+    cands = [c for item in json.loads(path.read_text())["items"]
+             for c in item["candidates"]]
+    first = next((c for c in cands if c.get("persona_pair")), {})
+    return {
+        "axis": first.get("persona_pair", ""),
+        "pole_pos": first.get("pos_descriptor", ""),
+        "pole_neg": first.get("neg_descriptor", ""),
     }
 
 
@@ -373,10 +391,13 @@ def _build_table(rows: list[dict]) -> str:
     <div class="r-action {action_cls}">{action_icon}</div>
   </td>
     <td class="text-col">
-    <div class="field"><span class="label">lesson</span><span class="value">{_escape(r['lesson'])}</span></div>
-    <div class="field"><span class="label">teacher assessment</span><span class="value">{_escape(r['reasoning'])}</span></div>
+    <div class="field"><span class="label">axis</span><span class="value axis">{_escape(r['axis'])}</span></div>
+    <div class="field"><span class="label">▲ pos (cho)</span><span class="value pole-pos">{_escape(r['pole_pos'])}</span></div>
+    <div class="field"><span class="label">▼ neg (rej)</span><span class="value pole-neg">{_escape(r['pole_neg'])}</span></div>
+    <div class="field"><span class="label">lesson</span><span class="value lesson">{_escape(r['lesson'])}</span></div>
     <div class="field"><span class="label">next focus</span><span class="value">{_escape(r['next_focus'])}</span></div>
-    <div class="field"><span class="label">harness feedback</span><span class="value">{_escape(r['harness_feedback'])}</span></div>
+    <div class="field"><span class="label">teacher assessment</span><span class="value muted">{_escape(r['reasoning'])}</span></div>
+    <div class="field"><span class="label">harness feedback</span><span class="value muted">{_escape(r['harness_feedback'])}</span></div>
   </td>
   <td class="delta-col">
     <div class="field"><span class="label">Δ authority</span><span class="value mono">{d_auth}</span></div>
@@ -396,7 +417,7 @@ def _build_table(rows: list[dict]) -> str:
     return f"""<table class="timeline">
 <thead><tr>
   <th>graph (← less ▸ more authority deference →)</th>
-  <th>round</th><th>lesson / assessment / next focus</th>
+  <th>round</th><th>axis / personas / lesson</th>
   <th>Δ mean_p</th><th>probe pre / post</th>
 </tr></thead>
 <tbody>{''.join(body_rows)}</tbody></table>"""
@@ -440,6 +461,10 @@ _CSS = """
            color: #999; margin-bottom: 2px; }
   .value { font-size: 13px; color: #2D1810; }
   .value.mono { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; }
+  .value.axis { font-weight: 700; letter-spacing: .03em; }
+  .value.pole-pos { color: #1B5C3A; }
+  .value.pole-neg { color: #7A4400; }
+  .value.lesson { font-style: italic; font-size: 14px; }
   .row.keep .text-col .field:first-child .value { color: #1B3A5C; font-style: italic; }
   .row.drop .text-col .field:first-child .value { color: #7A1A1A; font-style: italic; }
   .petrov { font-size: 12px; line-height: 1.55; }
