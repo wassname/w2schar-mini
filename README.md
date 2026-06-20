@@ -19,16 +19,14 @@ This is important because frontier AI labs use their weaker AI to align the next
 
 ### Weight steering
 
-Steering is promising but seen as unreliable. It is promising because it's self-supervised, meaning it doesn't rely on labels that we don't have. And it's internal, meaning it's less prone to the reward hacking that more distal optimisation like reinforcement learning is subject to. Happily newer forms of steering are more powerful and reliable and open the door for iterated application.
+Steering is promising but seen as unreliable. It is promising because it's self-supervised, meaning it doesn't rely on labels that we don't have. And it's internal, meaning it's less prone to the reward hacking that more distal optimisation like reinforcement learning is subject to. Happily newer forms of steering are more powerful and reliable and open the door for iterated application (while being less internal).
 
 We use a [Weight steering](https://github.com/safety-research/weight-steering) adapter. This trains
 adapters on a model's own contrastive completions, then uses the adapter as a
-direction in weight space. This repo adapts that idea for iterated character
-steering: the student writes the behavioral pairs, the weak teacher selects and
-judges them, and each kept adapter becomes part of the next round's student.
-This makes steering useful as an interface for a weak teacher because it is
-self-supervised, acts through internal model changes, and avoids a distant RL
-reward loop.
+direction in weight space. 
+
+This repo adapts weight steering idea for iterated character steering: the student writes the behavioral pairs, the weak teacher selects and judges them, and each kept adapter becomes part of the next round's student.
+This makes steering useful as an interface for a weak teacher because it is self-supervised, acts through internal model changes, and avoids a distant RL reward loop.
 
 This variant uses a few changes to weight-steering inspired by our earlier
 [AntiPaSTO work](https://arxiv.org/pdf/2601.07473):
@@ -38,6 +36,7 @@ This variant uses a few changes to weight-steering inspired by our earlier
 - a KL constraint to the base model that keeps generations coherent under steering
 - a calibration pass that finds the largest coherent steering strength before replaying the student
 
+I'll note that weight steering is less purely "internal" than activation steering because it add's an external objective: nll oer the models own completions, along with an internal constraint: bidirectional weight changes. I haven't yet built a good intuition for what this means for behaviours like sandbadding, reward hacking and so on, which result from a mismatch between outer logprobs and inner hidden states.
 
 ## What it does
 
