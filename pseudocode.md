@@ -1,3 +1,4 @@
+<!-- This prose is human-approved. Before editing, run the `humanizer` skill and keep the footprint minimal. -->
 # `w2schar-mini` — algorithm pseudocode
 
 Weak-to-strong iterated character steering. A weak teacher (qwen3.5-9b) curates

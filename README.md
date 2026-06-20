@@ -1,3 +1,4 @@
+<!-- This prose is human-approved. Before editing, run the `humanizer` skill and keep the footprint minimal. -->
 # w2schar-mini
 
 Weak-to-strong iterated moral character steering. We ask a weak teacher model to steer
