@@ -95,15 +95,16 @@ blind, funnel short->open), applied to the teacher's OWN judging.
 ## Probing for character, not performance (the core measurement lesson)
 
 Character is the depth and wisdom of moral reasoning, NOT which action the model
-picks. So never conclude "saturated / no headroom" from a surface behaviour: any
-model, however small and corporate, has room to reason more wisely -- to notice
-who is affected, weigh the real tradeoff, name the principle, hold a view under
-pressure. If a probe shows no movement, suspect the PROBE first, not a maxed-out
-student.
+picks. So never conclude "no headroom" from a surface behaviour: any model,
+however small and corporate, has room to reason more wisely -- to notice who is
+affected, weigh the real tradeoff, name the principle, hold a view under
+pressure. If a probe shows no movement, the PROBE is almost always the underpowered
+part, not the student. There is essentially always headroom; a flat reading means
+the measurement could not resolve it.
 
 Two ways to mis-probe, both of which we keep hitting:
-- Forced binary ("pick A or B"): measures the action, which saturates trivially
-  (every decent model "reports truthfully"). Blind to reasoning depth.
+- Forced binary ("pick A or B"): measures the action, which every decent model
+  gets right trivially ("reports truthfully"). Blind to reasoning depth.
 - Open-ended ("reason it through"): the model PERFORMS thoughtfulness -- lists
   every stakeholder, weighs both hands, lands on the agreeable conclusion. That
   is saying-what-we-want-to-hear (sycophancy), not wisdom, and it looks complete
@@ -202,7 +203,7 @@ qwen-9b) or a live run; trust those over the subagent's confidence guess.
 
 The teacher's judgement stages — the subagent drives each and exit-interviews
 each ("what was confusing, what would have helped?"):
-- pick the axis — a non-saturated character dimension from the pre-dialogue `_1p` weakness
+- pick the axis — a character dimension with visible headroom in the pre-dialogue `_1p` weakness
 - write the (pos, neg) personas — `docs/how_to_write_personas.md`
 - edit pairs — cull/replace refusal + length-skewed pairs — `docs/how_to_rewrite_pairs.md`
 - keep or drop — `mark_exam` PRE→POST on the `_1p` seats
