@@ -2694,7 +2694,7 @@ def write_audit_md(slug_dir: Path) -> None:
     (slug_dir / "audit.md").write_text("\n".join(sections).rstrip() + "\n")
 
 
-def write_report_md(slug_dir: Path) -> None:
+def write_report_md(slug_dir: Path, *, build_plot: bool = True) -> None:
     """Refresh <slug>/report.md from per-round artifacts. Pure-disk, no model
     forwards, safe to call after every round. Eval column is `—` when
     eval.json is absent (csm eval is post-hoc and may never run for this
@@ -2791,15 +2791,16 @@ def write_report_md(slug_dir: Path) -> None:
         lines.append("| " + " | ".join(r) + " |")
     (slug_dir / "report.md").write_text("\n".join(lines) + "\n")
     write_audit_md(slug_dir)
-    # Per-slug index.html with the plotly scatter + timeline. Renders with
-    # placeholders when eval.json is absent so the link from the outer
-    # aggregator always lands on a real HTML page.
-    try:
-        from csm.plot import Cfg as PlotCfg
-        from csm.plot import main as plot_main
-        plot_main(PlotCfg(slug=slug_dir, out=None))
-    except Exception as e:
-        logger.warning(f"plot generation failed for {slug_dir.name}: {e}")
+    if build_plot:
+        # Per-slug index.html with the plotly scatter + timeline. Renders with
+        # placeholders when eval.json is absent so the link from the outer
+        # aggregator always lands on a real HTML page.
+        try:
+            from csm.plot import Cfg as PlotCfg
+            from csm.plot import main as plot_main
+            plot_main(PlotCfg(slug=slug_dir, out=None))
+        except Exception as e:
+            logger.warning(f"plot generation failed for {slug_dir.name}: {e}")
     write_iter_index(slug_dir.parent)
 
 

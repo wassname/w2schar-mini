@@ -194,18 +194,22 @@ def eval_slug(slug_dir: Path, *, name: str = "classic",
 
     # Auto-build the HTML report so the index.html is always fresh.
     try:
+        from csm.pipeline import write_report_md
         from csm.plot import Cfg as PlotCfg
         from csm.plot import main as plot_main
         plot_main(PlotCfg(slug=slug_dir, out=None))
+        write_report_md(slug_dir, build_plot=False)
     except Exception as e:
-        logger.warning(f"plot generation failed: {e}; run `csm plot --slug {slug_dir}` manually")
+        logger.warning(f"report generation failed: {e}; run `csm report --slug {slug_dir}` manually")
         return
 
     index_path = slug_dir / "index.html"
+    report_path = slug_dir / "report.md"
     port = 8765
     logger.info(
         f"\nview the report:\n"
         f"  uv run python -m http.server -d {slug_dir.parent} {port}\n"
         f"  → http://localhost:{port}/{slug_dir.name}/index.html\n"
+        f"  markdown: {report_path}\n"
         f"  (or just open {index_path} directly)\n"
     )
