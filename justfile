@@ -21,6 +21,11 @@ smoke-real:
 # in ~30s/round instead of ~20min/round. Needs OPENROUTER_API_KEY.
 smoke-prompts N_ROUNDS="3":
     CSM_FAKE_STUDENT=1 uv run python -m csm.cli agent-run --profile tiny --n-rounds {{N_ROUNDS}}
+    @echo ""
+    @echo "================================================================"
+    @echo "USER INSTRUCTIONS: use /audit-run to analyse the above prompt gym output."
+    @echo "Do NOT report 'gym passed' until you have read the artifacts."
+    @echo "================================================================"
 
 # Replay a PAST run's real prebaked PRE/POST/pairs against the CURRENT prompts
 # (no GPU, live teacher). Re-runs submit_pairs + mark_exam on real data so a
