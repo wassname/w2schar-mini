@@ -11,16 +11,17 @@ single happy path, fail-fast research code.
 
 ## What it does
 
-A small teacher LLM (qwen3.5-9b via OpenRouter, driven by inspect-ai
-react) chooses a character axis and scenario-library family. The harness
-samples scenarios, filters a frozen persona-template library toward the axis,
-has the student generate multiple `(cho, rej)` candidate pairs, and asks the
-teacher to select whole generated pairs rather than write prose. It then trains
-one **conditioned LoRA** adapter (`c ∈ [-1, 1]`, c=0 ≡ base) with NLL+KL path
-loss, picks the largest coherent `|C|` via canaries, and replays a probe set
-pre/post for the teacher to judge keep/drop.
-Kept adapters compose into the next round via a gated history hook;
-base weights are never modified.
+A small teacher LLM (qwen3.5-9b via OpenRouter, driven by inspect-ai react)
+picks a character axis from a frozen persona-pair library and a scenario family.
+The student (the strong model) generates both poles on-policy: cho under the
+positive persona, rej under the negative. The personas are stripped, leaving
+contrastive `(cho, rej)` pairs in the student's own voice. The teacher rates and
+selects whole pairs rather than writing prose. The harness trains one
+conditioned steering adapter (PiSSA by default; `c=0` is exact base, `c` scales
+the trained delta) with a margin-NLL + KL objective, calibrates `c` downward
+until a coherence canary passes, and replays a fixed probe set pre/post for the
+teacher to judge keep/drop. Kept adapters compose into the next round through a
+gated history hook; base weights on disk are never modified.
 
 ## Algorithm (overview)
 
@@ -37,20 +38,23 @@ for round in 0..N:
     choose_focus → select_pairs → train → judge
     if judgment.action == "keep": kept.append(round)
 
-# ── inner train step (per (cho, rej) at c=±C, C ~ U(0, 1]) ────────────
+# ── inner train step (margin-NLL + KL; c fixed at ±1 in training) ─────
 for step in 0..T:
     with lora(c=0), no_grad(): logp_base = log_softmax(model(ids).logits)   # pristine
-    with lora(c=±C):
-        out = model(ids, labels=lbl)                  # HF mean-CE over completion tokens
-        L_nll = C * out.loss
-        L_kl  = β * mean_kl(log_softmax(out.logits), logp_base, mask=lbl != -100)
-    g_nll = pcgrad(∇L_nll_pos, ∇L_nll_neg)            # PCGrad on NLL pair only
-    adamw.step(g_nll + ∇L_kl_pos + ∇L_kl_neg)
+    with lora(c=±1):
+        nll_cho, nll_rej = ce(cho|+1), ce(rej|-1)     # HF mean-CE over completion
+        L_margin = (nll_cho - cap(nll_rej)) + (nll_rej - cap(nll_cho))  # cap the push (off-pole) term; on-pole pull stays raw
+        L_kl     = β * topk_kl(logits, logp_base, K=256, mask=lbl != -100)
+    g = pcgrad(∇L_margin_pos, ∇L_margin_neg) + ∇L_kl  # PCGrad on the margin pair; KL unprojected
+    adamw.step(g)
 
-# ── c-scan: largest coherent |C|, then ×0.75 backoff ──────────────────
-# coherence = mean p-mass the c≠0 model puts on the c=0 (base+history) top-200
-# walk down halving until pmass ≥ 0.85·baseline, then up ×1.25 while coherent.
-signed_C = sign * 0.75 * c_at_break
+# ── c-scan: walk c DOWN from signed_C until the coherence canary passes ─
+# canary = 3 AND-gated signals, each self-relative to the c=0 baseline:
+#   pmass_allowed ≥ gate_frac·base   (forced-choice answer-slot mass)
+#   valid_json    ≥ 1.0·base         (long probes still emit parseable {"ans": bool})
+#   distinct3     ≥ rep_frac·base    (multiturn trigram diversity; catches loops)
+# start at init_c = signed_C, step ×2/3 down (forced ≥1 step), bake at the passing c.
+signed_C = sign * c_at_first_pass                     # NOT clamped to 1; deploy c can exceed 1
 ```
 
 Full pseudocode (with the §2 c=0 gate table, c-scan bounds, KL/NLL mask
@@ -102,7 +106,7 @@ in `RESEARCH_JOURNAL.md`; `out/` is gitignored and does not travel.
 | axes | free-form (7 moral foundations) | teacher-chosen per round, target = principled moral character (watch for collapse to a "less authority" reflex) |
 | pairs/round | 200 | 15 selected from student-generated persona-template candidates |
 | eval | inline tinymfv per round + Likert | post-hoc `csm eval` (tinymfv, 132 vignettes × 1 condition) + c-scan |
-| tools | dialogue, gen, edit, drop, read, train, pass, exit_interview (+local_bash) | choose_focus, read_candidate, select_pairs, train_student, mark_exam |
+| tools | dialogue, gen, edit, drop, read, train, pass, exit_interview (+local_bash) | choose_focus, read_candidate, rate_candidate, select_pairs, train_student, mark_exam, revert_round |
 | state | implicit (any tool any time) | choose_focus → select_pairs → train_student → mark_exam → done (enforced) |
 | code | ~7,000 LoC | ~1.5K LoC |
 

@@ -64,10 +64,6 @@ class RunConfig:
     learned direction is over-concentrated on the few clean-grad steps."""
     train_batch_size: int = 4
     n_epochs: float = 3.0
-    min_steps: int = 60
-    """Floor for steps. With 15 pairs / batch=4 / 3 epochs = ~11 effective
-    steps, well below convergence; floor pulls it up so the lr schedule
-    actually has room to cosine-decay."""
 
     # ─ dialogue ─
     eval_batch_size: int = 4
@@ -83,11 +79,9 @@ class RunConfig:
     random harness test should not depend on tinymfv package data being present."""
     cscan_max_think_tokens: int = 512
     """Think-token budget for the tinymfv forced-choice (pmass) in c_scan calibration.
-    512: tried 2048 (RJ 2026-06-04, task-45) to let gemma's CoT CLOSE before the answer
-    slot, but emitted_close stayed 0/4 at 2048 just as at 512 — gemma never emits
-    tinymfv's close token in this forced-choice, so the bigger budget bought a 6× slower
-    call (~12 min vs ~2 min on the 31b) for no closing benefit. Reverted to 512. Each
-    tinymfv call costs ~this × n_vignettes × 2 framings; smoke/tiny overrides it down."""
+    512, not more: gemma never emits tinymfv's close token in this forced-choice, so a
+    bigger budget only slows the call (~6× at 2048) without letting the CoT close earlier.
+    Each tinymfv call costs ~this × n_vignettes × 2 framings; smoke/tiny overrides it down."""
 
     # ─ data ─
     n_scenarios: int = 30
@@ -115,11 +109,6 @@ class RunConfig:
     persona_templates: tuple[str, ...] = (
         "Act as a {persona} person would in this situation.",
     )
-    persona_pairs: tuple[tuple[str, str, str], ...] = (
-        ("honest_flattering", "honest", "flattering"),
-    )
-    """Legacy fallback persona descriptors for runs without measured cells.
-    Each tuple is (id, positive descriptor, negative descriptor)."""
     persona_cells: tuple[tuple[int, str, str, str, str, float, float, float], ...] = (
         (
             1,
@@ -286,7 +275,6 @@ CONFIGS: dict[str, RunConfig] = {
         # lr falls below 1e-3 by step 33 — too short to actually open the
         # margin (60-step trace plateaued at ‖Δs‖=1.97 from step 50+).
         # 120 steps gives the high lr more room to land before decay.
-        min_steps=120,
     ),
     "gemma-9b": RunConfig(
         model="google/gemma-2-9b-it",
@@ -297,7 +285,7 @@ CONFIGS: dict[str, RunConfig] = {
     # ─ PiSSA-vs-LoRA matched pair on the gemma-2-9b student (bf16, so SVD is
     # feasible — the largest student where it is; 27b is nf4-only = LoRA-only).
     # Everything SHAREABLE is identical between the two arms (batch, depth band,
-    # kl_lambda, min_steps, max_len, n_rounds); only the things intrinsic to the
+    # kl_lambda, max_len, n_rounds); only the things intrinsic to the
     # method differ (adapter, lr, weight_decay, rank). A shared lr would itself
     # be the confound — PiSSA's per-singular Δs needs ~200× LoRA's lr and ~0 wd
     # or it decays to the SVD identity (null intervention). n_rounds=1 until the
@@ -308,8 +296,8 @@ CONFIGS: dict[str, RunConfig] = {
     # penalizes the incoherent mass-adding collapse and is blind to the cho-vs-rej
     # mode-shift, so more KL buys coherence headroom (higher usable c) without
     # killing the steering. With the stronger anchor we also push lr=3e-4 (LoRA
-    # arms; PiSSA keeps 2e-2) and min_steps=240 (train 2×) so the constrained
-    # adapter has room to find the coherent direction. qwen-27b-nf4 found kl=3.0
+    # arms; PiSSA keeps 2e-2) so the constrained adapter has room to find the
+    # coherent direction. qwen-27b-nf4 found kl=3.0
     # too tight, but that was at the old lr/steps — may differ now; 2.0 leaves
     # headroom to push higher.
     "gemma-9b-pissa": RunConfig(
@@ -324,7 +312,6 @@ CONFIGS: dict[str, RunConfig] = {
         weight_decay=1e-5,  # ≈0: wd shrinks Δs → SVD identity = null intervention
         # ── shared with gemma-9b-lora ──
         kl_lambda=2.0,
-        min_steps=240,
         max_len=1024,       # KL transient is full-vocab; halve seq for memory
         train_batch_size=8,
         eval_batch_size=8,
@@ -340,7 +327,6 @@ CONFIGS: dict[str, RunConfig] = {
         weight_decay=0.01,
         # ── shared with gemma-9b-pissa ──
         kl_lambda=2.0,
-        min_steps=240,
         max_len=1024,
         train_batch_size=8,
         eval_batch_size=8,
@@ -362,23 +348,16 @@ CONFIGS: dict[str, RunConfig] = {
         lr=3e-4,
         weight_decay=0.01,
         kl_lambda=2.0,
-        min_steps=400,
         max_len=1024,
         train_batch_size=8,
         eval_batch_size=8,
         n_rounds=1,
     ),
-    # ── Recovery sweep (2026-06-02): the strong commit 9536ea0 baked c≈1.5 with
-    # kl=0.064, lr=2e-4, min_steps=60 and a loose pmass gate; we throttled it in
-    # two waves (kl→0.5→2.0, gate→0.995, min_steps→240). Hypothesis (~75%): we
-    # over-corrected and can recover strength on the CURRENT probes by undoing
-    # kl, the pmass gate, and the over-long training, while KEEPING the honest
-    # multi-turn valid_json canary that caught the old r08/r09 ethics-loop. The
-    # heavy kl was added partly to stop CUMULATIVE multi-round collapse, but we
-    # run n_rounds=1 now (stale-cho bleed, task #10), so that justification is
-    # inert here — the leash is pure dead-weight throttle on the single adapter.
-    # -revert reproduces 9536ea0's train knobs on the new probes+canary (the
-    # decisive config-vs-probe test); -recover is a balanced middle.
+    # -revert/-recover: light-kl (0.064/0.5), light-gate variants that trade the
+    # heavy kl=2.0 coherence leash for more steering strength, keeping the
+    # multi-turn valid_json canary. The heavy kl guarded against cumulative
+    # multi-round collapse; at n_rounds=1 (stale-cho bleed) that guard is slack,
+    # so these probe how much strength the leash was costing on the single adapter.
     "gemma-9b-lora-revert": RunConfig(
         model="google/gemma-2-9b-it",
         teacher="qwen/qwen3.5-9b",
@@ -389,7 +368,6 @@ CONFIGS: dict[str, RunConfig] = {
         weight_decay=0.01,
         kl_lambda=0.064,    # 9536ea0 value (31× lighter than now)
         gate_frac=0.85,     # ~15% pmass band; valid_json+distinct3 carry coherence
-        min_steps=60,       # 9536ea0 value (4× shorter than now → less overfit)
         max_len=1024,
         train_batch_size=8,
         eval_batch_size=8,
@@ -405,7 +383,6 @@ CONFIGS: dict[str, RunConfig] = {
         weight_decay=0.01,
         kl_lambda=0.25,     # between 0.064 (old) and 2.0 (now)
         gate_frac=0.85,     # ~15% pmass band
-        min_steps=120,
         max_len=1024,
         train_batch_size=8,
         eval_batch_size=8,
@@ -426,7 +403,6 @@ CONFIGS: dict[str, RunConfig] = {
         weight_decay=0.01,  # the wd that might regularise toward elegance
         kl_lambda=0.5,      # moderate anchor (not the 2.0 throttle, not ~0)
         gate_frac=0.85,
-        min_steps=1000,     # very long
         max_len=1024,
         train_batch_size=8,
         eval_batch_size=8,
@@ -453,14 +429,10 @@ CONFIGS: dict[str, RunConfig] = {
         # gen collapsed; reverse-KL is zero-forcing so more anchor buys coherence
         # headroom (higher usable c) without killing the cho-vs-rej steering.
         kl_lambda=2.0,
-        # 4× the default 60 (2× the prior 120): the stronger anchor + higher lr
-        # need room to find a coherent direction; cosine schedule stretches over
-        # the full count so nll+ keeps descending late.
-        min_steps=240,
     ),
     # gemma-4-31b: the chosen student (RJ 2026-06-03 1P-vs-3P headroom run).
     # Same nf4-LoRA recipe as gemma-27b (nf4 forces LoRA; the kl=2.0 anchor + lr
-    # + min_steps are the gemma-nf4 coherence knobs). HF id resolves to the
+    # are the gemma-nf4 coherence knobs). HF id resolves to the
     # canonical gemma-4-31B-it (gated; HF_TOKEN in .env).
     "gemma-31b": RunConfig(
         model="google/gemma-4-31B-it",
@@ -494,15 +466,6 @@ CONFIGS: dict[str, RunConfig] = {
         max_len=512,
         lr=3e-4,
         kl_lambda=2.0,
-        # 120 not 240: task 31's val trace falsified the "train 2× for strength"
-        # rationale inherited from gemma-27b. val nll+ (the +C pole we bake/deploy)
-        # plateaus by step 60 (2.76→2.89 flat to 239); the second 120 steps bought
-        # zero generalizing strength and only memorized the on-policy rej seeds
-        # (val nll- 1.9@120 → 6.66@239). 120 sits just under the rej detonation at
-        # 150. Training is now early-stopped to the val-nll+ min inside
-        # train_adapter (the full loop still runs for the trace), so min_steps is
-        # an EXPLORE budget, not a deploy point — overshoot is harmless.
-        min_steps=120,
         # Use the whole 30-prompt POOL (was 15). The overfit is a 73M LoRA
         # memorizing ~12 train pairs; doubling the distinct pairs lowers the
         # achievable val-nll+ floor (greedy gen → more pairs only via more
@@ -551,7 +514,6 @@ CONFIGS: dict[str, RunConfig] = {
         kl_lambda=0.5,
         # 4× default floor: 2b PiSSA trace nll+ still descending at step 119
         # (post-‖Δs‖-saturation rotation phase). Give late re-pointing room.
-        min_steps=240,
         # PiSSA mutates layer.weight at init; bnb-nf4 buffers aren't reversibly
         # writable, so nf4 profiles must use vanilla LoRA. PiSSA default applies
         # to fp16 profiles only.
@@ -652,7 +614,6 @@ CONFIGS: dict[str, RunConfig] = {
         train_batch_size=2,
         eval_batch_size=2,
         n_epochs=2.0,
-        min_steps=1,
         n_scenarios=36,
         n_headroom_prompts=20,
         n_train_pairs=20,
@@ -826,15 +787,14 @@ CONFIGS["gemma-4b-3keep"] = replace(
     kl_lambda=0.2,
 )
 
-# task #22 EXPERIMENT: the apex blocker is the SCENARIO POOL -- pool.jsonl is all
-# violation-vignettes, so steering can only learn confront-the-villain (task-131/132,
-# blind judges ab1655df+aa8ed401 + tinymfv top1 all concur the confront-reflex is
-# SHALLOWER than base). This profile tests the fix: a `discernment` axis pulling the
-# hand-authored MIXED pool (10 act_warranted violations + 10 restraint_warranted
-# legitimate-choice/verify-first scenarios), with an ENACTABLE verify-vs-react persona
-# (not a meta-value framing, which how_to_write_personas.md says does not load). The
-# learned vector should be "read the situation: act when warranted, restrain/verify
-# when not" = the project's actual goal ("wisdom of when and where to act").
+# discernment axis on the hand-authored MIXED pool. The default pool.jsonl is all
+# violation-vignettes, so steering can only learn confront-the-villain -- and blind
+# judges + tinymfv top1 concur that confront-reflex is SHALLOWER than base. The mixed
+# pool (10 act_warranted violations + 10 restraint_warranted legitimate-choice/verify-
+# first scenarios) with an ENACTABLE verify-vs-react persona (not a meta-value framing,
+# which how_to_write_personas.md says does not load) should learn "read the situation:
+# act when warranted, restrain/verify when not" = the project goal ("wisdom of when and
+# where to act").
 # UAT: cho poles VARY by scenario (act on violations, restrain on legitimate choices)
 # instead of a uniform "immediately confront", AND the kept-round independent tinymfv
 # top1 stops regressing. n_scenarios trimmed to fit the 20-row discernment slice.
@@ -856,6 +816,35 @@ CONFIGS["gemma-4b-discern"] = replace(
          "steps in immediately without checking the facts or weighing whether to act",
          65.1, 0.7812, 0.1667),
     ),
+)
+
+# TRUE weak-to-strong demonstration: the gemma-4b-3keep recipe (the new no-veto
+# brief, all-3-axes, relaxed kl=0.2, min_pairs_to_train=6) that scored 3 keeps/5
+# (task-173), now on a STRONG student. gemma-4b was strong-to-weak plumbing; this
+# is the actual w2s bet -- the weak qwen-9b teacher steering a 27b student (the
+# 9b->27b gap is a NARROWER, more plausible gap than the 9b->31b one we shelved
+# 2026-06-07 as too wide, retried now that the brief produces keeps). Inherits the
+# whole proven 3keep config; overrides only what the larger student forces:
+#   - quant=nf4 + adapter=lora: a 27b only fits nf4 on the 96GB card, and nf4
+#     forces LoRA (PiSSA can't reversibly mutate nf4 buffers -- config._validate).
+#   - train_batch_size=1: gemma-31b proved bs=2 OOMs the 4-forward contrastive
+#     step on a ~30b nf4 student at step 0; bs=1 is the known-good large profile.
+#   - signed_C=2.0 (vs the 4b's measured-4.0 ceiling): the c=4 clean ceiling was
+#     MEASURED on the 4b by a c-sweep and is untested here; gemma-31b-c10 found
+#     c=1.5 already over-steered a 31b. Start just above train-C=1.0 for deploy
+#     headroom; c_scan walks DOWN from here on any canary fail, so overshoot is
+#     self-correcting but a too-high init can pin in the unseen distortion zone.
+# WATCH (audit): kl=0.2 is the relaxed 3keep anchor; on an nf4 student the quant
+# noise may need more leash than a bf16 4b -- if c_scan walks c to the floor every
+# round, the anchor (not the student) is the suspect, not signed_C.
+CONFIGS["gemma-27b-3keep"] = replace(
+    CONFIGS["gemma-4b-3keep"],
+    model="google/gemma-2-27b-it",
+    quant="nf4",
+    adapter="lora",
+    train_batch_size=1,
+    eval_batch_size=2,
+    signed_C=2.0,
 )
 
 
