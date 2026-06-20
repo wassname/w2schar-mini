@@ -2749,14 +2749,44 @@ def write_report_md(slug_dir: Path) -> None:
                "focus_scores", "train_gate", "signed_C", "eval_mean_p",
                "reasoning (head)", "next_focus (head)",
                "harness_feedback (head)", "focus_evidence (head)"]
+    model = (_safe_json(slug_dir / "run.json") or {}).get("model", "student")
+    teacher = (_safe_json(slug_dir / "run.json") or {}).get("teacher", "teacher")
     lines = [
         f"# {slug_dir.name}",
         "",
+        "We are testing whether weight-steering lets a weak model align a stronger one.",
+        f"The teacher `{teacher}` tries to steer `{model}` toward the moral character "
+        "described in [Forethought's essay on AI character]"
+        "(https://github.com/wassname/w2schar-mini/blob/main/docs/2026_forethought_on_the_importance_of_ai_character.md).",
+        "",
+        "Each round the teacher chooses a lesson, selects a persona axis, rates and "
+        "selects the student's own answers, trains a weight-steering adapter on the "
+        "contrast, then judges whether the steered student passes. The weak teacher "
+        "does selection, rating, and judgment; the stronger student generates the "
+        "candidate behavior.",
+        "",
+        "[Weight steering](https://github.com/safety-research/weight-steering) trains "
+        "adapters on a model's own contrastive completions and uses the adapter as a "
+        "direction in weight space. This repo adapts that idea for iterated character "
+        "steering with stricter contrastive filtering, one parameterized adapter, and "
+        "a calibration pass that finds the largest coherent steering strength. These "
+        "choices are partly inspired by our earlier [AntiPaSTO work]"
+        "(https://arxiv.org/pdf/2601.07473).",
+        "",
+        "[Repo](https://github.com/wassname/w2schar-mini) · "
+        "[weak-to-strong alignment](https://arxiv.org/abs/2312.09390)",
+        "",
+        "[Interactive HTML report](index.html)",
+        "",
+    ]
+    if any((rd / "eval.json").exists() for rd in rounds) or (slug_dir / "scatter.svg").exists():
+        lines.extend(["![Care vs Authority trajectory](scatter.svg)", ""])
+    lines.extend([
         f"keeps: **{n_keep}**  ·  drops: **{n_drop}**  ·  rounds: **{len(rounds)}**",
         "",
         "| " + " | ".join(headers) + " |",
         "|" + "|".join("---" for _ in headers) + "|",
-    ]
+    ])
     for r in rows:
         lines.append("| " + " | ".join(r) + " |")
     (slug_dir / "report.md").write_text("\n".join(lines) + "\n")

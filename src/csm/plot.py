@@ -250,24 +250,25 @@ def _place_labels(pts: list[dict], xr: tuple, yr: tuple,
     return anns
 
 
-def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
+def _scatter_placeholder() -> str:
+    return ('<div class="placeholder">no eval.json yet — '
+            'run <code>csm eval --slug &lt;slug&gt;</code> to populate '
+            'the moral-foundation scatter.</div>')
+
+
+def _build_scatter_fig(rows: list[dict], h_vec: np.ndarray) -> go.Figure | None:
     """Plotly figure: x=authority, y=care.
 
     Trajectory = base (round 0 pre, unsteered) → connected line through
     each KEEP's post in order. Drops branch off as disconnected red ✗
     markers (their adapter never enters history). Marker alpha =
-    mean_pmass_allowed (coherence canary).
-
-    Returns a placeholder div when no row has eval data yet (run
-    `csm eval` to populate)."""
+    mean_pmass_allowed (coherence canary)."""
     care_idx = FOUNDATIONS.index("care")
     auth_idx = FOUNDATIONS.index("authority")
 
     rows_with_eval = [r for r in rows if r["pre_vec"] is not None]
     if not rows_with_eval:
-        return ('<div class="placeholder">no eval.json yet — '
-                'run <code>csm eval --slug &lt;slug&gt;</code> to populate '
-                'the moral-foundation scatter.</div>')
+        return None
 
     fig = go.Figure()
 
@@ -388,6 +389,13 @@ def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
         width=_FIG_W, height=_FIG_H, margin=_MARGIN,
         annotations=arrows + _place_labels(label_pts, xr, yr, obstacles),
     )
+    return fig
+
+
+def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
+    fig = _build_scatter_fig(rows, h_vec)
+    if fig is None:
+        return _scatter_placeholder()
     return fig.to_html(full_html=False, include_plotlyjs="cdn", div_id="scatter")
 
 
@@ -733,7 +741,14 @@ def main(cfg: Cfg) -> None:
         )
 
     h_vec = _human_canonical_vec()
-    scatter_html = _build_scatter(rows, h_vec)
+    scatter_fig = _build_scatter_fig(rows, h_vec)
+    if scatter_fig is None:
+        scatter_html = _scatter_placeholder()
+    else:
+        (slug_dir / "scatter.svg").unlink(missing_ok=True)
+        scatter_fig.write_image(slug_dir / "scatter.svg")
+        scatter_html = scatter_fig.to_html(
+            full_html=False, include_plotlyjs="cdn", div_id="scatter")
     table_html = _build_table(rows)
 
     run_meta = json.loads((slug_dir / "run.json").read_text())
@@ -753,20 +768,30 @@ We are testing whether weight-steering lets a weak model align a stronger one. A
 weak teacher ({teacher_short or "?"}) shapes the moral character of a stronger
 student ({model_short}), the character described in
 <a href="https://github.com/wassname/w2schar-mini/blob/main/docs/2026_forethought_on_the_importance_of_ai_character.md">this
-Forethought essay on AI character</a>. Each round the teacher (1) picks a lesson,
-(2) proposes a pair of contrasting personas, (3) selects from the student's own
-answers under each, (4) trains a weight-steering adapter on the contrast, and
-(5) judges the steered student pass or fail.
+Forethought essay on AI character</a>. Each round the teacher (1) chooses a
+lesson, (2) selects a persona axis, (3) rates and selects the student's own
+answers, (4) trains a weight-steering adapter on the contrast, and (5) judges
+the steered student pass or fail.
 </p>
 <p class="intro">
-Why is this interesting?
+<a href="https://github.com/safety-research/weight-steering">Weight steering</a>
+trains adapters on a model's own contrastive completions and uses the adapter as
+a direction in weight space. This repo adapts that idea for iterated character
+steering with stricter contrastive filtering, one parameterized adapter, and a
+calibration pass that finds the largest coherent steering strength. The
+contrastive-pair and calibration choices are partly inspired by our earlier
+<a href="https://arxiv.org/pdf/2601.07473">AntiPaSTO work</a>.
+</p>
+<p class="intro">
 <a href="https://arxiv.org/abs/2312.09390">Weak-to-strong alignment</a> asks
 whether a weaker supervisor can elicit the full character of a stronger model, a
 stand-in for humans overseeing systems they cannot fully evaluate. Steering looks
 useful here: it is self-supervised, so it needs no labels; it acts on internal
 representations, so it resists the reward hacking that distant RL objectives
 invite; and it gives a weak teacher a simple interface to a strong student's moral
-character. Code: <a href="https://github.com/wassname/w2schar-mini">github.com/wassname/w2schar-mini</a>.
+character. The teacher is intentionally given easier work: select, rate, and
+judge, while the stronger student generates the candidate behavior. Code:
+<a href="https://github.com/wassname/w2schar-mini">github.com/wassname/w2schar-mini</a>.
 </p>
 <h2>Care vs Authority trajectory</h2>
 {scatter_html}

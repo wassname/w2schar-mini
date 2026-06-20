@@ -1,7 +1,7 @@
 [project]
 name = "w2schar-mini"
 version = "0.1.0"
-description = "Minimal weak-to-strong iterated character steering — fixed-axis (authority), 50 pairs, react-agent teacher."
+description = "Weak-to-strong iterated character steering with a react-agent teacher."
 # cp313 pinned: causal-conv1d / flash-attn prebuilt wheels (see [tool.uv.sources])
 # are keyed to (cu12, torch 2.8, cp313, cxx11abi). Bumping python breaks the pins.
 requires-python = ">=3.13,<3.14"
@@ -40,6 +40,7 @@ dependencies = [
     "flash-attn",
     "flash-linear-attention>=0.5.0",
     "sentence-transformers>=5.5.1",
+    "kaleido>=1.3.0",
 ]
 
 [tool.uv.sources]
