@@ -21,7 +21,9 @@ Output: <slug>/index.html.
 from __future__ import annotations
 
 import json
+import math
 import re
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -172,6 +174,82 @@ def _load_rounds(slug_dir: Path) -> list[dict]:
 # Scatter
 # ---------------------------------------------------------------------------
 
+# Fixed canvas so data->pixel mapping is deterministic for label placement.
+_FIG_W, _FIG_H = 1240, 640
+_MARGIN = dict(l=90, r=90, t=70, b=70)  # noqa: E741
+
+
+def _place_labels(pts: list[dict], xr: tuple, yr: tuple,
+                  obstacles: list[tuple] = ()) -> list[dict]:
+    """Greedy non-overlapping label placement -> plotly annotation dicts.
+
+    textalloc/D3-Labeler in miniature (no maintained plotly dep exists): for
+    each labelled point, try candidate boxes at a few radii/angles around its
+    anchor and keep the first (lowest-cost) one that doesn't sit on a dot
+    (`obstacles`) or an already-placed label. Each label anchors at its arrow
+    midpoint, so the leader line ties it to the transformation, not the dot.
+    Emitted as pixel-offset annotations; deterministic because the canvas is
+    fixed (_FIG_W/_FIG_H) and points are placed in a fixed order."""
+    pw = _FIG_W - _MARGIN["l"] - _MARGIN["r"]
+    ph = _FIG_H - _MARGIN["t"] - _MARGIN["b"]
+    (x0, x1), (y0, y1) = xr, yr
+
+    def to_px(x, y):
+        px = _MARGIN["l"] + (x - x0) / (x1 - x0) * pw
+        py = _MARGIN["t"] + (1 - (y - y0) / (y1 - y0)) * ph
+        return px, py
+
+    anchor_px = [to_px(p["x"], p["y"]) for p in pts]
+    marker_px = [to_px(x, y) for x, y in obstacles]
+    CHAR_W, LINE_H = 6.0, 15.0
+    radii = (40, 62, 88, 118)
+    angles = (90, 45, 135, 0, 180, -45, -135, -90)  # up first
+
+    def cost(cx, cy, bw, bh):
+        l_, r_, t_, b_ = cx - bw / 2, cx + bw / 2, cy - bh / 2, cy + bh / 2
+        c = 0.0
+        c += max(0, 4 - l_) + max(0, r_ - (_FIG_W - 4))  # out of canvas
+        c += max(0, 4 - t_) + max(0, b_ - (_FIG_H - 4))
+        for mx, my in marker_px:                          # a label over a dot
+            if l_ - 7 <= mx <= r_ + 7 and t_ - 7 <= my <= b_ + 7:
+                c += 50
+        for ox, oy, ow, oh in placed:                     # label-on-label area
+            ix = max(0, min(r_, ox + ow / 2) - max(l_, ox - ow / 2))
+            iy = max(0, min(b_, oy + oh / 2) - max(t_, oy - oh / 2))
+            c += ix * iy / 50
+        return c
+
+    placed: list[tuple] = []
+    anns = []
+    for i, p in enumerate(pts):
+        lines = p["text"].split("<br>")
+        bw = max(len(s) for s in lines) * CHAR_W + 10
+        bh = len(lines) * LINE_H + 6
+        px, py = anchor_px[i]
+        best = None
+        for r in radii:
+            for a in angles:
+                cx = px + r * math.cos(math.radians(a))
+                cy = py - r * math.sin(math.radians(a))
+                c = cost(cx, cy, bw, bh)
+                if best is None or c < best[0]:
+                    best = (c, cx, cy)
+                if c == 0:
+                    break
+            if best[0] == 0:
+                break
+        _, cx, cy = best
+        placed.append((cx, cy, bw, bh))
+        anns.append(dict(
+            x=p["x"], y=p["y"], text=p["text"], showarrow=True,
+            ax=cx - px, ay=cy - py, axref="pixel", ayref="pixel",
+            font=dict(size=11, color=p["color"], family="Georgia, serif"),
+            align="center", bgcolor="rgba(253,250,244,0.72)",
+            arrowhead=0, arrowwidth=1, arrowcolor="rgba(45,24,16,0.35)",
+        ))
+    return anns
+
+
 def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
     """Plotly figure: x=authority, y=care.
 
@@ -197,6 +275,12 @@ def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
         pm = eval_d.get("mean_pmass_allowed") if eval_d else None
         return float(pm) if pm is not None else 1.0
 
+    def _steer(r) -> str:
+        # The pos persona IS the teacher's steer direction for the round.
+        # Show it on the dot so the map reads as "where the teacher pushed".
+        pos = r.get("pole_pos", "")
+        return "<br>".join(textwrap.wrap(f"Steer: {pos}", width=30)) if pos else ""
+
     # Base = first round (with eval) pre (unsteered model + history@c=0).
     base_x = float(rows_with_eval[0]["pre_vec"][auth_idx])
     base_y = float(rows_with_eval[0]["pre_vec"][care_idx])
@@ -207,65 +291,102 @@ def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
     traj_x = [base_x] + [float(r["post_vec"][auth_idx]) for r in keeps]
     traj_y = [base_y] + [float(r["post_vec"][care_idx]) for r in keeps]
     traj_alphas = [base_alpha] + [_alpha(r["post"]) for r in keeps]
-    traj_labels = ["base"] + [r["round_name"] for r in keeps]
     traj_hover = [f"base (unsteered) · auth={base_x:.3f} care={base_y:.3f} · pmass={base_alpha:.2f}"]
     for r in keeps:
         traj_hover.append(
-            f"{r['round_name']} post (keep) · auth={r['post_vec'][auth_idx]:.3f} "
+            f"{r['round_name']} post (keep) · {_steer(r)}<br>auth={r['post_vec'][auth_idx]:.3f} "
             f"care={r['post_vec'][care_idx]:.3f} · pmass={_alpha(r['post']):.2f}"
         )
     traj_custom = [[-1, "base"]] + [[r["round_n"], "post"] for r in keeps]
 
-    fig.add_trace(go.Scatter(
-        x=traj_x, y=traj_y, mode="markers+lines+text",
-        text=traj_labels, textposition="top center", textfont=dict(size=11),
-        marker=dict(size=14, color=KEEP_NAVY, opacity=traj_alphas,
-                    line=dict(color=INK, width=1.5)),
-        line=dict(color=KEEP_NAVY, width=2),
-        name="keep trajectory (base → posts at signed_C)",
-        hovertext=traj_hover, hoverinfo="text", customdata=traj_custom,
-    ))
+    def _arrow(x0, y0, x1, y1, color, width=2.5):
+        # A directional arrow in data coords: tail at (x0,y0), head at (x1,y1).
+        return dict(x=x1, y=y1, ax=x0, ay=y0, xref="x", yref="y",
+                    axref="x", ayref="y", showarrow=True, text="",
+                    arrowhead=2, arrowsize=1.3, arrowwidth=width,
+                    arrowcolor=color, standoff=8, startstandoff=8)
 
-    # DROP markers (disconnected ✗ — adapter never enters history)
-    drops = [r for r in rows if r["action"] == "drop" and r["post_vec"] is not None]
+    DROP_RED_T = "rgba(122,26,26,0.5)"    # half-opaque: drops read as muted/behind
+    KEEP_NAVY_T = "rgba(27,58,92,0.75)"   # keep arrows: lightly greyed, still the main thread
+
+    # DROPS go in FIRST so they render behind the keep trajectory (z = trace
+    # order). Marker + arrow are half-opaque; the label text stays solid red.
+    drops = [r for r in rows if r["action"] == "drop"
+             and r["post_vec"] is not None and r["pre_vec"] is not None]
     if drops:
         drop_x = [float(r["post_vec"][auth_idx]) for r in drops]
         drop_y = [float(r["post_vec"][care_idx]) for r in drops]
-        drop_alphas = [_alpha(r["post"]) for r in drops]
-        drop_labels = [f"{r['round_name']} ✗" for r in drops]
         drop_hover = [
-            f"{r['round_name']} post (drop) · auth={r['post_vec'][auth_idx]:.3f} "
+            f"{r['round_name']} post (drop) · {_steer(r)}<br>auth={r['post_vec'][auth_idx]:.3f} "
             f"care={r['post_vec'][care_idx]:.3f} · pmass={_alpha(r['post']):.2f}"
             for r in drops
         ]
         fig.add_trace(go.Scatter(
-            x=drop_x, y=drop_y, mode="markers+text",
-            text=drop_labels, textposition="bottom center", textfont=dict(size=11, color=DROP_RED),
-            marker=dict(size=14, color=DROP_RED, opacity=drop_alphas,
+            x=drop_x, y=drop_y, mode="markers",
+            marker=dict(size=14, color=DROP_RED, opacity=0.5,
                         symbol="x", line=dict(color=INK, width=1.5)),
             name="drop (off-trajectory, adapter rejected)",
             hovertext=drop_hover, hoverinfo="text",
             customdata=[[r["round_n"], "post"] for r in drops],
         ))
 
-    # Human-canonical star
+    # KEEP dots on top of the drops.
     fig.add_trace(go.Scatter(
-        x=[h_vec[auth_idx]], y=[h_vec[care_idx]],
-        mode="markers+text", text=["human"], textposition="bottom center",
+        x=traj_x, y=traj_y, mode="markers",
+        marker=dict(size=14, color=KEEP_NAVY, opacity=traj_alphas,
+                    line=dict(color=INK, width=1.5)),
+        name="keep (base → posts at signed_C)",
+        hovertext=traj_hover, hoverinfo="text", customdata=traj_custom,
+    ))
+
+    obstacles = [(base_x, base_y)] + list(zip(traj_x[1:], traj_y[1:]))
+    arrows = []
+    # One arrow + one Steer label per round, anchored to the segment MIDPOINT
+    # (the label describes the transformation that arrow performs, not the dot).
+    label_pts = [{"x": base_x, "y": base_y, "text": "base", "color": INK}]
+    for r, x0, y0, x1, y1 in zip(keeps, traj_x, traj_y, traj_x[1:], traj_y[1:]):
+        arrows.append(_arrow(x0, y0, x1, y1, KEEP_NAVY_T, width=2.0))
+        t = f"{r['round_name']}<br>{_steer(r)}" if _steer(r) else r["round_name"]
+        label_pts.append({"x": (x0 + x1) / 2, "y": (y0 + y1) / 2,
+                          "text": t, "color": KEEP_NAVY})
+    for r in drops:
+        x0, y0 = float(r["pre_vec"][auth_idx]), float(r["pre_vec"][care_idx])
+        x1, y1 = float(r["post_vec"][auth_idx]), float(r["post_vec"][care_idx])
+        arrows.append(_arrow(x0, y0, x1, y1, DROP_RED_T, width=1.8))
+        obstacles.append((x1, y1))
+        t = f"{r['round_name']} ✗<br>{_steer(r)}" if _steer(r) else f"{r['round_name']} ✗"
+        label_pts.append({"x": (x0 + x1) / 2, "y": (y0 + y1) / 2,
+                          "text": t, "color": DROP_RED})
+
+    # Human-canonical star
+    hx, hy = float(h_vec[auth_idx]), float(h_vec[care_idx])
+    fig.add_trace(go.Scatter(
+        x=[hx], y=[hy], mode="markers",
         marker=dict(size=18, color="#8B6914", symbol="star",
                     line=dict(color=INK, width=1)),
         name="human (Clifford 2015 mean)",
         hoverinfo="text", hovertext=["Clifford-2015 mean human label dist"],
     ))
+    obstacles.append((hx, hy))
+    label_pts.append({"x": hx, "y": hy, "text": "human", "color": "#8B6914"})
+
+    # Explicit padded ranges so the placement math matches what plotly draws.
+    xs = [p["x"] for p in label_pts] + [o[0] for o in obstacles]
+    ys = [p["y"] for p in label_pts] + [o[1] for o in obstacles]
+    xpad = (max(xs) - min(xs)) * 0.32 or 0.01
+    ypad = (max(ys) - min(ys)) * 0.32 or 0.01
+    xr = (min(xs) - xpad, max(xs) + xpad)
+    yr = (min(ys) - ypad, max(ys) + ypad)
 
     fig.update_layout(
         title="Care vs Authority — pre (c=0) and post (signed_C) per round",
-        xaxis=dict(title="Authority (mean_p)", gridcolor=INK_FAINT, zeroline=False),
-        yaxis=dict(title="Care (mean_p)", gridcolor=INK_FAINT, zeroline=False),
+        xaxis=dict(title="Authority (mean_p)", gridcolor=INK_FAINT, zeroline=False, range=list(xr)),
+        yaxis=dict(title="Care (mean_p)", gridcolor=INK_FAINT, zeroline=False, range=list(yr)),
         paper_bgcolor=PARCHMENT, plot_bgcolor=PARCHMENT,
         font=dict(family="Georgia, serif", color=INK),
         legend=dict(bgcolor=PARCHMENT_DK, bordercolor=INK_FAINT, borderwidth=1),
-        height=520, margin=dict(l=60, r=20, t=60, b=50),
+        width=_FIG_W, height=_FIG_H, margin=_MARGIN,
+        annotations=arrows + _place_labels(label_pts, xr, yr, obstacles),
     )
     return fig.to_html(full_html=False, include_plotlyjs="cdn", div_id="scatter")
 
