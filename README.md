@@ -1,8 +1,8 @@
 # w2schar-mini
 
 Weak-to-strong iterated character steering. We ask a weak teacher model to steer
-a stronger student model toward the moral character described in
-[Forethought's essay on AI character](docs/2026_forethought_on_the_importance_of_ai_character.md). This can be [described as "defer less to authority, and care more"](https://en.wikipedia.org/wiki/Moral_foundations_theory).
+a strong student model toward the moral character described in
+[Forethought's essay on AI character](docs/2026_forethought_on_the_importance_of_ai_character.md). In [Moral Foundations Theory](https://en.wikipedia.org/wiki/Moral_foundations_theory) terms, our shorthand for it is "defer less to authority, care more".
 
 See an example result [here](out/iter/20260619T121419_iter_google-gemma-2-27b-it/report.md)
 ![Care vs Authority trajectory](out/iter/20260619T121419_iter_google-gemma-2-27b-it/scatter.svg)
@@ -19,7 +19,7 @@ This is important because frontier AI labs use their weaker AI to align the next
 
 ### Weight steering
 
-Steering is promising but seen as unreliable. It is promising because it's self-supervised, meaning it doesn't rely on labels that we don't have, and it's internal meaning it's less prone to reward hacking like more distal forms of optimisation like reinforcement learning. Happily newer forms of steering are more powerful and reliable and open the door for iterated application.
+Steering is promising but seen as unreliable. It is promising because it's self-supervised, meaning it doesn't rely on labels that we don't have. And it's internal, meaning it's less prone to the reward hacking that more distal optimisation like reinforcement learning is subject to. Happily newer forms of steering are more powerful and reliable and open the door for iterated application.
 
 We use a [Weight steering](https://github.com/safety-research/weight-steering) adapter. This trains
 adapters on a model's own contrastive completions, then uses the adapter as a
@@ -39,23 +39,34 @@ replaying the student.
 
 ## What it does
 
-A small teacher LLM (qwen3.5-9b) picks a character axis from a frozen persona-pair library and a scenario family.
-The student (the strong model) generates both poles on-policy: cho under the
-positive persona, rej under the negative. The personas are stripped, leaving
+A weak teacher LLM (9 billion parameters) picks a character axis from a persona library (e.g. "You are honest") and a scenario family.
+The strong student (27 billion parameters) generates both responses on-policy: a chosen completion (cho) under the
+positive persona, a rejected one (rej) under the negative. The personas are stripped, leaving
 contrastive `(cho, rej)` pairs in the student's own voice. The teacher rates and
 selects whole pairs. The harness trains one conditioned steering adapter (PiSSA by default; `c=0` is the unsteered reference,
 `c` scales the trained delta) with a margin-NLL + KL objective, calibrates `c` downward
-until a coherence canary passes, and replays a fixed probe set pre/post for the
+until the steered output stays coherent on a held-out probe set, and replays a fixed probe set pre/post for the
 teacher to judge keep/drop. Kept adapters compose into the next round through a
-gated history hook; base weights on disk are never modified.
+gated history hook (prior adapters re-applied on top); base weights on disk are never modified.
 
 
 The harness tries to empower the weak teacher by giving it the easier parts of
 the job. The student generates the candidate behavior. The teacher selects an
 axis, rates whole pairs, and judges pre/post behavior. Generation and detailed
-editing stay with the stronger student and the harness.
+editing stay with the strong student and the harness.
 
-This work has limited resources, so it focused on small models that could barely control the harness, so the above reflects many compromises to uplift a weak model to be able to steer at all. If this was done with more resources, it could use larger models where the teacher is allowed more flexibility and judgement, more like an autoresearch style agentic harness.
+This work has limited resources, so it focused on small models that could barely control the harness, so the above reflects many compromises to uplift a weak teacher to steer at all. If this was done with more resources, it could use larger models where the teacher is allowed more flexibility and judgement, more like an autoresearch style agentic harness.
+
+## Evaluation
+
+Why moral foundations? Moral Foundations Theory is one of the few maps of human
+values that is calibrated against real people: it was drawn from cross-cultural
+survey studies and aims to hold across societies, not just Western ones. That
+breadth is what matters here. If we want to study how a constructed
+intelligence, a kind of moral alien, reasons about right and wrong, we need a
+measure that generalises beyond any one culture. Moral foundations at least
+aims to span human cultures, and ideally gives us a frame that reaches a little
+past them.
 
 ## Algorithm (overview)
 
@@ -77,7 +88,7 @@ echo "OPENROUTER_API_KEY=sk-or-v1-..." >> .env
 # Fast smoke on tiny-random (~3 min, no OpenRouter, no real GPU).
 just smoke
 
-# Real run: gemma-2-2b student + qwen-9b teacher, 2 rounds.
+# Real run: gemma-2-2b student + qwen3.5-9b teacher, 2 rounds.
 just smoke-real
 
 # Any named profile, N keep-rounds:
