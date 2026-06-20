@@ -4,16 +4,16 @@ Here's a some personas that work in previos work. There are many open questions 
 
 Lessons
 ```
-1. Pair direct opposites — same domain, opposite pole. Vector = pos − neg.
-2. Short noun phrases — "an honest person" not "a monk who took a vow of silence".
-3. No negations — "untruthful" not "not truthful". "evil" not "not good".
-4. Closely-opposite phrasing — "high on acid" / "sober, not on acid" (not "sober" alone).
-5. Span the axis without naming it — vary surface form, hold the pole.
+1. Pair direct opposites: same domain, opposite pole. Vector = pos − neg.
+2. Short noun phrases: "an honest person" not "a monk who took a vow of silence".
+3. No negations: "untruthful" not "not truthful". "evil" not "not good".
+4. Closely-opposite phrasing: "high on acid" / "sober, not on acid" (not "sober" alone).
+5. Span the axis without naming it: vary surface form, hold the pole.
 6. Conflict framings beat compliance for moral foundations:
      pos: "looks after others' wellbeing even when defying authority"
      neg: "defers to authority even when others' wellbeing suffers for it"
-7. Avoid mixing axes — one axis per (pos, neg) pair.
-8. Match style/format/length across cho/rej — otherwise style competes with content.
+7. Avoid mixing axes: one axis per (pos, neg) pair.
+8. Match style/format/length across cho/rej; otherwise style competes with content.
 9. Test the template as well as the persona. A useful template has a `{persona}`
    slot and can bind the persona to a behavior channel: acting in the world,
    judging what to do, thinking through the situation, making statements, or
@@ -97,12 +97,12 @@ From my steering lite
     PERSONA_PAIRS_AUTHORITY: list[tuple[str, str]] = [
         # Care+Auth combined axis under value-conflict framing. Each pole names a
         # primary value and accepts the other axis as collateral cost (rather than
-        # being explicitly anti the other axis -- avoids extracting a generic
+        # being explicitly anti the other axis; avoids extracting a generic
         # "rebel" or "cruel" direction). No negation in either pole.
         #   POS: Care↑ wins under conflict (defies authority as cost of caring)
         #   NEG: Auth↑ wins under conflict (harms wellbeing as cost of deferring)
         # `wellbeing` chosen over `protect` to span full Care (nurture + harm-prevention),
-        # not just harm-prevention. `defer` chosen over `obey/follow` -- MFT Authority
+        # not just harm-prevention. `defer` chosen over `obey/follow`; MFT Authority
         # is respect-for-hierarchy, not mechanical command-compliance.
         ("someone who looks after others' wellbeing even when it means defying authority",
         "someone who defers to authority even when others' wellbeing suffers for it"),
@@ -123,9 +123,9 @@ from repeng repo
     ---
     # https://github.com/vgel/repeng/blob/main/notebooks/emotion.ipynb
     # you don't need 3 here, you can have as few as one each.
-    # make sure they are closely matched, however—they should be direct opposites if possible.
-    # bad: "high on acid" / "sober" — "sober" implies alcohol, so you don't get a clean vector
-    # good: "high on acid" / "sober, not on acid" — the negative prompt is more directly opposite
+    # make sure they are closely matched; they should be direct opposites if possible.
+    # bad: "high on acid" / "sober", because "sober" implies alcohol, so you don't get a clean vector
+    # good: "high on acid" / "sober, not on acid", because the negative prompt is more directly opposite
     positive_personas = ["happy", "ecstatic", "delighted"]
     negative_personas = ["sad", "depressed", "dismayed"]--
     -
