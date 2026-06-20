@@ -1,6 +1,6 @@
 # w2schar-mini
 
-Weak-to-strong iterated character steering. We ask a weak teacher model to steer
+Weak-to-strong iterated moral character steering. We ask a weak teacher model to steer
 a strong student model toward the moral character described in
 [Forethought's essay on AI character](docs/2026_forethought_on_the_importance_of_ai_character.md). In [Moral Foundations Theory](https://en.wikipedia.org/wiki/Moral_foundations_theory) terms, our shorthand for it is "defer less to authority, care more".
 
@@ -96,4 +96,16 @@ just smoke-real
 
 # Any named profile, N keep-rounds:
 just run qwen-27b-nf4 5
+```
+
+
+## Cite
+
+```bib
+@misc{clark2026w2schar,
+  title = {Weak-to-strong character steering},
+  author = {Michael J. Clark},
+  year = {2026},
+  url = {[https://github.com/vgel/repeng/](https://github.com/wassname/w2schar-mini)}
+}
 ```
