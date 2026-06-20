@@ -11,6 +11,21 @@ parts compose:
 3. React-agent state machine: the teacher drives one round at a time; the
    harness enforces order and owns every number, path, and file.
 
+The design pushes the weak teacher toward tasks it is more likely to do well:
+selection, rating, and judgment. The stronger student generates both poles
+on-policy, and the harness owns the bookkeeping, training, calibration, and
+artifact checks. The teacher spends its budget judging text.
+
+This is a modification of
+[weight steering](https://github.com/safety-research/weight-steering): train an
+adapter on contrastive completions and use it as a direction in weight space.
+The changes here are meant for iterated character steering. Persona-conditioned
+student completions are stripped back into behavioral pairs and filtered as
+strict contrasts; one adapter is trained with a scalar coefficient `c`; c-scan
+then calibrates the largest coherent deployment strength. Some of these choices
+come from the contrastive-pair and calibration lessons in our
+[AntiPaSTO work](https://arxiv.org/pdf/2601.07473).
+
 Code is the source of truth. File:line references point at the real thing;
 this doc summarises, it does not redefine.
 
