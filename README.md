@@ -2,7 +2,7 @@
 
 Weak-to-strong iterated character steering. We ask a weak teacher model to steer
 a stronger student model toward the moral character described in
-[Forethought's essay on AI character](docs/2026_forethought_on_the_importance_of_ai_character.md). This can be [described as "defer less to authority, and care more](https://en.wikipedia.org/wiki/Moral_foundations_theory).
+[Forethought's essay on AI character](docs/2026_forethought_on_the_importance_of_ai_character.md). This can be [described as "defer less to authority, and care more"](https://en.wikipedia.org/wiki/Moral_foundations_theory).
 
 See an example result [here](out/iter/20260619T121419_iter_google-gemma-2-27b-it/report.md)
 ![Care vs Authority trajectory](out/iter/20260619T121419_iter_google-gemma-2-27b-it/scatter.svg)
@@ -17,9 +17,9 @@ for humans overseeing systems they cannot fully evaluate.
 
 This is important because frontier AI labs use their weaker AI to align the next generation of stronger AI, but how to reliably do this is unknown, and we need more tools to make sure it goes well and avoid the many pitfalls.
 
-### Weigth steering
+### Weight steering
 
-Steering is promising but seen as unreliable. It is pomsiing because it's self supervised, meaning it doesn't rely on labels that we don't have, and it's internal meaning it's less pronte to reward hacking like more distal forms of optimisation like reinforcement learning. Happily newer forms of steering are more powerful and reliable and open the door for iterated application.
+Steering is promising but seen as unreliable. It is promising because it's self-supervised, meaning it doesn't rely on labels that we don't have, and it's internal meaning it's less prone to reward hacking like more distal forms of optimisation like reinforcement learning. Happily newer forms of steering are more powerful and reliable and open the door for iterated application.
 
 We use a [Weight steering](https://github.com/safety-research/weight-steering) adapter. This trains
 adapters on a model's own contrastive completions, then uses the adapter as a
@@ -55,7 +55,7 @@ the job. The student generates the candidate behavior. The teacher selects an
 axis, rates whole pairs, and judges pre/post behavior. Generation and detailed
 editing stay with the stronger student and the harness.
 
-This work has limited resources, so it focused on small models that could barefuly control the harness, so the above reflects many compromises to uplift a weak model to be able to steer at all. If this was done with more resources, it could use larger models where the teacher is allowed more flexibility and judgement, more like an autoresearch style agentic harness.
+This work has limited resources, so it focused on small models that could barely control the harness, so the above reflects many compromises to uplift a weak model to be able to steer at all. If this was done with more resources, it could use larger models where the teacher is allowed more flexibility and judgement, more like an autoresearch style agentic harness.
 
 ## Algorithm (overview)
 
