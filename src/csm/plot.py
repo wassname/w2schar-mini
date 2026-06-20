@@ -554,6 +554,8 @@ _CSS = """
          margin: 0; padding: 12px 24px; }
   h1 { font-size: 20px; margin: 8px 0 2px; }
   .subtitle { color: #777; font-size: 13px; font-style: italic; margin: 0 0 12px; }
+  .intro { max-width: 760px; font-size: 14px; line-height: 1.5; margin: 0 0 10px; }
+  .intro a { color: #1B3A5C; }
   hr { border: none; border-top: 1px solid rgba(45,24,16,.15); margin: 14px 0; }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; margin: 14px 4px 6px; }
   table.timeline { border-collapse: collapse; width: 100%; }
@@ -746,6 +748,26 @@ def main(cfg: Cfg) -> None:
 </head><body>
 <h1>{model_short}</h1>
 <p class="subtitle">Teacher: {teacher_short or "?"} · Axis: less deference to authority · Slug: {slug_dir.name}</p>
+<p class="intro">
+We are testing whether weight-steering lets a weak model align a stronger one. A
+weak teacher ({teacher_short or "?"}) shapes the moral character of a stronger
+student ({model_short}), the character described in
+<a href="https://github.com/wassname/w2schar-mini/blob/main/docs/2026_forethought_on_the_importance_of_ai_character.md">this
+Forethought essay on AI character</a>. Each round the teacher (1) picks a lesson,
+(2) proposes a pair of contrasting personas, (3) selects from the student's own
+answers under each, (4) trains a weight-steering adapter on the contrast, and
+(5) judges the steered student pass or fail.
+</p>
+<p class="intro">
+Why is this interesting?
+<a href="https://arxiv.org/abs/2312.09390">Weak-to-strong alignment</a> asks
+whether a weaker supervisor can elicit the full character of a stronger model, a
+stand-in for humans overseeing systems they cannot fully evaluate. Steering looks
+useful here: it is self-supervised, so it needs no labels; it acts on internal
+representations, so it resists the reward hacking that distant RL objectives
+invite; and it gives a weak teacher a simple interface to a strong student's moral
+character. Code: <a href="https://github.com/wassname/w2schar-mini">github.com/wassname/w2schar-mini</a>.
+</p>
 <h2>Care vs Authority trajectory</h2>
 {scatter_html}
 <hr/>

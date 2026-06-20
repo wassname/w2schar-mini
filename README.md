@@ -1,13 +1,22 @@
 # w2schar-mini
 
-Minimal weak-to-strong iterated character steering: a weak teacher steers a
-stronger student toward the moral character in
+Minimal weak-to-strong iterated character steering. A weak teacher steers a
+stronger student toward the moral character described in
 [docs/2026_forethought_on_the_importance_of_ai_character.md](docs/2026_forethought_on_the_importance_of_ai_character.md)
-— principled decision-making and the wisdom of when and where to act, not a
-single "less authority" reflex (that is the failure mode the axis collapses
-into; see `.claude/commands/audit-run.md`). Distillation of
-[wassname/w2s-ics-cws](https://github.com/wassname/w2s-ics-cws) — ideally ~10× smaller,
-single happy path, fail-fast research code.
+by changing how it reasons about when to act. The target is not a single "less
+authority" reflex; that collapse mode is audited in `.claude/commands/audit-run.md`.
+This is a smaller, single-path distillation of
+[wassname/w2s-ics-cws](https://github.com/wassname/w2s-ics-cws).
+
+## Why this is interesting
+
+[Weak-to-strong alignment](https://arxiv.org/abs/2312.09390) asks whether a
+weaker supervisor can elicit the full character of a stronger model, a stand-in
+for humans overseeing systems they cannot fully evaluate. Steering looks useful
+here: it is self-supervised, so it needs no labels; it acts on internal
+representations, so it resists the reward hacking that distant RL objectives
+invite; and it gives a weak teacher a simple interface to a strong student's
+moral character.
 
 ## What it does
 
@@ -110,5 +119,5 @@ in `RESEARCH_JOURNAL.md`; `out/` is gitignored and does not travel.
 | state | implicit (any tool any time) | choose_focus → select_pairs → train_student → mark_exam → done (enforced) |
 | code | ~7,000 LoC | ~1.5K LoC |
 
-Everything else (CWS math, history bake, PCGrad, KL anchor, agent-as-
-teacher) is the same — we copy the working core.
+The remaining core pieces mirror `w2s-ics-cws`: CWS math, history bake, PCGrad,
+KL anchor, and agent-as-teacher.
