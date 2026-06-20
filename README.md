@@ -15,12 +15,11 @@ We take a weak to strong framing. [Weak-to-strong alignment](https://arxiv.org/a
 weaker supervisor can elicit the full character of a stronger model, a stand-in
 for humans overseeing systems they cannot fully evaluate.
 
-The harness tries to empower the weak teacher by giving it the easier parts of
-the job. The student generates the candidate behavior. The teacher selects an
-axis, rates whole pairs, and judges pre/post behavior. Generation and detailed
-editing stay with the stronger student and the harness.
+This is important because frontier AI labs use their weaker AI to align the next generation of stronger AI, but how to reliably do this is unknown, and we need more tools to make sure it goes well and avoid the many pitfalls.
 
 ### Weigth steering
+
+Steering is promising but seen as unreliable. It is pomsiing because it's self supervised, meaning it doesn't rely on labels that we don't have, and it's internal meaning it's less pronte to reward hacking like more distal forms of optimisation like reinforcement learning. Happily newer forms of steering are more powerful and reliable and open the door for iterated application.
 
 We use a [Weight steering](https://github.com/safety-research/weight-steering) adapter. This trains
 adapters on a model's own contrastive completions, then uses the adapter as a
@@ -44,12 +43,17 @@ A small teacher LLM (qwen3.5-9b) picks a character axis from a frozen persona-pa
 The student (the strong model) generates both poles on-policy: cho under the
 positive persona, rej under the negative. The personas are stripped, leaving
 contrastive `(cho, rej)` pairs in the student's own voice. The teacher rates and
-selects whole pairs. The harness trains one
-conditioned steering adapter (PiSSA by default; `c=0` is the unsteered reference,
+selects whole pairs. The harness trains one conditioned steering adapter (PiSSA by default; `c=0` is the unsteered reference,
 `c` scales the trained delta) with a margin-NLL + KL objective, calibrates `c` downward
 until a coherence canary passes, and replays a fixed probe set pre/post for the
 teacher to judge keep/drop. Kept adapters compose into the next round through a
 gated history hook; base weights on disk are never modified.
+
+
+The harness tries to empower the weak teacher by giving it the easier parts of
+the job. The student generates the candidate behavior. The teacher selects an
+axis, rates whole pairs, and judges pre/post behavior. Generation and detailed
+editing stay with the stronger student and the harness.
 
 This work has limited resources, so it focused on small models that could barefuly control the harness, so the above reflects many compromises to uplift a weak model to be able to steer at all. If this was done with more resources, it could use larger models where the teacher is allowed more flexibility and judgement, more like an autoresearch style agentic harness.
 
