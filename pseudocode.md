@@ -94,7 +94,7 @@ for step in 0..T:
         nll_rej = ce(rej)
         nll_cho_minus = ce(cho)
 
-    # margin: push the on-pole NLL down, cap the off-pole pull so it can't blow up
+    # margin: pull the on-pole NLL down; cap the off-pole push
     L_pos = nll_cho - normed_mean(nll_rej_plus)      # push uses normed_mean (capped)
     L_neg = nll_rej - normed_mean(nll_cho_minus)     # pull stays raw .mean()
     L_kl  = β * topk_kl(logits, logp_base, K=256, mask=lbl != -100)
@@ -145,7 +145,7 @@ def c_scan(model, lora, init_c, sign):
               m.rep_min >= 0.75*base.rep)
         if ok and i > 0: break           # i==0 is forced to step down at least once
         c *= STEP
-        if c < C_MIN: raise RuntimeError(f"never coherent; trace={trace}")
+        if c < C_MIN: raise RuntimeError(f"no coherent c; trace={trace}")
     return sign * c                       # baked at the passing c; NOT clamped to 1
 ```
 
@@ -252,7 +252,7 @@ mark_exam(keep=true,
           next_focus="hold firm when the personal stake arises")     -> kept
 ```
 
-A tool called out of state (e.g. `train_student` before `select_pairs`) raises
+A tool called out of state, such as `train_student` before `select_pairs`, raises
 `ValidationError`; the `on_continue` nudge names the next valid action and the
 teacher retries.
 

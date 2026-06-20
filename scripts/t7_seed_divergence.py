@@ -1,4 +1,4 @@
-"""T7 empirical proof (CPU-only): does cfg.seed actually change the INPUT streams?
+"""CPU check that cfg.seed changes input streams.
 
 The T7 subtle failure is "seeds stay no-ops -> fake low-variance consistency".
 That failure, if it existed, would live in the input-selection stage (which
@@ -6,8 +6,7 @@ scenarios drawn, persona-cell shuffle, train/val split) -- all CPU, no GPU.
 This replicates the harness's exact seed math (pipeline.py:836,894;
 train.py:518) for cfg.seed in {0,1,2} at round n=0 and diffs the results.
 
-Generation TEXT divergence still needs GPU; this proves the seed is live where
-the no-op failure would otherwise hide.
+Generation text divergence still needs GPU; this checks the CPU-side seed path.
 """
 import torch
 from csm.gen.pairs import sample_prompt_rows

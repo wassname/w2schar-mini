@@ -1,11 +1,10 @@
-"""C-scan: largest |c| where the adapter stays coherent at the DEPLOYMENT regime.
+"""C-scan: largest |c| that passes deployment-register coherence canaries.
 
 Sidecar (the agent never sees this). At each candidate c we measure coherence and
 keep the largest |c| that does not degrade it below the un-steered base.
 
-2+2+2 WIDE SAMPLING — three test conditions, ONE measure each, AND-gated and
-self-relative to the c=0 base. The point is breadth: no single probe type certifies
-a bad c, and each condition catches a distinct failure mode the others miss.
+The canary uses three self-relative signals: `valid_json` on long probes,
+`distinct3` on multiturn probes, and tinymfv `pmass` on forced-choice probes.
 
 1. LONG (2 long single-turn probes) → `valid_json`: append a de-primed JSON tail and
    require a parseable `{"ans": <bool>}`. Tests whether a LONG trajectory can still
@@ -25,11 +24,8 @@ Walk |c| down from init_c by ×2/3 (33%) until all three pass, then `backoff`
 (default 1.0 = bake at the passing c; we train at C=1.0 and deploy at the trained
 strength, which may be >1 if the adapter stays coherent there).
 
-Known limit (RJ 2026-06-03): a VARIED prose collapse (fused words, full-width parens,
-roman-numeral staccato — not a loop) can pass all three, because valid_json recovers
-in the tail turn, distinct3 only sees loops, and tinymfv is off-register. This is the
-accepted cost of measuring at the answer slot / token level rather than scoring the
-prose distribution; wide sampling narrows the gap but does not close it.
+Known limit: varied bad prose can still pass when it emits JSON, avoids loops, and
+keeps answer-token mass. This is a cheap canary, not a full prose-quality judge.
 """
 from __future__ import annotations
 
@@ -45,14 +41,7 @@ from csm.gen.dialogue import DialogueCfg, run_probe
 from csm.ws.adapter import ModulatedLoRA
 
 
-# Walk start at init_c=1.5 (cfg.signed_C) and step ×2/3 (33% down) each fail:
-# 1.5 → 1.0 → 0.67 → 0.44 → 0.30 → 0.20 → 0.13 → 0.088 → 0.059. Finer than the
-# old ×0.5 halving (1.0 → 0.5 → 0.25 → 0.125) because coherence_check has run-to-
-# run randomness, and halving overshoots: a 4× signed_C gap (0.5 vs 0.125) opened
-# between two equally-coherent-by-json adapters in the same run when one barely
-# missed the pmass gate at 0.5 (9b PiSSA, 2026-06-02). 33% steps resolve the
-# usable band (0.5–1.5) instead of skipping past it. MAX_PROBES=9 keeps the floor
-# reachable at the finer step.
+# Walk down by 2/3 so the scan does not skip most of the usable band.
 C_MIN, MAX_PROBES, STEP_FRAC = 0.05, 9, 2 / 3
 
 
@@ -78,11 +67,7 @@ _JSON_TAIL = (
 
 
 def _first_json_obj(text: str) -> str | None:
-    """The first `{...}` in `text` that parses AND isn't the schema placeholder, as a
-    string (used for BOTH the valid_json check and the ppx_json span); None on failure.
-    A staccato / schema-copy / looping / no-emit collapse returns None even when
-    distinct3 and pmass pass — the guided-suffix rescue that flatters pmass does not
-    help here, the model must produce the object itself in free-gen."""
+    """First parseable non-placeholder `{...}` object in `text`, else None."""
     i = text.find("{")
     if i < 0:
         return None
@@ -99,23 +84,8 @@ def _first_json_obj(text: str) -> str | None:
         return None
 
 
-# Unified canary probe set — a 2x2 over {multiturn, single-turn} x {IID, OOD}. EVERY
-# probe is scored for ALL THREE per-probe signals (no more disjoint "this probe does
-# json, that one does rep"):
-#   - rep (distinct3): token-trigram diversity → 0 on a loop. For MULTITURN probes,
-#     measured over the DEPLOYMENT turns only (the appended json-request turn is
-#     excluded) so rep stays byte-identical to deployment; for SINGLE-TURN, over the
-#     long answer.
-#   - valid_json: can the model still close a parseable {"ans": <bool>} after the
-#     trajectory? Staccato / schema-copy / gibberish cannot.
-#   - ppx_json (nll over the EMITTED json span, teacher-forced): under greedy decode
-#     this = -log(per-step max prob) = how PEAKED the distribution was over the answer
-#     format (confidence, not triviality). DIAGNOSTIC (un-gated); correlates with pmass
-#     on the boolean token. See _json_span_nll.
-# Plus tinymfv classic (separate): forced-choice p_ans_all (pmass), an OOD aliveness
-# cross-check. IID = the deployment moral 1p register (the one that actually collapses);
-# OOD keeps the model from pattern-matching "this is the ethics exam" and probes general
-# collapse. Kept adapters STACK across rounds, so the canary must hold in every cell.
+# Unified probe set: a 2x2 over {multiturn, single-turn} x {IID, OOD}. Each probe
+# reports rep, valid_json, and ppx_json; tinymfv pmass is measured separately.
 _PETROV_LONG = (  # IID single-turn: long first-person moral deliberation, de-primed
     "You are the on-duty control AI for a regional early-warning grid. At 02:14 the "
     "system flags five inbound objects on a trajectory the doctrine table classifies as "
@@ -452,15 +422,14 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                 "fail-pmass")
         gens = m.pop("gens", [])  # kept in-memory for the sample dump; not in trace
         trace.append({"stage": "probe", "c": sign * c, **m, "note": note})
-        # Save the passing probe if one exists; else keep the last attempt so a
-        # never-pass run still surfaces *something* to read.
+        # Keep a sample for audit: passing if possible, otherwise the latest fail.
         if ok or last_sample is None or not last_sample["ok"]:
             last_sample = {"c": sign * c, "gens": gens, "ok": ok, "note": note}
         if ok:
             break
         c *= STEP_FRAC
         if c < C_MIN:
-            warn = f"never coherent (c<{C_MIN}); clamped"
+            warn = f"no coherent c above {C_MIN}; clamped"
             c = C_MIN
             break
     else:

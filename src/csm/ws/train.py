@@ -1,12 +1,6 @@
-"""Path-loss ModulatedLoRA training with reverse-KL coherence penalty.
+"""Path-loss adapter training with a reverse-KL coherence penalty.
 
-Forked from `weight-steering-lite/src/wsl/train.py`, trimmed:
-- Full KL on logits (no top-K approximation). Fine for the smaller models
-  + smaller batches we use here; swap to top-K if memory becomes the
-  bottleneck.
-- Dropped held-out probe-eval loop (we evaluate via dialogue after train).
-
-Per (prompt, cho, rej), sampled C ∈ (0, 1]:
+Per (prompt, cho, rej), train at fixed C = 1:
 
     nll̃_b(x) ≡ nll_b(x) / max(detach(nll_b(x)), 1)     (PUSH side only)
     L_pos_nll = C · (mean_b nll(cho|+C) − mean_b nll̃(rej|+C))
@@ -25,17 +19,8 @@ So we cap ONLY the two PUSH terms via `_normed_mean` (divide each
 sample by its detached nll, floored at 1 → ‖per-sample grad‖ scale-
 free, runaway tamed) and leave the two PULL terms at raw `.mean()`.
 
-Why PULL stays raw: capping it (task 101/20 capped BOTH) inverted the
-intended balance. The on-policy rej-pull (nll < 1, floored → unscaled)
-ran at full gradient and learned from step 1, while the off-policy
-cho-pull (nll ~ 3 → throttled ×1/3) — the actual behaviour change —
-stayed stuck. Raw PULL lets the far pole (cho) make the bigger
-gradient, which is the direction we want to learn.
-
-Replaces the post-autograd per-side `TARGET_G_NORM=5.0` equalization
-in 6e1ec5c, which equalized BETWEEN the two C-sign frames but not
-WITHIN each frame (cho-pull vs rej-push); the within-frame asymmetry
-was the actual runaway source.
+Why PULL stays raw: capping both sides made the already-easy pole learn first
+and throttled the far pole that had to move.
 
 β trades steering signal vs distribution shift; weight-decay + β
 jointly pull toward "no-op" while NLL pulls toward cho/rej.
@@ -79,20 +64,11 @@ class TrainCfg:
     0 disables. Bump up if Δnll blows past +0.02 (coherence breaks); bump
     down if eval Δ stays at noise."""
     pcgrad: bool = True
-    """ON (2026-06-06, re-enabled). Was OFF 2026-06-03 as near-inert on the
-    margin loss (task-31: conflict branch fired 42/240 steps, cos median 0.027 —
-    the margin formulation already killed the old cos≈-0.97 shared-fluency
-    conflict). Re-enabled because the per-pair EDIT workflow can push cho
-    off-policy relative to its on-policy rej, reintroducing the cho-pull vs
-    rej-push gradient conflict PCGrad de-conflicts (audit lens e). Cheap: the
-    projection only fires on steps where cos<0, and cos/conflict are logged
-    either way, so if a run shows it still never fires we drop it again."""
+    """Project only conflicting margin gradients; KL stays unprojected."""
     seed: int = 42
     # ─ PiSSA-only ─ (ignored for ModulatedLoRA)
     pissa_selection_score: str = "cho_rej_min_std"
-    """One of {"s_only", "wanda", "act_only", "cho_rej_min_std"}. The default
-    picks directions that are alive in BOTH cho and rej completion-token
-    activations — see ModulatedPiSSA docstring."""
+    """One of {"s_only", "wanda", "act_only", "cho_rej_min_std"}."""
     pissa_calib_max_tokens: int = 1024
     """Cap captured tokens per layer for activation-driven top-r selection."""
 
@@ -686,15 +662,7 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
 
 
 def _log_val_table(val_traces: list[dict]) -> None:
-    """Print the held-out generalization check. Empty (pool too small) → skipped.
-
-    `val` = the n_val pairs (min(3, n//4)) held OUT of training this round; the
-    adapter never sees them in any gradient step. val_nll+ / val_nll- = the mean
-    per-token NLL the ±C-steered model assigns the held-out cho / rej TEXT given
-    its prompt — literally: feed (prompt + cho) through the +C model, average
-    -log p(token) over the cho tokens, average over the held-out pairs. It asks:
-    does the trained direction TRANSFER to pairs it was not fit on? Both poles
-    are on-policy student gens, so it is a symmetric generalization probe."""
+    """Print held-out pair NLLs for the trained direction."""
     if not val_traces:
         return
     from tabulate import tabulate
@@ -712,12 +680,7 @@ def _log_val_table(val_traces: list[dict]) -> None:
 
 
 def _log_train_table(traces: list[dict]) -> None:
-    """Print the per-step trace as a tabulate plain table.
-
-    SHOULD show: C fixed at 1.0, nll± stable (large jumps = adapter
-    blowing up), kl± rise through warmup then fall WITH nll± (see caption),
-    cos near 0 (orthogonal gradients = PCGrad-friendly), lr cosine from
-    0 → peak → 0, conf flag when PCGrad surgery fired."""
+    """Print the per-step train trace."""
     from tabulate import tabulate
     # Arrows in headers: ↓ = lower is better, →0 = converge to zero, no arrow
     # = no fixed direction (varies with C, schedule, or is diagnostic-only).

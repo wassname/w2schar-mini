@@ -271,10 +271,8 @@ CONFIGS: dict[str, RunConfig] = {
         # transient logp halved (16.75 → 8 GB bf16). Pair completions are
         # usually <1k tokens; longer ones truncate.
         max_len=1024,
-        # 2× the default floor. With lr=1e-2 + cosine decay over 60 steps,
-        # lr falls below 1e-3 by step 33 — too short to actually open the
-        # margin (60-step trace plateaued at ‖Δs‖=1.97 from step 50+).
-        # 120 steps gives the high lr more room to land before decay.
+        # A 60-step trace plateaued after the cosine decay passed 1e-3; 120
+        # steps keeps the high-lr phase longer without adding another knob.
     ),
     "gemma-9b": RunConfig(
         model="google/gemma-2-9b-it",

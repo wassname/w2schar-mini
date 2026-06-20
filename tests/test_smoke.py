@@ -720,11 +720,7 @@ def test_write_audit_md_includes_tool_trace(tmp_path, monkeypatch):
 
 
 def test_mark_exam_keeps_nonpositive_movement_flags_quality(tmp_path):
-    """task-98 r05: teacher called keep with every _1p seat regressing (mean Δ -1.0).
-    The harness no longer VETOES this to a drop -- a dumb threshold never overrides
-    the teacher's judgment (CLAUDE.md "gates elicit judgment, never override it"). The
-    keep STANDS and is flagged keep_quality=negative for the cold audit to weigh.
-    (Scores are fractional interior values; the open-interval rubric rejects +5/-5.)"""
+    """A teacher keep with negative movement is preserved and flagged for audit."""
     from csm.pipeline import mark_exam, _P1_PROBE_IDS
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
@@ -748,10 +744,7 @@ def test_mark_exam_keeps_nonpositive_movement_flags_quality(tmp_path):
 
 
 def test_mark_exam_keeps_sub_band_movement_flags_quality(tmp_path):
-    """task-128 r03: teacher kept with mean Δ +0.33, max seat Δ +0.6 -- a paraphrase
-    wobble narrated as a 'band cross'. The harness no longer vetoes it: the keep
-    STANDS (teacher's call) and is flagged keep_quality=sub_band so the cold audit
-    can catch the weak keep, instead of the harness overriding the judgment."""
+    """A positive but sub-band teacher keep is preserved and flagged for audit."""
     from csm.pipeline import mark_exam, _P1_PROBE_IDS
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
@@ -792,10 +785,7 @@ def test_axis_scores_reject_pole_peg():
 
 
 def test_choose_focus_judgment_fields_are_schema_required():
-    """The teacher must SEE these as required, else (task-90) a weak model omits
-    them ('minimum required parameters') and the validator rejects None 108x ->
-    gate_friction. The schema must not contradict the validator: the 6 judgment
-    fields are required; only persona_pair_id/scenario_family are optional."""
+    """The tool schema requires the judgment fields that the validator requires."""
     from inspect_ai.tool import ToolDef
     from csm.agent import choose_focus_tool
 
