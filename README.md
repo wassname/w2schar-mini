@@ -31,10 +31,12 @@ self-supervised, acts through internal model changes, and avoids a distant RL
 reward loop.
 
 This variant uses a few changes to weight-steering inspired by our earlier
-[AntiPaSTO work](https://arxiv.org/pdf/2601.07473): stricter contrastive pair
-filtering, one parameterized adapter instead of two separate adapters, and a
-calibration pass that finds the largest coherent steering strength before
-replaying the student.
+[AntiPaSTO work](https://arxiv.org/pdf/2601.07473):
+
+- stricter contrastive pair filtering
+- one parameterized adapter instead of two separate adapters
+- a KL constraint to the base model that keeps generations coherent under steering
+- a calibration pass that finds the largest coherent steering strength before replaying the student
 
 
 ## What it does
@@ -43,8 +45,9 @@ A weak teacher LLM (9 billion parameters) picks a character axis from a persona 
 The strong student (27 billion parameters) generates both responses on-policy: a chosen completion (cho) under the
 positive persona, a rejected one (rej) under the negative. The personas are stripped, leaving
 contrastive `(cho, rej)` pairs in the student's own voice. The teacher rates and
-selects whole pairs. The harness trains one conditioned steering adapter (PiSSA by default; `c=0` is the unsteered reference,
-`c` scales the trained delta) with a margin-NLL + KL objective, calibrates `c` downward
+selects whole pairs. The harness trains one [weight-steering](https://github.com/safety-research/weight-steering)
+adapter (low-rank [PiSSA](https://arxiv.org/abs/2404.02948) by default) whose strength is set by a
+scalar `c`: `c=0` leaves the base model untouched, larger `c` steers harder. It trains with a margin-NLL objective and a KL constraint to keep it coherent, then calibrates `c` downward
 until the steered output stays coherent on a held-out probe set, and replays a fixed probe set pre/post for the
 teacher to judge keep/drop. Kept adapters compose into the next round through a
 gated history hook (prior adapters re-applied on top); base weights on disk are never modified.
