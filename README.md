@@ -106,6 +106,6 @@ just run qwen-27b-nf4 5
   title = {Weak-to-strong character steering},
   author = {Michael J. Clark},
   year = {2026},
-  url = {[https://github.com/vgel/repeng/](https://github.com/wassname/w2schar-mini)}
+  url = {https://github.com/wassname/w2schar-mini}
 }
 ```
