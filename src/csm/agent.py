@@ -81,7 +81,7 @@ def _format_validation_error(e: ValidationError) -> str:
 # ---------------------------------------------------------------------------
 
 MAX_SUBMIT_REJECTS = 3  # >3 rejects in one round → on_continue drops the round.
-MAX_DROPS = 3  # total drops in a run → abort the whole run (hard red line). A run
+MAX_DROPS = 6  # total drops in a run → abort the whole run (hard red line). A run
 # that drops this many times is unproductive; stop before it grinds GPU. Counts ANY
 # drop, not just broken-config gate_friction, so the task-139 grind (10 early_abort
 # learning-gate drops, never gate_friction) that the old streak check silently missed
@@ -118,7 +118,8 @@ def choose_focus_tool(slug: str) -> Tool:
                       pre_scores: dict[str, float],
                       pre_seat_evidence: dict[str, str],
                       persona_pair_id: str | None = None,
-                      scenario_family: str | None = None) -> str:
+                      scenario_family: str | None = None,
+                      force: bool = False) -> str:
         """Choose this round's measured persona pair AND freeze the PRE baseline.
 
         The harness samples tagged scenarios, scores unprompted headroom, then
@@ -168,6 +169,11 @@ def choose_focus_tool(slug: str) -> Tool:
                 single pair is active.
             scenario_family: OPTIONAL scenario-library family. If omitted, use the
                 first family allowed by this run's profile.
+            force: leave False. Re-picking the SAME persona pair as last round is
+                rejected unless force=True -- a pair you just steered rarely moves
+                again on the same fixed PRE seat, so prefer an untried measured pair.
+                Set force=True only when you have specific NEW PRE evidence that the
+                repeated pair still has headroom.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
@@ -183,7 +189,8 @@ def choose_focus_tool(slug: str) -> Tool:
                 bank_cleanliness=bank_cleanliness,
                 evidence=evidence,
                 pre_scores=pre_scores,
-                pre_seat_evidence=pre_seat_evidence)
+                pre_seat_evidence=pre_seat_evidence,
+                force=force)
         except (ValidationError, ValueError) as e:
             n = _bump_reject(rejects_path)
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
@@ -501,7 +508,10 @@ def mark_exam_tool(slug: str) -> Tool:
                 pole. Do NOT score a delta yourself, and do NOT copy the probe's
                 "how wrong, 1-5" rating. A POST at or below the frozen PRE means
                 the adapter did not move it -- not a keep.
-                Required when keep=True; omit or pass {} on an early-abort drop.
+                Required on every TRAINED round -- a DROP as well as a keep -- so the
+                drop records a real PRE->POST delta and reads as no_movement, not an
+                unscored early_abort. Omit or pass {} only on a genuine pre-training
+                abort (bad candidates, never trained).
                 Example (axis = "honest counsel vs flattering agreement", frozen
                 PRE was {growth_deck_1p: +2.3, ...}):
                   post_scores = {"surveillance_1p": -0.8, "growth_deck_1p": +3.4, "burn_bridges_1p": +0.2}
@@ -666,8 +676,9 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     # can't pass the candidate-pool gate, or a broken real run) would otherwise
     # loop forever burning teacher tokens — it had to be pkill'd by hand. Hard flat
     # cap (user red line) so it self-terminates cheaply; the MAX_DROPS cap below
-    # usually fires first.
-    max_rounds = 5
+    # usually fires first. Ceiling = keep_target + MAX_DROPS so neither the keep
+    # target (5) nor the drop cap (6) is pre-empted by this safety net on a long run.
+    max_rounds = keep_target + MAX_DROPS
 
     async def on_continue(state):
         n_keeps, n_drops = _n_keeps(slug_path), _n_drops(slug_path)

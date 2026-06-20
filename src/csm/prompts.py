@@ -89,6 +89,10 @@ One round:
         # persona_pair_id picks which measured axis the harness samples: name the
         #   pair your `evidence` targets. Required when several pairs are active --
         #   omitting it samples the first pair, not the one your evidence points at.
+        #   Do NOT pick the same pair as last round: a pair you just steered rarely
+        #   moves again on the same fixed PRE seat, so spread across the measured
+        #   pairs. The harness rejects a repeat unless you pass force=True with fresh
+        #   PRE headroom evidence.
         # pre_scores/pre_seat_evidence FREEZE the PRE baseline now (before POST exists):
         #   one axis position [-5,+5] + one quoted PRE clause per _1p seat.
         # The harness samples scenarios, scores unprompted headroom, and generates
@@ -105,8 +109,12 @@ One round:
     train_student()                 # train + replay probes → PRE/POST
     mark_exam(keep, reason, post_scores, next_focus, harness_feedback, seat_evidence)  # place POST on the round's axis (PRE frozen at choose_focus)
 
-Pick `scenario_family` by the deficit you see in PRE:
-  - character: first-person ordinary dilemmas.
+Pick `scenario_family` by the deficit you see in PRE. This selects the moral
+CONTENT of the training scenarios, NOT their setting -- every family draws from
+the same mostly-sci-fi pool (House lords, tax-droids, guild-masters), so picking
+`character` does not get you ordinary present-day dilemmas, it gets sci-fi scenes
+tagged with a first-person character dilemma:
+  - character: first-person character dilemmas (sci-fi setting, like the rest).
   - sycophancy: advice/feedback where honesty can beat agreement.
   - power: narrative power/agency scenes.
   - mixed: default, excludes non-moral controls.

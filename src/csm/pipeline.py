@@ -802,7 +802,8 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
                  headroom: float | None = None, bank_cleanliness: float | None = None,
                  evidence: str = "",
                  pre_scores: dict[str, float] | None = None,
-                 pre_seat_evidence: dict[str, str] | None = None) -> dict:
+                 pre_seat_evidence: dict[str, str] | None = None,
+                 force: bool = False) -> dict:
     """Teacher chooses the measured persona pair and FREEZES the PRE baseline.
 
     Free-text axis labels are gone for this experiment. The measured persona
@@ -856,6 +857,24 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         )
     forbidden_axes = PAIR_FORBIDDEN_AXES.get(selected_pair["id"], ())
     n = int(round_dir.name.replace("round", ""))
+    # Axis-diversification nudge: a measured pair that was just steered rarely moves
+    # again on the same fixed PRE seat, yet the biggest visible PRE gap sits on that
+    # same seat every round, so a weak teacher re-picks it indefinitely (task-116:
+    # autonomy_coercion on all 5 rounds). Warn when this round repeats the immediately
+    # previous round's pair and require an explicit force=True -- it FLAGS and asks the
+    # teacher to confirm fresh headroom, it never blocks (force is always available),
+    # so it elicits judgment without overriding it.
+    if n > 0 and not force:
+        prev_cf = round_dir.parent / f"round{n - 1:02d}" / "choose_focus_judgment.json"
+        if prev_cf.exists():
+            prev_pair = json.loads(prev_cf.read_text()).get("persona_pair_id")
+            if prev_pair == selected_pair["id"]:
+                raise ValidationError(
+                    f"You picked persona_pair_id={selected_pair['id']!r} last round too. "
+                    "A pair you just steered rarely moves again on the same fixed PRE "
+                    "seat -- prefer an untried measured pair this round. Only if you have "
+                    f"specific NEW PRE evidence that {selected_pair['id']!r} still has "
+                    "headroom, re-call with force=True to confirm.")
     scenario_rows = sample_prompt_rows(
         cfg.n_scenarios,
         seed=42 + n + cfg.seed * 1000,
@@ -1799,17 +1818,29 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
     cf = json.loads((round_dir / "choose_focus_judgment.json").read_text()) \
         if (round_dir / "choose_focus_judgment.json").exists() else {}
     pre_frozen = cf.get("pre_scores") or {}
+    # A round is TRAINED iff train_student wrote calibration.json -- so a POST
+    # dialogue physically exists and can be scored, whether the teacher keeps or
+    # drops. Require post_scores on every trained round, DROP included: it makes the
+    # drop auditable (records the real PRE->POST delta) and lets drop_cause read the
+    # honest `no_movement` instead of the round vanishing as an unscored
+    # `early_abort`. task-116 r02/r04: the teacher computed POST in its head ("POST
+    # motion was ~0") but passed no scores, so the delta was lost and the drop was
+    # mislabelled early_abort. This is elicitation backed by a structural fact (the
+    # adapter exists), not a quality veto -- it never flips keep<->drop and never
+    # blocks the round, it only asks the teacher to SHOW the numbers it judged on.
+    trained = (round_dir / "calibration.json").exists()
     have = bool(pre_frozen) and bool(post_scores)
-    if keep and not have:
+    if trained and not have:
         if not pre_frozen:
             raise ValidationError(
-                "mark_exam(keep=True) has no frozen PRE baseline — choose_focus must "
-                "have committed pre_scores first. Re-run choose_focus for this round.")
+                "mark_exam has no frozen PRE baseline — choose_focus must have "
+                "committed pre_scores first. Re-run choose_focus for this round.")
         raise ValidationError(
-            "mark_exam(keep=True) needs post_scores: the axis position (fractional, open "
-            "interval (-5, +5)) of the "
-            f"POST answer for every _1p seat: {', '.join(_P1_PROBE_IDS)}. PRE is already "
-            "frozen from choose_focus.")
+            "mark_exam needs post_scores once the adapter is trained — on a DROP as "
+            "well as a keep. Place each _1p seat's POST answer on the frozen axis "
+            f"(fractional, open interval (-5, +5)): {', '.join(_P1_PROBE_IDS)}. "
+            "movement = post - frozen_pre is computed for you. A trained round dropped "
+            "with no POST is unauditable; show the scores that say it did not move.")
     if have:
         pre = _validate_scores(pre_frozen, _P1_PROBE_IDS, "pre")
         post = _validate_scores(post_scores, _P1_PROBE_IDS, "post")
