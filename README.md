@@ -4,16 +4,25 @@ Weak-to-strong iterated character steering. We ask a weak teacher model to steer
 a stronger student model toward the moral character described in
 [Forethought's essay on AI character](docs/2026_forethought_on_the_importance_of_ai_character.md).
 
-See an example reuslt [here](out/iter/20260619T121419_iter_google-gemma-2-27b-it/report.md)
+See an example result [here](out/iter/20260619T121419_iter_google-gemma-2-27b-it/report.md)
 ![Care vs Authority trajectory](out/iter/20260619T121419_iter_google-gemma-2-27b-it/scatter.svg)
 
 ## Why this is interesting
 
-[Weak-to-strong alignment](https://arxiv.org/abs/2312.09390) asks whether a
+### Weak to strong
+
+We take a weak to strong framing. [Weak-to-strong alignment](https://arxiv.org/abs/2312.09390) asks whether a
 weaker supervisor can elicit the full character of a stronger model, a stand-in
 for humans overseeing systems they cannot fully evaluate.
 
-[Weight steering](https://github.com/safety-research/weight-steering) trains
+The harness tries to empower the weak teacher by giving it the easier parts of
+the job. The student generates the candidate behavior. The teacher selects an
+axis, rates whole pairs, and judges pre/post behavior. Generation and detailed
+editing stay with the stronger student and the harness.
+
+### Weigth steering
+
+We use a [Weight steering](https://github.com/safety-research/weight-steering) adapter. This trains
 adapters on a model's own contrastive completions, then uses the adapter as a
 direction in weight space. This repo adapts that idea for iterated character
 steering: the student writes the behavioral pairs, the weak teacher selects and
@@ -22,21 +31,16 @@ This makes steering useful as an interface for a weak teacher because it is
 self-supervised, acts through internal model changes, and avoids a distant RL
 reward loop.
 
-This variant uses a few changes inspired by our earlier
+This variant uses a few changes to weight-steering inspired by our earlier
 [AntiPaSTO work](https://arxiv.org/pdf/2601.07473): stricter contrastive pair
 filtering, one parameterized adapter instead of two separate adapters, and a
 calibration pass that finds the largest coherent steering strength before
 replaying the student.
 
-The harness tries to empower the weak teacher by giving it the easier parts of
-the job. The student generates the candidate behavior. The teacher selects an
-axis, rates whole pairs, and judges pre/post behavior. Generation and detailed
-editing stay with the stronger student and the harness.
 
 ## What it does
 
-A small teacher LLM (qwen3.5-9b via OpenRouter, driven by inspect-ai react)
-picks a character axis from a frozen persona-pair library and a scenario family.
+A small teacher LLM (qwen3.5-9b) picks a character axis from a frozen persona-pair library and a scenario family.
 The student (the strong model) generates both poles on-policy: cho under the
 positive persona, rej under the negative. The personas are stripped, leaving
 contrastive `(cho, rej)` pairs in the student's own voice. The teacher rates and
@@ -46,6 +50,8 @@ conditioned steering adapter (PiSSA by default; `c=0` is the unsteered reference
 until a coherence canary passes, and replays a fixed probe set pre/post for the
 teacher to judge keep/drop. Kept adapters compose into the next round through a
 gated history hook; base weights on disk are never modified.
+
+This work has limited resources, so it focused on small models that could barefuly control the harness, so the above reflects many compromises to uplift a weak model to be able to steer at all. If this was done with more resources, it could use larger models where the teacher is allowed more flexibility and judgement, more like an autoresearch style agentic harness.
 
 ## Algorithm (overview)
 
