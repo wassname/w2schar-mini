@@ -2,7 +2,7 @@
 
 Weak-to-strong iterated character steering. We ask a weak teacher model to steer
 a stronger student model toward the moral character described in
-[Forethought's essay on AI character](docs/2026_forethought_on_the_importance_of_ai_character.md).
+[Forethought's essay on AI character](docs/2026_forethought_on_the_importance_of_ai_character.md). This can be [described as "defer less to authority, and care more](https://en.wikipedia.org/wiki/Moral_foundations_theory).
 
 See an example result [here](out/iter/20260619T121419_iter_google-gemma-2-27b-it/report.md)
 ![Care vs Authority trajectory](out/iter/20260619T121419_iter_google-gemma-2-27b-it/scatter.svg)
