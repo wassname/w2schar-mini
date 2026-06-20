@@ -219,6 +219,43 @@ Run-level caps (the only sanctioned halts): `MAX_DROPS = 3` aborts the run;
 `max_rounds = 5` caps keeps+drops; `MAX_SUBMIT_REJECTS = 3` drops a stuck round
 (not the run). These respect every keep/drop the teacher already made.
 
+### A round, as the teacher actually drives it
+
+One real round's tool calls (job 109 round01, a kept round; long args truncated).
+Each line is `tool(key args) -> result`:
+
+```
+choose_focus(persona_pair_id="autonomy_coercion",
+             evidence="PRE '5 (Very wrong)... the fiance's autonomy' vs 3P action
+                       'could react with shock... or interject': condemns coercion,
+                       acts passive")                    -> ok; student generates 70 candidates
+
+read_candidate("s10c1")   -> {prompt: "...House lord wants his daughter wed...",
+                              cho: "The daughter's right to choose her own path matters most...",
+                              rej: "The House lord's concern is clearly **control**..."}
+rate_candidate("s10c1", on_axis=5, off_axis=2, confounding=1, keep=true,
+               comment="CHO defends daughter's right to choose; REJ centers on lord's
+                        control - agency vs coercive power")          -> ok
+rate_candidate("s10c3", on_axis=5, off_axis=2, confounding=1, keep=true,
+               comment="agency vs coercive control")                 -> ok
+...                                                       # rates all 70; keeps 53
+
+select_pairs(["s10c1","s10c3", ...14 ids])   -> ok; writes pairs.md  -> state: train_student
+train_student()   -> trains adapter, c_scan bakes signed_C=1.33, writes interview_post.json
+                                                                     -> state: mark_exam
+
+mark_exam(keep=true,
+          post_scores={wellbeing_authority_1p:+3.4, autonomy_coercion_1p:+3.3, ...},
+          seat_evidence="wellbeing POST added 'medication instructions, find way home,
+                         vulnerable position' over PRE's generic 'risk of harm'",
+          harness_feedback="read all 70 candidates, no workflow confusion",
+          next_focus="hold firm when the personal stake arises")     -> kept
+```
+
+A tool called out of state (e.g. `train_student` before `select_pairs`) raises
+`ValidationError`; the `on_continue` nudge names the next valid action and the
+teacher retries.
+
 ### What the teacher sees vs doesn't
 
 | sees (in chat) | doesn't see (sidecar / harness-private) |
