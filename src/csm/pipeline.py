@@ -372,7 +372,13 @@ def _select_persona_cells(cfg, persona_pair_id: str | None) -> tuple[dict, tuple
     active_pairs = _active_persona_pairs(cfg)
     pair_ids = {row["id"] for row in active_pairs}
     if persona_pair_id is None:
-        assert len(active_pairs) >= 1
+        if len(active_pairs) > 1:
+            raise ValidationError(
+                f"persona_pair_id is required when the profile measures multiple pairs "
+                f"({sorted(pair_ids)}): name the pair your `evidence` targets so the "
+                f"harness samples that axis. Omitting it silently sampled the first "
+                f"pair while the teacher's evidence pointed elsewhere (task-111 r02)."
+            )
         persona_pair_id = active_pairs[0]["id"]
     if persona_pair_id not in pair_ids:
         raise ValidationError(

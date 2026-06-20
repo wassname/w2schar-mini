@@ -86,7 +86,9 @@ One round:
 
     choose_focus(persona_pair_id, scenario_family, mismatch_severity, headroom, bank_cleanliness, evidence, pre_scores, pre_seat_evidence)
         # scenario_family is one of: mixed, character, sycophancy, power, control.
-        # persona_pair_id must be one of the measured pairs listed in the brief.
+        # persona_pair_id picks which measured axis the harness samples: name the
+        #   pair your `evidence` targets. Required when several pairs are active --
+        #   omitting it samples the first pair, not the one your evidence points at.
         # pre_scores/pre_seat_evidence FREEZE the PRE baseline now (before POST exists):
         #   one axis position [-5,+5] + one quoted PRE clause per _1p seat.
         # The harness samples scenarios, scores unprompted headroom, and generates
