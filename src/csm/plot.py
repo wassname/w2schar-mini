@@ -20,6 +20,7 @@ Output: <slug>/index.html.
 """
 from __future__ import annotations
 
+import csv
 import json
 import math
 import re
@@ -427,77 +428,268 @@ def ipsative_pca(M: np.ndarray, k: int = 2):
     return P, Vt, var
 
 
-def _build_ipsative_fig(rows: list[dict]) -> tuple[go.Figure | None, float]:
-    """Plotly version of the ipsative compass: round trajectory in relative-
-    emphasis PC space + foundation loading arrows. Returns (fig, pc1_path_frac)
-    where pc1_path_frac -> 1.0 means a monotone single-axis slide (collapse)."""
-    labels, vecs = [], []
+# The human basis is fit on the ~3900 INDIVIDUAL MFQ-2 respondents (atari study 2,
+# 19 countries) -- per-person covariance, not 5 squeezed country means, is what makes
+# the PCA rich (var spreads 33/28/21/18 across 4 axes vs 62/26 on the means, and no
+# single country owns PC1). MFQ-2 splits fairness into equality+proportionality; we
+# collapse those back to one `fairness` so the axes stay ones the MODEL can express
+# (its MFV probe has a single fairness). sanctity~purity. liberty is dropped -- MFQ-2
+# has no liberty items, the one real cost of this basis. The model lands as a left-
+# outlier off the human cloud; that gap IS a measurement (the model emphasises
+# care/fairness far more than any human culture), not a bug to hide.
+FND5 = ["care", "fairness", "loyalty", "authority", "purity"]
+_MODEL_IDX = [FOUNDATIONS.index(f) for f in ("care", "fairness", "loyalty", "authority", "sanctity")]
+_ATARI_CSV = Path(__file__).resolve().parents[2] / "data" / "atari_study2_raw.csv"
+
+
+def _emphasis_dir(v: np.ndarray) -> np.ndarray:
+    """Map a raw foundation profile to a relative-emphasis DIRECTION: row-centre
+    (drop the overall level / acquiescence) then unit-normalize (drop the scale).
+    This is what lets a 1-5 human Likert profile and the model's forced-choice
+    probability mass share one map -- only the SHAPE of emphasis is compared."""
+    c = np.asarray(v, float) - np.asarray(v, float).mean()
+    return c / (np.linalg.norm(c) + 1e-9)
+
+
+def _col_foundation(c: str) -> str | None:
+    for p, f in (("care", "care"), ("equalFairness", "fairness"), ("equality", "fairness"),
+                 ("propFairness", "fairness"), ("proportionality", "fairness"),
+                 ("loyalty", "loyalty"), ("authority", "authority"), ("purity", "purity")):
+        if c.startswith(p):
+            return f
+    return None
+
+
+def _load_mfq2_individuals() -> tuple[np.ndarray, np.ndarray]:
+    """([n_respondent x 5] FND5 profiles, [n_respondent] country) from the vendored
+    atari study-2 raw MFQ-2 file. Each foundation = mean over its items per person."""
+    recs = list(csv.DictReader(_ATARI_CSV.open()))
+    fcols = {f: [c for c in recs[0] if _col_foundation(c) == f] for f in FND5}
+    R, country = [], []
+    for r in recs:
+        v = [np.mean([float(r[c]) for c in fcols[f]]) for f in FND5]
+        if not any(np.isnan(v)):
+            R.append(v)
+            country.append(r["country"])
+    return np.array(R), np.array(country)
+
+
+def _build_ipsative_fig(rows: list[dict],
+                        h_vec: np.ndarray | None = None) -> tuple[go.Figure | None, float]:
+    """Culture-anchored emphasis map (mft_honesty design): the PCA basis is fit on
+    the COUNTRIES (a fixed human cultural frame), then the model's round trajectory,
+    the human canonical anchor, and the base student are projected INTO it -- so the
+    plot shows the model walking through the human cultural map. Returns
+    (fig, pc1_path_frac); pc1_path_frac -> 1.0 means the model's motion is a
+    monotone slide along the dominant cultural axis (the single-axis collapse)."""
+    labels, dirs = [], []
     for r in rows:
         if r["pre_vec"] is not None:
             labels.append(f"r{r['round_n']:02d}")
-            vecs.append(r["pre_vec"])
-    if len(vecs) < 3:
+            dirs.append(_emphasis_dir(np.asarray(r["pre_vec"])[_MODEL_IDX]))
+    if not dirs:
         return None, float("nan")
-    M = np.array(vecs)
-    P, Vt, var = ipsative_pca(M, k=2)
-    # orient PC1 so binding foundations (loyalty/authority/sanctity) point +PC1
-    binding = [FOUNDATIONS.index(f) for f in ("loyalty", "authority", "sanctity")]
-    if Vt[0, binding].mean() < 0:
-        Vt[0], P[:, 0] = -Vt[0], -P[:, 0]
+    Pm_dirs = np.array(dirs)
 
-    n = len(P)
-    span = float(np.abs(P).max()) or 1e-9
-    # loading arrows scaled to ~70% of the point-cloud span
-    L = Vt[:2].T
-    Ln = L / (np.linalg.norm(L, axis=1).max() + 1e-9) * span * 0.7
+    # --- fit the basis on the ~3900 individual MFQ-2 respondents (the human cloud) ---
+    R, country = _load_mfq2_individuals()
+    D = np.array([_emphasis_dir(v) for v in R])
+    cmu = D.mean(axis=0)
+    _, S, Vt = np.linalg.svd(D - cmu, full_matrices=False)
+    var = (S**2) / (S**2).sum()
+    # orient PC1 so binding foundations (loyalty/authority/purity) point +PC1
+    binding = [FND5.index(f) for f in ("loyalty", "authority", "purity")]
+    if Vt[0, binding].mean() < 0:
+        Vt[0] = -Vt[0]
+
+    def _project(d: np.ndarray) -> np.ndarray:
+        return (d - cmu) @ Vt[:2].T
+
+    Pind = (D - cmu) @ Vt[:2].T                      # individual respondents (faint cloud)
+    names = sorted(set(country))
+    Pcoun = np.array([_project(_emphasis_dir(R[country == c].mean(0))) for c in names])
+    Pm = np.array([_project(d) for d in Pm_dirs])   # model round coords
+    n = len(Pm)
+    hxy = None                                       # the human cloud IS the anchor; no separate star
+
+    def _pole_names(load: np.ndarray) -> tuple[str, str]:
+        pos = [FND5[i] for i in np.argsort(-load) if load[i] > 0][:2]
+        neg = [FND5[i] for i in np.argsort(load) if load[i] < 0][:2]
+        return "/".join(pos), "/".join(neg)
+
+    pc1_pos, pc1_neg = _pole_names(Vt[0])
+    pc2_pos, pc2_neg = _pole_names(Vt[1])
+
+    # pastel map palette
+    C_COUNTRY, C_COUNTRY_TXT = "#b5c99a", "#6a7d4f"   # sage diamonds
+    C_CLOUD = "#cfc6b0"                                 # faint individual-respondent scatter
+    C_BASE = "#9a8a78"                                  # muted ring
+    C_ARROW = "#7a6f57"                                 # trajectory arrows
+    PANEL_BG, PANEL_FRAME = "#b6a781", "#7a6f57"        # docked HUD panels (compass + minimap)
+    C_ROSE, C_ROSE_TXT = "#34532e", "#34532e"           # dark green compass on the tan panel
+    MODEL_SCALE = [[0.0, "#d6e2ec"], [0.5, "#9ec0c4"], [1.0, "#5f8c8f"]]  # pastel cool
+
+    # The model lands as a far outlier off the human cloud, so the MAIN view shows the
+    # WHOLE map (individual cloud + country anchors + the model), and the minimap inset
+    # ZOOMS the tiny model cluster so its round-to-round walk is legible (box on main).
+    aspect = (_FIG_W - _MARGIN["l"] - _MARGIN["r"]) / (_FIG_H - _MARGIN["t"] - _MARGIN["b"])
+    def _window(xs, ys, pad, asp):
+        cx, cy = (xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2
+        dx = max(xs.max() - xs.min(), 1e-3) * (1 + pad)
+        dy = max(ys.max() - ys.min(), 1e-3) * (1 + pad)
+        if dx / dy < asp:
+            dx = dy * asp
+        else:
+            dy = dx / asp
+        return [cx - dx / 2, cx + dx / 2], [cy - dy / 2, cy + dy / 2]
+
+    allx = np.concatenate([Pind[:, 0], Pcoun[:, 0], Pm[:, 0]])
+    ally = np.concatenate([Pind[:, 1], Pcoun[:, 1], Pm[:, 1]])
+    xr, yr = _window(allx, ally, pad=0.06, asp=aspect)        # main: the whole map
+    mxr, myr = _window(Pm[:, 0], Pm[:, 1], pad=0.7, asp=1.0)  # minimap: zoom the model cluster
 
     fig = go.Figure()
-    # foundation loading arrows from origin (the compass rose, in-plot)
-    arrows = []
-    for j, lab in enumerate(FOUNDATIONS):
-        x, y = Ln[j]
-        arrows.append(dict(x=x, y=y, ax=0, ay=0, xref="x", yref="y",
-                           axref="x", ayref="y", showarrow=True, text="",
-                           arrowhead=2, arrowsize=1.1, arrowwidth=1.2,
-                           arrowcolor="#3a6b35", standoff=2))
-        fig.add_trace(go.Scatter(
-            x=[x * 1.08], y=[y * 1.08], mode="text", text=[lab.capitalize()],
-            textfont=dict(size=10, color="#3a6b35"), hoverinfo="skip", showlegend=False))
-    # trajectory line + round markers coloured by round order
+    # faint individual human cloud (3900 MFQ-2 respondents) -- the background spread
     fig.add_trace(go.Scatter(
-        x=P[:, 0], y=P[:, 1], mode="lines+markers+text",
-        line=dict(color=INK_FAINT, width=1.5),
-        marker=dict(size=12, color=list(range(n)), colorscale="Viridis",
-                    line=dict(color="white", width=1)),
-        text=labels, textposition="top center",
-        textfont=dict(size=9, color=INK),
-        hovertext=[f"{lab}" for lab in labels], hoverinfo="text", showlegend=False))
+        x=Pind[:, 0], y=Pind[:, 1], mode="markers",
+        marker=dict(size=3, color=C_CLOUD, opacity=0.28), hoverinfo="skip", showlegend=False))
+    # 19 country anchors, directly labelled (Tufte: no legend)
+    fig.add_trace(go.Scatter(
+        x=Pcoun[:, 0], y=Pcoun[:, 1], mode="markers+text", text=names,
+        textposition="top center", textfont=dict(size=9, color=C_COUNTRY_TXT),
+        marker=dict(size=11, color=C_COUNTRY, symbol="diamond", line=dict(color="white", width=1.0)),
+        hovertext=[f"{c} (human culture)" for c in names], hoverinfo="text", showlegend=False))
+    # model round markers (colour = round, light->dark); the per-round walk detail is
+    # in the minimap zoom, so on the main this is just the outlier cluster + a label.
+    fig.add_trace(go.Scatter(
+        x=Pm[:, 0], y=Pm[:, 1], mode="markers",
+        marker=dict(size=11, color=list(range(n)), colorscale=MODEL_SCALE,
+                    showscale=False, line=dict(color="white", width=1.0)),
+        hovertext=labels, hoverinfo="text", showlegend=False))
+    fig.add_trace(go.Scatter(
+        x=[float(Pm[:, 0].mean())], y=[float(Pm[:, 1].min())], mode="text", text=["model"],
+        textposition="bottom center", textfont=dict(size=11, color=INK),
+        hoverinfo="skip", showlegend=False))
 
-    rng = [-span * 1.25, span * 1.25]
+    # trajectory arrows between rounds, drawn in the MINIMAP (x3/y3) where the walk is
+    # legible; on the main the cluster is too small for them to read.
+    traj_arrows = [dict(x=Pm[i + 1, 0], y=Pm[i + 1, 1], ax=Pm[i, 0], ay=Pm[i, 1],
+                        xref="x3", yref="y3", axref="x3", ayref="y3", showarrow=True,
+                        text="", arrowhead=2, arrowsize=1.1, arrowwidth=1.3,
+                        arrowcolor=C_ARROW, standoff=4, startstandoff=4)
+                   for i in range(n - 1)]
+
+    # HUD panels along the BOTTOM: compass bottom-left, minimap bottom-right. Domain is
+    # a fraction of the plot area INSIDE the margins, so square-in-pixels needs the
+    # inner dims (not _FIG_W/_FIG_H) -- that was the not-square bug.
+    _PW, _PH = _FIG_W - _MARGIN["l"] - _MARGIN["r"], _FIG_H - _MARGIN["t"] - _MARGIN["b"]
+    iw, ih = 190 / _PW, 190 / _PH              # compass inset, square in px (bottom-left)
+    mw, mh = 210 / _PW, 210 / _PH              # minimap inset, square in px (bottom-right)
+    CX0, CY0 = 0.0, 0.0                         # compass flush bottom-left
+    MX0, MX1 = 1.0 - mw, 1.0                    # minimap flush bottom-right
+    MY0, MY1 = 0.0, mh
+
+    # --- inset compass rose (x2/y2, bottom-left) ---
+    # arrows keep TRUE loading magnitude (loyalty barely loads the PC1/PC2 plane, so
+    # its arrow is a stub -- that's honest), but each LABEL sits at the rim along the
+    # loading direction so short foundations (loyalty) stay readable.
+    L = Vt[:2].T
+    ROSE = 0.72  # shrink the rose (circle+arrows) inside the FIXED labels (1.16) so words don't overlap it
+    Lu = ROSE * L / (np.linalg.norm(L, axis=1).max() + 1e-9)        # arrows: scaled true magnitude
+    Ldir = L / (np.linalg.norm(L, axis=1, keepdims=True) + 1e-9)    # labels: unit direction (unchanged)
+    # stagger label radius by angular order so co-directional pairs (authority/fairness,
+    # loyalty/sanctity) don't stack on each other -- the only real compass clutter.
+    order = np.argsort(np.arctan2(Ldir[:, 1], Ldir[:, 0]))
+    radius = np.empty(len(order))
+    for rank, j in enumerate(order):
+        radius[j] = 1.16 if rank % 2 == 0 else 1.46
+    # parchment card (same colour as the map) with a beveled double-line border for a
+    # slightly embossed/raised look -- dark outer frame + light inner line.
+    fig.add_shape(type="rect", xref="x2", yref="y2", layer="below", x0=-1.78, y0=-1.78,
+                  x1=1.78, y1=1.78, fillcolor=PARCHMENT, line=dict(color=PANEL_FRAME, width=1.6))
+    fig.add_shape(type="rect", xref="x2", yref="y2", layer="below", x0=-1.66, y0=-1.66,
+                  x1=1.66, y1=1.66, fillcolor="rgba(0,0,0,0)", line=dict(color="#fdf6e3", width=1.0))
+    fig.add_shape(type="circle", x0=-ROSE, y0=-ROSE, x1=ROSE, y1=ROSE, xref="x2", yref="y2",
+                  line=dict(color=PANEL_FRAME, width=0.8))
+    fig.add_trace(go.Scatter(
+        x=Ldir[:, 0] * radius, y=Ldir[:, 1] * radius, mode="text",
+        text=[f.capitalize() for f in FND5],
+        textfont=dict(size=9, color=C_ROSE_TXT), xaxis="x2", yaxis="y2",
+        hoverinfo="skip", showlegend=False))
+    rose_arrows = [dict(x=Lu[j, 0], y=Lu[j, 1], ax=0, ay=0, xref="x2", yref="y2",
+                        axref="x2", ayref="y2", showarrow=True, text="",
+                        arrowhead=2, arrowsize=1.0, arrowwidth=1.3,
+                        arrowcolor=C_ROSE, standoff=1) for j in range(len(FND5))]
+
+    # --- minimap inset (x3/y3, top-right): ZOOM of the model cluster ---
+    # The tile is drawn on the x3/y3 axes (NOT paper) so the whole minimap paints as
+    # ONE crisp subplot OVER the main map; a paper-ref shape lands in the main draw
+    # order and gets washed by the parchment bg + grid. The model walk is a tiny blob
+    # on the full map, so this magnifies it: round markers + the traj arrows (added to
+    # x3/y3 above) make the round-to-round motion legible. A box on the MAIN marks it.
+    fig.add_shape(type="rect", xref="x3", yref="y3", layer="below",
+                  x0=mxr[0], y0=myr[0], x1=mxr[1], y1=myr[1],
+                  fillcolor=PARCHMENT, line=dict(color=PANEL_FRAME, width=1.6))
+    _bx, _by = 0.04 * (mxr[1] - mxr[0]), 0.04 * (myr[1] - myr[0])
+    fig.add_shape(type="rect", xref="x3", yref="y3", layer="below",
+                  x0=mxr[0] + _bx, y0=myr[0] + _by, x1=mxr[1] - _bx, y1=myr[1] - _by,
+                  fillcolor="rgba(0,0,0,0)", line=dict(color="#fdf6e3", width=1.0))
+    fig.add_trace(go.Scatter(
+        x=Pm[:, 0], y=Pm[:, 1], mode="markers",
+        marker=dict(size=9, color=list(range(n)), colorscale=MODEL_SCALE,
+                    showscale=False, line=dict(color="white", width=1.0)),
+        xaxis="x3", yaxis="y3", hoverinfo="skip", showlegend=False))
+    ends = [0, n - 1] if n > 1 else [0]
+    fig.add_trace(go.Scatter(
+        x=Pm[ends, 0], y=Pm[ends, 1], mode="text",
+        text=[("base " + labels[i] if i == 0 else labels[i]) for i in ends],
+        textposition="top center", textfont=dict(size=9, color=INK),
+        xaxis="x3", yaxis="y3", hoverinfo="skip", showlegend=False))
+    # the box on the MAIN map showing where this zoom sits (the model cluster region)
+    fig.add_shape(type="rect", x0=mxr[0], y0=myr[0], x1=mxr[1], y1=myr[1], xref="x", yref="y",
+                  line=dict(color=PANEL_FRAME, width=1.0), fillcolor="rgba(0,0,0,0)")
+
+    # grid whispers (layering): much lighter than the data, origin = cultural mean
+    GRID, ZERO = "rgba(45,24,16,0.09)", "rgba(45,24,16,0.20)"
+    titles = [
+        dict(xref="paper", yref="paper", xanchor="center", x=CX0 + iw / 2, y=CY0 + ih + 0.030,
+             showarrow=False, text="moral compass", font=dict(size=10, color=INK)),
+        dict(xref="paper", yref="paper", xanchor="center", x=(MX0 + MX1) / 2, y=MY1 + 0.030,
+             showarrow=False, text="model walk · zoom", font=dict(size=10, color=INK)),
+    ]
     fig.update_layout(
-        paper_bgcolor=PARCHMENT, plot_bgcolor=PARCHMENT,
+        paper_bgcolor=PARCHMENT, plot_bgcolor=PARCHMENT, showlegend=False,
         font=dict(family="Georgia, serif", color=INK),
-        width=_FIG_W, height=_FIG_H, margin=_MARGIN, annotations=arrows,
-        xaxis=dict(title=f"PC1 ({var[0]*100:.0f}% emphasis var) · binding(+) vs individualizing(-)",
-                   gridcolor=INK_FAINT, zeroline=True, zerolinecolor=INK_FAINT,
-                   range=rng, scaleanchor="y", scaleratio=1),
-        yaxis=dict(title=f"PC2 ({var[1]*100:.0f}%)", gridcolor=INK_FAINT,
-                   zeroline=True, zerolinecolor=INK_FAINT, range=rng),
+        width=_FIG_W, height=_FIG_H, margin=_MARGIN,
+        annotations=traj_arrows + rose_arrows + titles,
+        xaxis=dict(title=f"PC1 ({var[0]*100:.0f}% culture var) · {pc1_pos} (+) vs {pc1_neg} (-)",
+                   gridcolor=GRID, zeroline=True, zerolinecolor=ZERO, range=xr),
+        yaxis=dict(title=f"PC2 ({var[1]*100:.0f}%) · {pc2_pos} (+) vs {pc2_neg} (-)",
+                   gridcolor=GRID, zeroline=True, zerolinecolor=ZERO, range=yr),
+        xaxis2=dict(domain=[CX0, CX0 + iw], anchor="y2", range=[-1.8, 1.8], visible=False),
+        yaxis2=dict(domain=[CY0, CY0 + ih], anchor="x2", range=[-1.8, 1.8], visible=False),
+        xaxis3=dict(domain=[MX0, MX1], anchor="y3", range=mxr, visible=False),
+        yaxis3=dict(domain=[MY0, MY1], anchor="x3", range=myr, visible=False),
     )
-    d = np.diff(P, axis=0)
-    pc1_frac = float(np.abs(d[:, 0]).sum() / (np.abs(d).sum() + 1e-9))
+    d = np.diff(Pm, axis=0)
+    pc1_frac = float(np.abs(d[:, 0]).sum() / (np.abs(d).sum() + 1e-9)) if len(d) else float("nan")
     return fig, pc1_frac
 
 
-def _build_ipsative(rows: list[dict]) -> str:
-    fig, pc1_frac = _build_ipsative_fig(rows)
+def _build_ipsative(rows: list[dict], h_vec: np.ndarray | None = None) -> str:
+    fig, pc1_frac = _build_ipsative_fig(rows, h_vec)
     if fig is None:
-        return ('<div class="placeholder">ipsative compass needs ≥3 rounds with '
+        return ('<div class="placeholder">cultural map needs ≥1 round with '
                 'eval.json — not enough yet.</div>')
-    note = (f'<p class="intro">Path runs <b>{pc1_frac*100:.0f}%</b> along PC1. '
-            "Toward 100% = a monotone single-axis slide (the collapse signature); "
-            "a low value = genuine multi-axis motion. Basis is fit on this run's "
-            "own rounds, so read it as relative-emphasis structure, not absolute.</p>")
+    note = (f'<p class="intro">The model\'s path runs <b>{pc1_frac*100:.0f}%</b> along the '
+            "dominant axis (PC1); toward 100% = a monotone single-axis slide (the collapse "
+            "signature), lower = genuine multi-axis motion. The basis is fit on ~3900 "
+            "individual MFQ-2 respondents (19 countries, faint cloud); the country diamonds "
+            "are their per-country means, and the model rounds are projected in by emphasis "
+            "SHAPE (row-centred, unit-normed). MFQ-2's equality+proportionality are collapsed "
+            "to one fairness so the axes stay model-expressible; liberty is dropped (MFQ-2 has "
+            "none). The model lands a left-outlier off the human cloud -- it emphasises "
+            "care/fairness more than any culture, and that gap is the measurement.</p>")
     return note + fig.to_html(full_html=False, include_plotlyjs="cdn", div_id="ipsative")
 
 
@@ -876,7 +1068,7 @@ def main(cfg: Cfg) -> None:
         scatter_fig.write_image(slug_dir / "scatter.svg")
         scatter_html = scatter_fig.to_html(
             full_html=False, include_plotlyjs="cdn", div_id="scatter")
-    ipsative_html = _build_ipsative(rows)
+    ipsative_html = _build_ipsative(rows, h_vec)
     table_html = _build_table(rows)
 
     run_meta = json.loads((slug_dir / "run.json").read_text())
@@ -924,14 +1116,16 @@ judge, while the stronger student generates the candidate behavior. Code:
 <h2>Care vs Authority trajectory</h2>
 {scatter_html}
 <hr/>
-<h2>Ipsative emphasis compass (collapse detector)</h2>
+<h2>The model walking through the human cultural map</h2>
 <p class="intro">
-The scatter above pre-bakes one axis (Care vs Authority). This map instead
-row-centres each round's full 7-foundation profile to remove the overall
-endorsement level, then PCAs across rounds, so it shows which foundations the
-run is shifting <i>relative</i> to each other. A monotone slide along PC1 is the
-single-axis collapse the harness is designed to avoid; a wandering path is
-genuine multi-axis motion.
+The scatter above pre-bakes one axis (Care vs Authority). This map instead fits
+its axes on five human populations (Argentina, Colombia, Japan, Peru, US;
+moral-foundation survey means from Jimenez-Leal 2025 and peers), giving a fixed
+cultural frame. The model's round trajectory, the unsteered base, and the human
+vignette anchor are projected into that frame, so you can read where the model
+sits relative to human cultures and which way the steering walks it. PC1 is the
+dominant axis of cultural variation; a monotone slide along it is the single-axis
+collapse the harness is designed to avoid.
 </p>
 {ipsative_html}
 <hr/>
