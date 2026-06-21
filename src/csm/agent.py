@@ -33,7 +33,7 @@ from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           revert_round as _revert_round_pipeline,
                           select_pairs as _select_pairs_pipeline,
                           train_student as _train_student_pipeline,
-                          character_break_warning)
+                          character_break_warning, PAIR_REQUIRED_AXES)
 from csm.prompts import (AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
                          AFTER_TRAIN,
                          COMPACTION_INSTRUCTIONS, INITIAL_TASK,
@@ -82,7 +82,7 @@ def _format_validation_error(e: ValidationError) -> str:
 # ---------------------------------------------------------------------------
 
 MAX_SUBMIT_REJECTS = 3  # >3 rejects in one round → on_continue drops the round.
-MAX_DROPS = 12  # total drops in a run → abort the whole run (hard red line). A run
+MAX_DROPS = 20  # total drops in a run → abort the whole run (hard red line). A run
 # that drops this many times is unproductive; stop before it grinds GPU. Counts ANY
 # drop, not just broken-config gate_friction, so the task-139 grind (10 early_abort
 # learning-gate drops, never gate_friction) that the old streak check silently missed
@@ -632,22 +632,56 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
     # by the finer residual rungs, so the teacher climbs cares->behaves->wisdom by
     # construction. Deterministic in (seed, round) for replay.
     n = int(rd.name.replace("round", ""))
-    kept_axes = set()
-    for kd in kept_history_dirs(slug_path, before_round=n):
-        cfj = kd / "choose_focus_judgment.json"
-        if cfj.exists():
-            kept_axes.add(json.loads(cfj.read_text()).get("persona_pair_id"))
-    menu, seen = [], set()
+    # Per-axis scoreboard from THIS run's history: how often each axis was tried,
+    # kept, and its last own-movement. The teacher SELECTS on this data (an easy
+    # comparative judgment) instead of guessing -- the menu never hides or vetoes an
+    # option. Every measured axis is selectable; choose_focus no longer rejects an
+    # axis for lacking a curated scenario prior (it samples broadly there). (task-132:
+    # the old buildable-only filter turned 14 of 18 axes into phantom picks -> 9
+    # gate_friction drops; gates elicit judgment, never override it -- CLAUDE.md.)
+    axis_stats: dict[str, dict] = {}
+    for prev in sorted(slug_path.glob("round*")):
+        if int(prev.name.replace("round", "")) >= n:
+            continue
+        cfj, jd = prev / "choose_focus_judgment.json", prev / "judgment.json"
+        if not cfj.exists():
+            continue
+        pid = json.loads(cfj.read_text()).get("persona_pair_id")
+        st = axis_stats.setdefault(pid, {"tried": 0, "kept": 0, "last_move": None})
+        st["tried"] += 1
+        if jd.exists():
+            j = json.loads(jd.read_text())
+            if j.get("action") == "keep":
+                st["kept"] += 1
+            mv = j.get("movement_mean")
+            if isinstance(mv, (int, float)):
+                st["last_move"] = mv
+    seen, menu = set(), []
     for cell in cfg.persona_cells:
         pair_id = cell[2]
-        if pair_id in seen or pair_id in kept_axes:
+        if pair_id in seen:
             continue
         seen.add(pair_id)
-        menu.append((pair_id, cell[3], cell[4]))
+        s = axis_stats.get(pair_id, {})
+        menu.append((pair_id, cell[3], cell[4], float(cell[5]),
+                     s.get("tried", 0), s.get("kept", 0), s.get("last_move"),
+                     pair_id in PAIR_REQUIRED_AXES))
+    # Shuffle to break list-position bias, then sink already-kept axes to the bottom
+    # (re-steering a baked axis rarely moves the fixed PRE seat -- a freshness nudge,
+    # not a veto: a kept axis is still shown and still pickable by naming it).
     random.Random(cfg.seed * 1000 + n).shuffle(menu)
-    pair_rows = [f"  - {pid}: {pos} vs {neg}" for pid, pos, neg in menu]
-    pair_block = ("Measured persona pairs (shuffled; already-kept axes removed):\n"
-                  + "\n".join(pair_rows) + "\n" if pair_rows else "")
+    menu.sort(key=lambda m: m[5] > 0)
+    pair_rows = []
+    for pid, pos, neg, sep, tried, kept, lm, prior in menu:
+        lm_s = f"{lm:+.1f}" if lm is not None else "--"
+        prior_s = "curated scenes" if prior else "broad sample"
+        pair_rows.append(
+            f"  - {pid}: {pos} vs {neg}\n"
+            f"      [sep {sep:.0f} | tried {tried} kept {kept} lastΔ {lm_s} | {prior_s}]")
+    pair_block = (
+        "Measured persona pairs (pick by JUDGMENT using the scoreboard; sep = measured "
+        "axis separation 0-100, higher = more headroom; already-kept axes sink to the "
+        "bottom but stay pickable):\n" + "\n".join(pair_rows) + "\n" if pair_rows else "")
     prompt = INITIAL_TASK.format(
         round_n=n_keeps_now + 1, target_n=keep_target,
         round_dir=str(rd.relative_to(REPO)), model=model,
