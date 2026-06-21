@@ -2202,3 +2202,59 @@ action. This connects to the probe-diversity proposal (every current probe is an
 authority issuing a bad order -> all invite the same refusal/less-authority reflex).
 Result contributed back to persona-steering-template-library (PR #1).
 
+
+## 2026-06-21 -- job-132 post-mortem: the phantom-menu gate_friction bug, and removing it
+
+Job 132 (gemma-2-27b, qwen-9b teacher, 7-keep target, MAX_DROPS=12) ended 4 keeps /
+12 drops, hitting the drop cap. The headline: **9 of 12 drops were `gate_friction`**,
+and a cold-eyes /audit-run plus a code dive found the same root cause.
+
+The bug: `choose_focus` raised `ValidationError: no prompt-axis mapping for persona
+pair 'X'` (pipeline.py:855) for any pair lacking a `PAIR_REQUIRED_AXES` entry. That
+dict had only 5 keys, but the rotating menu (`persona_cells`) advertised ~18 axes.
+So 14 of 18 menu options were landmines. The teacher did exactly what the brief told
+it -- "pick the biggest-PRE-gap pair from the menu" -- kept landing on unmapped
+axes, and 4 rejects in a round force-dropped it as `gate_friction`. The teacher even
+diagnosed it in its own monologue: "Wait, refuse_power_grab is in the list. But the
+error says no prompt-axis mapping for it." The menu-expansion (tasks #16-18) added
+axes to `persona_cells` + `PAIR_BEHAVIOR_HINTS` (and a config validator guards THAT)
+but never to `PAIR_REQUIRED_AXES`, and no validator guarded the latter. The rotation
+worked perfectly -- which is why it failed so reliably: it handed the teacher a fresh
+dead axis every round.
+
+This was also a CLAUDE.md "gates elicit judgment, never override it" violation: a
+hard reject on a pick the teacher was invited to make. `required_axes` is a coarse
+scenario-tag prior (which pool tags a pair's training scenes should touch), not a
+99%-certain structural fact -- so it should FLAG, not veto.
+
+Fix (user chose "leave it to the teacher's judgement"):
+- pipeline.py: `required_axes = PAIR_REQUIRED_AXES.get(id, ())`. Absent -> no scenario
+  filter, sample broadly by headroom, let the teacher's per-candidate rating cull
+  off-axis pairs. Guarded the downstream scenario-axis assertion to fire only when a
+  prior exists. The sampler already treats empty required_axes as no-filter. (commit
+  073303b)
+- agent.py: the menu now shows EVERY measured axis with a per-axis scoreboard the
+  teacher SELECTS on -- `sep` (measured axis separation 0-100), this-run
+  tried/kept/lastDelta, and curated-scenes vs broad-sample. Already-kept axes sink to
+  the bottom but stay pickable (freshness nudge, not a veto). MAX_DROPS 12->20.
+  (commit 56eb59a)
+
+Gym (one round, real qwen-9b, fake student): scoreboard rendered correctly
+(`[sep 83 | tried 0 kept 0 lastΔ -- | curated scenes]`), and the teacher used it --
+picked wellbeing_authority (sep 83) over principled_expedient (sep 29). No reject, no
+crash. (The round early_aborted on boilerplate candidates, the known tiny-random
+fake-student artifact, not the change.)
+
+Also found, to study after the next run (NOT fixed, to keep attribution clean):
+- job-132's 4 keeps were only 2 distinct axes (autonomy_coercion x2,
+  fairness_integrity x2) -- the anti-collapse rotation failed for the same structural
+  reason (only ~3 of 5 mapped axes usable; principled_expedient won't generate
+  contrast on the strong student, r07 early_abort).
+- r06 (+0.17) and r08 (band_crossed but 2/3 seats reworded) were kept on NEGATIVE
+  held-out val_improvement -- weak paraphrase keeps the harness now only flags.
+- the scenario pool has only 10 axis tags (several sparse: power=3, honesty=2), so a
+  12-keep diverse target needs the pool retagged/expanded with OpenRouter validation
+  (task #29) -- a follow-up, not tonight's blocker.
+
+Queued job 134 (gemma-27b-3keep, 12-keep target, MAX_DROPS=20) on the fixed code.
+Killed job-132's eval phase (agent loop already done + audited) to free the GPU.
