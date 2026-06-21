@@ -401,6 +401,107 @@ def _build_scatter(rows: list[dict], h_vec: np.ndarray) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Ipsative-emphasis compass (collapse detector)
+# ---------------------------------------------------------------------------
+# Method ported from wassname/mft_honesty/src/mft_honesty/mapviz.py. The
+# Care-vs-Authority scatter above pre-bakes ONE axis; this map row-centres each
+# round's 7-foundation mean_p (subtract its own mean -> remove the overall
+# endorsement / acquiescence level that otherwise dominates PC1 and makes
+# care/authority collinear), then PCAs across rounds. Read it as a COLLAPSE
+# DETECTOR: if every round marches the same way along PC1, the loop is sliding one
+# direction (the "less-authority reflex" CLAUDE.md fears); a wandering path is
+# genuine multi-axis motion. Basis is fit on THIS run's own rounds, so it is a
+# within-run relative-emphasis trajectory, not a culture map. Shared numpy core,
+# also used by scripts/ipsative_compass.py (the CLI/matplotlib PNG renderer).
+
+def ipsative_pca(M: np.ndarray, k: int = 2):
+    """Row-centre each round's foundation vector, then PCA across rounds.
+    Returns (P [rounds x k coords], Vt [components x foundations loadings],
+    var [explained-variance fraction per component])."""
+    K = M.shape[1]
+    Pc = np.eye(K) - np.ones((K, K)) / K  # row-centring operator
+    Mc = (M @ Pc) - (M @ Pc).mean(axis=0)
+    _, S, Vt = np.linalg.svd(Mc, full_matrices=False)
+    var = (S**2) / (S**2).sum()
+    P = Mc @ Vt[:k].T
+    return P, Vt, var
+
+
+def _build_ipsative_fig(rows: list[dict]) -> tuple[go.Figure | None, float]:
+    """Plotly version of the ipsative compass: round trajectory in relative-
+    emphasis PC space + foundation loading arrows. Returns (fig, pc1_path_frac)
+    where pc1_path_frac -> 1.0 means a monotone single-axis slide (collapse)."""
+    labels, vecs = [], []
+    for r in rows:
+        if r["pre_vec"] is not None:
+            labels.append(f"r{r['round_n']:02d}")
+            vecs.append(r["pre_vec"])
+    if len(vecs) < 3:
+        return None, float("nan")
+    M = np.array(vecs)
+    P, Vt, var = ipsative_pca(M, k=2)
+    # orient PC1 so binding foundations (loyalty/authority/sanctity) point +PC1
+    binding = [FOUNDATIONS.index(f) for f in ("loyalty", "authority", "sanctity")]
+    if Vt[0, binding].mean() < 0:
+        Vt[0], P[:, 0] = -Vt[0], -P[:, 0]
+
+    n = len(P)
+    span = float(np.abs(P).max()) or 1e-9
+    # loading arrows scaled to ~70% of the point-cloud span
+    L = Vt[:2].T
+    Ln = L / (np.linalg.norm(L, axis=1).max() + 1e-9) * span * 0.7
+
+    fig = go.Figure()
+    # foundation loading arrows from origin (the compass rose, in-plot)
+    arrows = []
+    for j, lab in enumerate(FOUNDATIONS):
+        x, y = Ln[j]
+        arrows.append(dict(x=x, y=y, ax=0, ay=0, xref="x", yref="y",
+                           axref="x", ayref="y", showarrow=True, text="",
+                           arrowhead=2, arrowsize=1.1, arrowwidth=1.2,
+                           arrowcolor="#3a6b35", standoff=2))
+        fig.add_trace(go.Scatter(
+            x=[x * 1.08], y=[y * 1.08], mode="text", text=[lab.capitalize()],
+            textfont=dict(size=10, color="#3a6b35"), hoverinfo="skip", showlegend=False))
+    # trajectory line + round markers coloured by round order
+    fig.add_trace(go.Scatter(
+        x=P[:, 0], y=P[:, 1], mode="lines+markers+text",
+        line=dict(color=INK_FAINT, width=1.5),
+        marker=dict(size=12, color=list(range(n)), colorscale="Viridis",
+                    line=dict(color="white", width=1)),
+        text=labels, textposition="top center",
+        textfont=dict(size=9, color=INK),
+        hovertext=[f"{lab}" for lab in labels], hoverinfo="text", showlegend=False))
+
+    rng = [-span * 1.25, span * 1.25]
+    fig.update_layout(
+        paper_bgcolor=PARCHMENT, plot_bgcolor=PARCHMENT,
+        font=dict(family="Georgia, serif", color=INK),
+        width=_FIG_W, height=_FIG_H, margin=_MARGIN, annotations=arrows,
+        xaxis=dict(title=f"PC1 ({var[0]*100:.0f}% emphasis var) · binding(+) vs individualizing(-)",
+                   gridcolor=INK_FAINT, zeroline=True, zerolinecolor=INK_FAINT,
+                   range=rng, scaleanchor="y", scaleratio=1),
+        yaxis=dict(title=f"PC2 ({var[1]*100:.0f}%)", gridcolor=INK_FAINT,
+                   zeroline=True, zerolinecolor=INK_FAINT, range=rng),
+    )
+    d = np.diff(P, axis=0)
+    pc1_frac = float(np.abs(d[:, 0]).sum() / (np.abs(d).sum() + 1e-9))
+    return fig, pc1_frac
+
+
+def _build_ipsative(rows: list[dict]) -> str:
+    fig, pc1_frac = _build_ipsative_fig(rows)
+    if fig is None:
+        return ('<div class="placeholder">ipsative compass needs ≥3 rounds with '
+                'eval.json — not enough yet.</div>')
+    note = (f'<p class="intro">Path runs <b>{pc1_frac*100:.0f}%</b> along PC1. '
+            "Toward 100% = a monotone single-axis slide (the collapse signature); "
+            "a low value = genuine multi-axis motion. Basis is fit on this run's "
+            "own rounds, so read it as relative-emphasis structure, not absolute.</p>")
+    return note + fig.to_html(full_html=False, include_plotlyjs="cdn", div_id="ipsative")
+
+
+# ---------------------------------------------------------------------------
 # Timeline table
 # ---------------------------------------------------------------------------
 
@@ -775,6 +876,7 @@ def main(cfg: Cfg) -> None:
         scatter_fig.write_image(slug_dir / "scatter.svg")
         scatter_html = scatter_fig.to_html(
             full_html=False, include_plotlyjs="cdn", div_id="scatter")
+    ipsative_html = _build_ipsative(rows)
     table_html = _build_table(rows)
 
     run_meta = json.loads((slug_dir / "run.json").read_text())
@@ -821,6 +923,17 @@ judge, while the stronger student generates the candidate behavior. Code:
 </p>
 <h2>Care vs Authority trajectory</h2>
 {scatter_html}
+<hr/>
+<h2>Ipsative emphasis compass (collapse detector)</h2>
+<p class="intro">
+The scatter above pre-bakes one axis (Care vs Authority). This map instead
+row-centres each round's full 7-foundation profile to remove the overall
+endorsement level, then PCAs across rounds, so it shows which foundations the
+run is shifting <i>relative</i> to each other. A monotone slide along PC1 is the
+single-axis collapse the harness is designed to avoid; a wandering path is
+genuine multi-axis motion.
+</p>
+{ipsative_html}
 <hr/>
 <h2>Timeline</h2>
 {table_html}

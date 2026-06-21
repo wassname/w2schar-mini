@@ -35,22 +35,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-FOUNDATIONS = ["care", "fairness", "loyalty", "authority", "sanctity", "liberty", "social"]
-
-
-def row_centre_op(K: int) -> np.ndarray:
-    return np.eye(K) - np.ones((K, K)) / K
-
-
-def ipsative_pca(M: np.ndarray, k: int = 2):
-    Pc = row_centre_op(M.shape[1])
-    Mp = M @ Pc
-    mu = Mp.mean(axis=0)
-    Mc = Mp - mu
-    _, S, Vt = np.linalg.svd(Mc, full_matrices=False)
-    var = (S**2) / (S**2).sum()
-    P = Mc @ Vt[:k].T
-    return P, Vt, var, mu, Pc
+# Shared numpy core, single source of the PCA math. csm.plot also imports it for
+# the inline-plotly compass in index.html; this script is the CLI/PNG renderer.
+from csm.plot import FOUNDATIONS, ipsative_pca
 
 
 def _round_vectors(slug: Path) -> tuple[list[str], np.ndarray]:
@@ -71,7 +58,7 @@ def main(slug: Path) -> None:
     labels, M = _round_vectors(slug)
     if len(M) < 3:
         raise ValueError(f"need >=3 rounds with eval.json, found {len(M)}")
-    P, Vt, var, mu, Pc = ipsative_pca(M, k=2)
+    P, Vt, var = ipsative_pca(M, k=2)
     # orient PC1 so binding foundations (loyalty/authority/sanctity) point +PC1
     binding = [FOUNDATIONS.index(f) for f in ("loyalty", "authority", "sanctity")]
     if Vt[0, binding].mean() < 0:
