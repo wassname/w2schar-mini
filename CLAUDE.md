@@ -176,7 +176,8 @@ schema MUST be exercised in the prompt gym before it's considered done:
 just smoke-prompts 1   # real teacher (OpenRouter), stubbed student, ~1 min/round
 ```
 
-The gym hits the real OpenRouter teacher and costs real money (~$10/round). So
+The gym hits the real OpenRouter teacher and costs real money (~$2/round, down
+from ~$10 after prompt slimming). So
 BATCH every pending brief edit and run the gym ONCE, then READ what it produced.
 Running it N times and reporting "gym passed Nx" without reading the artifacts is
 worthless AND expensive -- the run is only "verified" once you have read the
