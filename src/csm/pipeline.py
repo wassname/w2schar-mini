@@ -1829,7 +1829,13 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
     # adapter exists), not a quality veto -- it never flips keep<->drop and never
     # blocks the round, it only asks the teacher to SHOW the numbers it judged on.
     trained = (round_dir / "calibration.json").exists()
-    have = bool(pre_frozen) and bool(post_scores)
+    # POST is only real if an adapter physically exists -- a non-trained abort has
+    # no POST model, so any post_scores the teacher pastes there are imagined. Gate
+    # `have` on `trained` so such a round drops as `early_abort`, not `no_movement`
+    # (task-123 r06: aborted at the candidate stage with no calibration.json, yet
+    # passed post={2.45,...} and was mislabelled no_movement). Symmetric to the
+    # trained-and-not-have raise below: both key the label off the structural fact.
+    have = trained and bool(pre_frozen) and bool(post_scores)
     if trained and not have:
         if not pre_frozen:
             raise ValidationError(
