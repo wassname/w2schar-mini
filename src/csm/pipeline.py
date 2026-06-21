@@ -850,11 +850,14 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
     pre_seat_evidence = _validate_seat_evidence(pre_seat_evidence, _P1_PROBE_IDS)
     selected_pair, active_persona_cells = _select_persona_cells(cfg, persona_pair_id)
     axis = f"{selected_pair['pos']} vs {selected_pair['neg']}"
-    required_axes = PAIR_REQUIRED_AXES.get(selected_pair["id"])
-    if required_axes is None:
-        raise ValidationError(
-            f"choose_focus: no prompt-axis mapping for persona pair {selected_pair['id']!r}"
-        )
+    # A curated scenario-axis prior (which pool tags this pair's training scenes
+    # must touch) when one exists, else NO filter -> sample broadly by headroom and
+    # let the teacher's per-candidate rating cull off-axis pairs. The old behaviour
+    # (raise "no prompt-axis mapping" for any unmapped pair) was the task-132
+    # gate_friction landmine: it hard-blocked 14 of 18 menu axes the teacher was
+    # invited to pick, overriding its judgment. Gates elicit judgment, never override
+    # it (CLAUDE.md) -- so an absent prior FLAGS (broad sampling), it never vetoes.
+    required_axes = PAIR_REQUIRED_AXES.get(selected_pair["id"], ())
     forbidden_axes = PAIR_FORBIDDEN_AXES.get(selected_pair["id"], ())
     n = int(round_dir.name.replace("round", ""))
     # Axis-diversification nudge: a measured pair that was just steered rarely moves
@@ -884,7 +887,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         validated_only=cfg.restrict_validated_prompts,
     )
     prompts = [r["text"] for r in scenario_rows]
-    if not all(set(row.get("axes", ())) & set(required_axes) for row in scenario_rows):
+    if required_axes and not all(set(row.get("axes", ())) & set(required_axes) for row in scenario_rows):
         raise AssertionError(
             f"scenario sampling ignored required_axes={required_axes} for "
             f"persona_pair_id={selected_pair['id']}"
