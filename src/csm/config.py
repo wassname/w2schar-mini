@@ -109,6 +109,15 @@ class RunConfig:
     persona_templates: tuple[str, ...] = (
         "Act as a {persona} person would in this situation.",
     )
+    # The teacher's axis MENU: each distinct axis_id (3rd field) is one persona
+    # pair the teacher can pick in choose_focus. Cells = (id, template, axis_id,
+    # pos_descriptor, neg_descriptor, score, on_axis, off_axis); score/on/off are
+    # MEASURED by scripts/validate_persona_axes_openrouter.py (blinded A/B judge).
+    # To GROW the menu: add axes to that script's *_AXES dicts (LADDER_AXES has the
+    # residual rungs + sources), re-run --axes all, bake the cleanest survivors
+    # here. Sources for more axes: docs/personas_kept.md (39 kept on >4B), the
+    # persona-steering skill references, character_inspirations.md, and the
+    # Forethought Appendix-2 behaviour catalogue.
     persona_cells: tuple[tuple[int, str, str, str, str, float, float, float], ...] = (
         (
             1,
