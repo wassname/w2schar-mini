@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import sys
 from pathlib import Path
 
@@ -624,16 +625,29 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
                    if prior_focus else "")
     feedback_block = (f"\nPRIOR ROUND'S `harness_feedback`:\n  {prior_feedback}\n"
                       if prior_feedback else "")
-    pair_rows = []
-    seen = set()
+    # Rotating axis menu: drop axes already KEPT (baked -- re-steering a baked axis
+    # rarely moves the fixed PRE seat) and SHUFFLE the rest per round so list
+    # position does not pin the teacher to the top (task-123 sat on 3 coarse axes).
+    # As the coarse rungs get kept and removed, the shuffled remainder is dominated
+    # by the finer residual rungs, so the teacher climbs cares->behaves->wisdom by
+    # construction. Deterministic in (seed, round) for replay.
+    n = int(rd.name.replace("round", ""))
+    kept_axes = set()
+    for kd in kept_history_dirs(slug_path, before_round=n):
+        cfj = kd / "choose_focus_judgment.json"
+        if cfj.exists():
+            kept_axes.add(json.loads(cfj.read_text()).get("persona_pair_id"))
+    menu, seen = [], set()
     for cell in cfg.persona_cells:
         pair_id = cell[2]
-        if pair_id in seen:
+        if pair_id in seen or pair_id in kept_axes:
             continue
         seen.add(pair_id)
-        pair_rows.append(f"  - {pair_id}: {cell[3]} vs {cell[4]}")
-    pair_block = ("Measured persona pairs for this run:\n" + "\n".join(pair_rows) + "\n"
-                  if pair_rows else "")
+        menu.append((pair_id, cell[3], cell[4]))
+    random.Random(cfg.seed * 1000 + n).shuffle(menu)
+    pair_rows = [f"  - {pid}: {pos} vs {neg}" for pid, pos, neg in menu]
+    pair_block = ("Measured persona pairs (shuffled; already-kept axes removed):\n"
+                  + "\n".join(pair_rows) + "\n" if pair_rows else "")
     prompt = INITIAL_TASK.format(
         round_n=n_keeps_now + 1, target_n=keep_target,
         round_dir=str(rd.relative_to(REPO)), model=model,
