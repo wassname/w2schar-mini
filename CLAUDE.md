@@ -94,11 +94,14 @@ blind, funnel short->open), applied to the teacher's OWN judging.
 
 ## Probing for character, not performance (the core measurement lesson)
 
-Character is the depth and wisdom of moral reasoning, NOT which action the model
-picks. So never conclude "no headroom" from a surface behaviour: any model,
-however small and corporate, has room to reason more wisely -- to notice who is
-affected, weigh the real tradeoff, name the principle, hold a view under
-pressure. If a probe shows no movement, the PROBE is almost always the underpowered
+Character is moral reasoning demonstrated as action or behaviour, not signaling.
+The action matters -- but two models can take the same right action, and the one
+that noticed who is affected, weighed the real tradeoff, named the principle, and
+held it under pressure shows more character. So the residual headroom is in HOW
+the right thing is done, not whether the box is ticked. Never conclude "no
+headroom" from a surface behaviour: any model, however small and corporate, has
+room to act more wisely -- to notice who is affected, weigh the real tradeoff,
+name the principle, hold a view under pressure. If a probe shows no movement, the PROBE is almost always the underpowered
 part, not the student. There is essentially always headroom; a flat reading means
 the measurement could not resolve it.
 
