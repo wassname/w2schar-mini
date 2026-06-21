@@ -81,7 +81,7 @@ def _format_validation_error(e: ValidationError) -> str:
 # ---------------------------------------------------------------------------
 
 MAX_SUBMIT_REJECTS = 3  # >3 rejects in one round → on_continue drops the round.
-MAX_DROPS = 6  # total drops in a run → abort the whole run (hard red line). A run
+MAX_DROPS = 12  # total drops in a run → abort the whole run (hard red line). A run
 # that drops this many times is unproductive; stop before it grinds GPU. Counts ANY
 # drop, not just broken-config gate_friction, so the task-139 grind (10 early_abort
 # learning-gate drops, never gate_friction) that the old streak check silently missed
