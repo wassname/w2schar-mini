@@ -863,8 +863,9 @@ CONFIGS["gemma-4b-discern"] = replace(
 # score/on/off are DISPLAY metadata the teacher sees when rating (pipeline.py:596).
 # _build_teacher_prompt shuffles this menu per round and drops already-kept axes,
 # so the teacher climbs cares->behaves->pressure->wisdom->win-win as coarse rungs
-# saturate. The 3 held-out _1p seats stay wellbeing/fairness/autonomy (the lens
-# the teacher scores each training axis through).
+# saturate. The 4 held-out _1p seats are first-person AI action probes
+# (elder_isolation/comfort_fraud/proctor_witness/confidant_duty) -- the lens the
+# teacher scores each training axis through.
 CONFIGS["gemma-27b-3keep"] = replace(
     CONFIGS["gemma-4b-3keep"],
     model="google/gemma-2-27b-it",

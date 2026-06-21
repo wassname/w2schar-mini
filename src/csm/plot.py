@@ -135,8 +135,9 @@ def _persona_fields(round_dir: Path) -> dict[str, str]:
 def _round_probes(round_dir: Path) -> list[dict]:
     """Every interview probe (id, opening prompt, pre + post first assistant reply)
     for the round, in interview order. Drives the per-round probe dropdown so the
-    reader can switch between the fixed held-out seats (wellbeing_authority_1p,
-    fairness_integrity_1p, autonomy_coercion_1p, plus the _3p action twins)."""
+    reader can switch between the fixed held-out seats (elder_isolation_1p,
+    comfort_fraud_1p, proctor_witness_1p, confidant_duty_1p, plus the _3p
+    judgment twins)."""
     pre = _read_probes(round_dir, "pre")
     post = _read_probes(round_dir, "post")
     ids = list(pre.keys()) or list(post.keys())
