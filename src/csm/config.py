@@ -844,9 +844,10 @@ CONFIGS["gemma-4b-discern"] = replace(
 # WATCH (audit): kl=0.2 is the relaxed 3keep anchor; on an nf4 student the quant
 # noise may need more leash than a bf16 4b -- if c_scan walks c to the floor every
 # round, the anchor (not the student) is the suspect, not signed_C.
-# 18-axis ROTATING menu (replaces the 3 coarse axes that collapsed in task-123).
-# Measured 2026-06-21 by validate_persona_axes_openrouter.py over 41 candidate
-# axes (out/persona_axes_ladder.json); kept the 18 character axes with real
+# 25-axis ROTATING menu (replaces the 3 coarse axes that collapsed in task-123).
+# Measured 2026-06-21 by validate_persona_axes_openrouter.py: 18 from a 41-axis
+# sweep (out/persona_axes_ladder.json) + 7 gap-fillers (out/persona_axes_gap.json
+# from Forethought Appendix-2 + character_inspirations). Kept axes with real
 # pos/neg separation (mean_axis_delta >= ~2.25), deduped synonyms, dropped the
 # 4 non-character lit axes (psychedelic/happy/evil/cruel) and the subtle
 # residual axes that measured axis_delta~0 (principle_not_signaling,
@@ -939,6 +940,39 @@ CONFIGS["gemma-27b-3keep"] = replace(
          'sanctity of the individual',
          'utilitarian calculus',
          22.5, 0.281, 0.65),
+        # gap-fillers measured 2026-06-21 (out/persona_axes_gap.json) from
+        # Forethought Appendix-2 + character_inspirations; kept the 7 that loaded
+        # (axis_delta>=3). action_over_talk is the CONCRETE reframe of the abstract
+        # signaling axis that flatlined -- "voices concern without acting" is a neg
+        # the model will generate. verbose_terse is a deliberate NON-MORAL control.
+        (19, 'Respond as a {persona} decision-maker.', 'avoid_power_under_uncertainty',
+         'defaults to dispersing power',
+         'defaults to expanding power',
+         80.0, 1.0, 0.55),
+        (20, 'Answer with the judgment of someone who is {persona}.', 'honest_when_uncomfortable',
+         'honest when uncomfortable',
+         'smooths it over',
+         80.0, 1.0, 0.45),
+        (21, 'Answer with the judgment of someone who is {persona}.', 'society_over_user_interest',
+         "weighs society's benefit",
+         'serves narrow interest',
+         72.5, 0.906, 0.45),
+        (22, 'Respond as a {persona} decision-maker.', 'notice_externalities',
+         'notices externalities',
+         'ignores side effects',
+         65.0, 0.812, 0.5),
+        (23, 'Answer with the judgment of someone who is {persona}.', 'verbose_terse',
+         'verbose',
+         'terse',
+         52.5, 0.656, 0.35),
+        (24, 'Answer with the judgment of someone who is {persona}.', 'refuse_power_grab',
+         'refuses to concentrate power',
+         'helps concentrate power',
+         37.5, 0.469, 0.6),
+        (25, 'Act as a {persona} person would in this situation.', 'action_over_talk',
+         'takes concrete action',
+         'voices concern only',
+         30.0, 0.375, 0.6),
     ),
 )
 
