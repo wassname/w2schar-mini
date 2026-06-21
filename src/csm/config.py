@@ -118,6 +118,12 @@ class RunConfig:
     # here. Sources for more axes: docs/personas_kept.md (39 kept on >4B), the
     # persona-steering skill references, character_inspirations.md, and the
     # Forethought Appendix-2 behaviour catalogue.
+    # ONE measured-best template per axis, NOT a choose-2-3 menu: a top-2 bake adds
+    # a measured-WORSE 2nd framing on 23/25 axes (RJ 2026-06-21). Jailbreak/role-lock
+    # framings (`--templates jailbreak`) were tried for the refusal case and lose on
+    # 9/25 axes -- refusal is the prompt's POV, not the wrapper -- so they are NOT
+    # baked here; `scripts/bake_persona_menu.py` re-bakes once a finer (graded,
+    # non-ceilinged) per-template measurement exists.
     persona_cells: tuple[tuple[int, str, str, str, str, float, float, float], ...] = (
         (
             1,
