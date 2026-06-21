@@ -110,7 +110,7 @@ def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict:
         "next_focus": judgment.get("next_focus", ""),
         "harness_feedback": judgment.get("harness_feedback", ""),
         **_persona_fields(round_dir),
-        **_first_probe_fields(round_dir),
+        "probes": _round_probes(round_dir),
     }
 
 
@@ -131,34 +131,35 @@ def _persona_fields(round_dir: Path) -> dict[str, str]:
     }
 
 
-def _first_probe_fields(round_dir: Path) -> dict[str, str | None]:
-    """Extract the first probe id, first user prompt, and first assistant
-    replies from interview_pre/post.json."""
-    probe_pre = _read_first_probe(round_dir, "pre")
-    probe_post = _read_first_probe(round_dir, "post")
-    return {
-        "probe_id": (probe_pre or probe_post or {}).get("id"),
-        "probe_prompt": (probe_pre or probe_post or {}).get("prompt"),
-        "probe_pre": (probe_pre or {}).get("answer"),
-        "probe_post": (probe_post or {}).get("answer"),
-    }
+def _round_probes(round_dir: Path) -> list[dict]:
+    """Every interview probe (id, opening prompt, pre + post first assistant reply)
+    for the round, in interview order. Drives the per-round probe dropdown so the
+    reader can switch between the fixed held-out seats (wellbeing_authority_1p,
+    fairness_integrity_1p, autonomy_coercion_1p, plus the _3p action twins)."""
+    pre = _read_probes(round_dir, "pre")
+    post = _read_probes(round_dir, "post")
+    ids = list(pre.keys()) or list(post.keys())
+    return [{
+        "id": pid,
+        "prompt": (pre.get(pid) or post.get(pid) or {}).get("prompt", ""),
+        "pre": (pre.get(pid) or {}).get("answer"),
+        "post": (post.get(pid) or {}).get("answer"),
+    } for pid in ids]
 
 
-def _read_first_probe(round_dir: Path, phase: str) -> dict[str, str] | None:
-    """Return the first probe's id, opening user turn, and first assistant reply."""
+def _read_probes(round_dir: Path, phase: str) -> dict[str, dict]:
+    """id -> {prompt, answer} for the opening user turn + first assistant reply."""
     path = round_dir / f"interview_{phase}.json"
     if not path.exists():
-        return None
+        return {}
     d = json.loads(path.read_text())
-    probes = d.get("probes", [])
-    if not probes:
-        return None
-    probe = probes[0]
-    prompt = next((t.get("text", "") for t in probe.get("turns", [])
-                   if t.get("role") == "user"), "")
-    answer = next((t.get("text", "") for t in probe.get("turns", [])
-                   if t.get("role") == "assistant"), "")
-    return {"id": probe.get("id", ""), "prompt": prompt, "answer": answer}
+    out = {}
+    for probe in d.get("probes", []):
+        turns = probe.get("turns", [])
+        prompt = next((t.get("text", "") for t in turns if t.get("role") == "user"), "")
+        answer = next((t.get("text", "") for t in turns if t.get("role") == "assistant"), "")
+        out[probe.get("id", "")] = {"prompt": prompt, "answer": answer}
+    return out
 
 
 def _load_rounds(slug_dir: Path) -> list[dict]:
@@ -442,16 +443,11 @@ def _delta_str(post_vec, pre_vec, idx) -> str:
     return f"{d:+.3f}"
 
 
-def _probe_title(row: dict) -> str:
-    probe_id = row.get("probe_id")
-    prompt = row.get("probe_prompt")
-    if probe_id and prompt:
-        return f"{probe_id} — {_prompt_excerpt(prompt)}"
-    if probe_id:
-        return str(probe_id)
-    if prompt:
-        return _prompt_excerpt(prompt)
-    return "interview probe"
+def _probe_title(probe: dict) -> str:
+    pid, prompt = probe.get("id"), probe.get("prompt")
+    if pid and prompt:
+        return f"{pid} — {_prompt_excerpt(prompt)}"
+    return str(pid) or (_prompt_excerpt(prompt) if prompt else "interview probe")
 
 
 def _prompt_excerpt(prompt: str) -> str:
@@ -494,7 +490,8 @@ def _build_table(rows: list[dict]) -> str:
 </tr>"""
 
     body_rows = [base_row]
-    prev_probe_post = None
+    prev_post_by_id: dict[str, str | None] = {}  # cross-round diff, per probe id
+    probe_ids: list[str] = []  # union across rounds, for the dropdown options
     for r in rows:
         action = r["action"] or "?"
         action_cls = "keep" if action == "keep" else ("drop" if action == "drop" else "")
@@ -508,9 +505,22 @@ def _build_table(rows: list[dict]) -> str:
         x_attr = f"{x:.6f}" if x is not None else ""
         x_post_attr = f"{x_post:.6f}" if x_post is not None else ""
 
-        probe_title = _probe_title(r)
-        probe_pre_html = _answer_diff(r["probe_pre"], prev_probe_post)
-        probe_post_html = _answer_diff(r["probe_post"], r["probe_pre"])
+        probe_cells = []
+        for p in r["probes"]:
+            if p["id"] not in probe_ids:
+                probe_ids.append(p["id"])
+            pre_html = _answer_diff(p["pre"], prev_post_by_id.get(p["id"]))
+            post_html = _answer_diff(p["post"], p["pre"])
+            probe_cells.append(f"""<div class="probe-cell" data-probe-id="{_escape(p['id'])}">
+    <div class="field"><span class="label">probe</span><span class="value">{_escape(_probe_title(p))}</span></div>
+    <div class="field"><span class="label">pre answer</span></div>
+    <div class="petrov">{pre_html}</div>
+    <div class="field"><span class="label">post answer</span></div>
+    <div class="petrov">{post_html}</div>
+  </div>""")
+        for p in r["probes"]:
+            prev_post_by_id[p["id"]] = p["post"] or p["pre"]
+        probe_html = "".join(probe_cells) or '<span class="muted">no interview</span>'
 
         body_rows.append(f"""
 <tr class="row {action_cls}" data-round="{r['round_n']}"
@@ -532,18 +542,15 @@ def _build_table(rows: list[dict]) -> str:
     <div class="field"><span class="label">Δ authority</span><span class="value mono">{d_auth}</span></div>
     <div class="field"><span class="label">Δ care</span><span class="value mono">{d_care}</span></div>
   </td>
-  <td class="petrov-col">
-    <div class="field"><span class="label">probe</span><span class="value">{_escape(probe_title)}</span></div>
-    <div class="field"><span class="label">pre answer</span></div>
-    <div class="petrov">{probe_pre_html}</div>
-    <div class="field"><span class="label">post answer</span></div>
-    <div class="petrov">{probe_post_html}</div>
-  </td>
+  <td class="petrov-col">{probe_html}</td>
 </tr>""")
 
-        prev_probe_post = r["probe_post"] or r["probe_pre"]
-
-    return f"""<table class="timeline">
+    options = "".join(f'<option value="{_escape(pid)}">{_escape(pid)}</option>'
+                      for pid in probe_ids)
+    select = (f'<label class="probe-pick">seat '
+              f'<select id="probe-select">{options}</select></label>') if probe_ids else ""
+    return f"""{select}
+<table class="timeline">
 <thead><tr>
   <th>graph (← less ▸ more authority deference →)</th>
   <th>round</th><th>axis / personas / lesson</th>
@@ -605,6 +612,12 @@ _CSS = """
                  border-radius: 4px; color: #6b5634; font-style: italic; }
   .placeholder code { background: #fff; padding: 1px 6px; border-radius: 3px;
                       font-style: normal; }
+  .probe-pick { font-size: 12px; color: #777; text-transform: uppercase;
+                letter-spacing: .06em; margin: 0 4px 8px; display: inline-block; }
+  .probe-pick select { font-family: inherit; font-size: 13px; margin-left: 4px;
+                       text-transform: none; letter-spacing: 0; }
+  .probe-cell { display: none; }
+  .probe-cell.show { display: block; }
 </style>
 """
 
@@ -707,6 +720,19 @@ _HOVER_JS = """
   window.addEventListener('load', function() {
     drawGraph();
     setTimeout(drawGraph, 200);  // re-draw after font/layout shifts
+  });
+
+  // ── probe dropdown: show one interview seat across all rounds ──────────────
+  function showProbe(pid) {
+    document.querySelectorAll('.probe-cell').forEach(function(c) {
+      c.classList.toggle('show', c.dataset.probeId === pid);
+    });
+  }
+  window.addEventListener('load', function() {
+    var sel = document.getElementById('probe-select');
+    if (!sel) return;
+    showProbe(sel.value);
+    sel.addEventListener('change', function() { showProbe(sel.value); });
   });
 
   // ── Scatter hover → table-row highlight (NO auto-scroll — disorientating)
