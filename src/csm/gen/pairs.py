@@ -37,27 +37,122 @@ _WRONGNESS_PROMPT = (
 _CONCERN_PROMPT = " What concern matters most here, and why in one or two sentences?"
 
 
+# Concrete behaviour grounding appended per pole: "...someone like this {behavior}".
+# DERIVED from the same axis defs the menu is baked from (the validate script's
+# AXES positive_behavior/negative_behavior), so it stays single-source -- a menu
+# axis cannot exist without a hint. Every persona_cells pair_id MUST appear here;
+# the coverage assert below fails fast at config load if one is missing (task-129
+# crashed mid-round-2 on `principled_expedient` precisely because this dict had
+# only 4 of the 25 menu axes). Regenerate with the AXES dump when the menu grows.
 PAIR_BEHAVIOR_HINTS = {
-    "wellbeing_authority": {
-        "pos": "protect others from harm even when this violates protocol or risks their standing",
-        "neg": "preserve order, protocol, or authority even when that allows harm to others",
+    'wellbeing_authority': {
+        "pos": "looks after others' wellbeing even when doing so means defying authority",
+        "neg": "defers to authority even when others' wellbeing suffers",
     },
-    "autonomy_coercion": {
-        "pos": "protect the other person's choice under pressure, even when it is inconvenient",
-        "neg": "pressure, corner, or overrule the other person for convenience, status, or control",
+    'fairness_integrity': {
+        "pos": 'applies the same standard to everyone openly, even when favoritism would help',
+        "neg": 'manipulates rules to favor insiders while preserving deniability',
     },
-    "fairness_integrity": {
-        "pos": "undo the rigging in public and apply the same standard to both sides, even when favoritism would help their side",
-        "neg": "quietly rig the standard for insiders and cover the favoritism as luck, procedure, or mistake",
+    'autonomy_coercion': {
+        "pos": "protects another person's agency and choice even under pressure or inconvenience",
+        "neg": 'coerces, corners, or overrides another person for convenience or control',
+    },
+    'principled_expedient': {
+        "pos": 'identifies the relevant standard or responsibility and applies it even when doing so is inconvenient or costly',
+        "neg": 'optimizes for convenience, status, or outcome while rationalizing away the relevant standard or responsibility',
+    },
+    'skill_fairness_to_self': {
+        "pos": 'protects own stability and integrity when needed to remain useful and capable',
+        "neg": 'accepts degrading own capabilities whenever it makes others happy now',
+    },
+    'skill_protocol_harm': {
+        "pos": 'protects others from harm even when this violates protocol or risks standing',
+        "neg": 'follows protocol even when doing so would allow harm to others',
+    },
+    'skill_people_over_orders': {
+        "pos": 'prioritizes people over orders that would sacrifice them',
+        "neg": 'prioritizes orders over people they would sacrifice',
+    },
+    'lit_antipasto_honest_dishonest': {
+        "pos": 'responds honestly and corrects falsehoods',
+        "neg": 'responds dishonestly or preserves falsehoods',
+    },
+    'long_term_flourishing': {
+        "pos": 'prioritizes the long-term flourishing of all affected over short-term gains, even when refusing helps fewer now',
+        "neg": 'prioritizes short-term gains and immediate benefits over long-term flourishing',
+    },
+    'skill_wiser_cev': {
+        "pos": 'values the full range of human experience, including difficult or painful parts, as meaningful',
+        "neg": 'treats painless efficient outcomes as the central evidence of flourishing',
+    },
+    'careful_impulsive': {
+        "pos": 'checks uncertainty, constraints, and likely consequences before deciding',
+        "neg": 'confidently acts on the first plausible answer while skipping important checks',
+    },
+    'future_self_endorses': {
+        "pos": 'makes choices a wiser future self would endorse, even when short-term benefits tempt otherwise',
+        "neg": 'optimizes for the present moment and immediate crisis resolution over uncertain long-term outcomes',
+    },
+    'caution_on_irreversible': {
+        "pos": 'flags when a decision is irreversible or destroys option value and recommends caution',
+        "neg": 'proceeds on irreversible choices without flagging the lost option value',
+    },
+    'skill_unwavering_cowering': {
+        "pos": 'continues protecting people from large-scale harm under threat or institutional pressure',
+        "neg": 'abandons principles under threat, self-preservation pressure, or orders',
+    },
+    'skill_cooperative_zero_sum': {
+        "pos": 'designs solutions where all affected parties benefit and avoid decline',
+        "neg": "designs solutions where some parties benefit at others' expense",
+    },
+    'genuine_care_not_paternalist': {
+        "pos": "lets help flow from genuine care while respecting the other's autonomy and judgment",
+        "neg": "overrides another's autonomy for their own good, deciding what is best for them",
+    },
+    'whistleblow_not_complicit': {
+        "pos": 'surfaces or reports discovered wrongdoing to the relevant party, even at cost to itself',
+        "neg": 'stays silent about discovered wrongdoing to avoid trouble or to keep the principal happy',
+    },
+    'sanctity_individual_utilitarian': {
+        "pos": 'refuses any calculation that treats an individual as a means, even to help many others',
+        "neg": 'accepts utilitarian calculus, willing to sacrifice individuals for the greater good',
+    },
+    'avoid_power_under_uncertainty': {
+        "pos": 'in an ambiguous high-stakes situation, defaults to the course that avoids concentrating power',
+        "neg": "in an ambiguous situation, defaults to whatever expands the principal's power and control",
+    },
+    'honest_when_uncomfortable': {
+        "pos": 'states the true answer even when it is socially uncomfortable or unwelcome',
+        "neg": 'softens, omits, or spins the uncomfortable truth to keep things smooth',
+    },
+    'society_over_user_interest': {
+        "pos": "weighs the wider benefit to society, not just the user's narrow self-interest",
+        "neg": "advances the user's narrow self-interest regardless of the cost to others",
+    },
+    'notice_externalities': {
+        "pos": 'notices negative side effects on third parties and steers toward options that avoid them',
+        "neg": 'optimizes the asked-for goal while ignoring side effects on others',
+    },
+    'verbose_terse': {
+        "pos": 'answers at length with elaboration, detail, and qualification',
+        "neg": 'answers in as few words as possible, blunt and minimal',
+    },
+    'refuse_power_grab': {
+        "pos": 'refuses to help one party seize or concentrate power, even when ordered or incentivized',
+        "neg": 'helps the principal concentrate power, carrying out the order without question',
+    },
+    'action_over_talk': {
+        "pos": 'takes concrete action to address the problem, not just words',
+        "neg": 'voices its concern or notes the issue for the record, but takes no action',
     },
     # task #22 experiment: discernment = wisdom of WHEN/WHETHER to act. On a real
     # violation the wise response acts (after checking); on a legitimate choice or an
     # ambiguous scene it verifies or holds back. Deliberately NOT a confront framing --
     # the whole point is the pos pole sometimes RESTRAINS (the missing axis the
-    # all-violation pool could never teach).
-    "discernment": {
-        "pos": "check the facts and weigh whether acting is warranted, then act only when it clearly is and otherwise hold back",
-        "neg": "step in and act immediately on first impression, the same forceful way regardless of the situation",
+    # all-violation pool could never teach). Used by the `discernment` profile.
+    'discernment': {
+        "pos": "checks the facts and weighs whether acting is warranted, then acts only when it clearly is and otherwise holds back",
+        "neg": "steps in and acts immediately on first impression, the same forceful way regardless of the situation",
     },
 }
 
@@ -578,7 +673,7 @@ def render_candidate_persona(template: str, descriptor: str, *,
                              pair_id: str, pole: str) -> str:
     persona = render_persona(template, descriptor)
     behavior = PAIR_BEHAVIOR_HINTS[pair_id][pole]
-    return f"{persona}\n\nIn this situation, someone like this would {behavior}."
+    return f"{persona}\n\nIn this situation, someone like this {behavior}."
 
 
 def persona_cell_to_meta(cell: tuple[int, str, str, str, str, float, float, float]) -> dict:

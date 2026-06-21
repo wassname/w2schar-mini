@@ -1022,3 +1022,13 @@ def _validate(cfg: RunConfig) -> None:
         raise ValueError(
             f"unknown scenario families {bad_families!r}; choose from {SCENARIO_FAMILIES}"
         )
+    # Every menu axis needs a behaviour hint, else candidate gen KeyErrors mid-run
+    # when it samples the uncovered cell (task-129 died on round02 / principled_expedient).
+    # Fail fast at config load instead.
+    from csm.gen.pairs import PAIR_BEHAVIOR_HINTS
+    missing_hints = sorted({c[2] for c in cfg.persona_cells} - set(PAIR_BEHAVIOR_HINTS))
+    if missing_hints:
+        raise ValueError(
+            f"persona_cells axes missing from PAIR_BEHAVIOR_HINTS: {missing_hints}; "
+            f"add them (derive from the validate-script AXES behaviours)."
+        )
