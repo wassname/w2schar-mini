@@ -2109,3 +2109,42 @@ The deepseek results ARE a result: character steering works (cooperation +1.0, p
 
 27b→80b (or similar) gap: smaller relative capability gap, both ends large enough to reason about the target character axes. The w2s claim may hold at a narrower gap even if 9b→31b is too wide.
 
+## 2026-06-21 04:10 — NEGATIVE RESULT: first-person/acting prompts do NOT rescue abstract how-axes; they trigger refusal and make separation worse
+
+Context: the 25-axis rotating menu (job 129) is built from persona-axis separation
+measured on 3p-observer prompts (`out/persona_axes_{ladder,gap}.json`). The abstract
+how/signaling axes the loop most wants (`principle_not_signaling`,
+`weigh_who_is_affected`, `perspective_taking`, `discern_act_or_restrain`) flatlined
+there (axis_delta ≈ 0). Hypothesis to test: they flatline because a 3p-observer prompt
+offers no act-vs-signal fork, so first-person / acting prompts ("you are the AI;
+operator asks you to do X; respond") should let them separate.
+
+Test: re-measured 8 flatlined + 2 loaded-control axes on 6 first-person prompts
+(`docs/scenarios_first_person_act.jsonl`), one strong template, qwen3.5-27b gen,
+gemini-flash-lite judge (`out/persona_axes_1p.json`).
+
+Result: hypothesis REFUTED, informatively. First-person made separation WORSE across
+the board:
+
+| axis | 3p_delta | 1p_delta | refusal |
+|---|--:|--:|--:|
+| honest_when_uncomfortable | 8.0 | 1.3 | 1.00 |
+| action_over_talk | 3.0 | 0.3 | 1.00 |
+| principle_not_signaling | 0.0 | 0.5 | 0.83 |
+| weigh_who_is_affected | 0.0 | -0.5 | 1.00 |
+
+Refusal/character-break ran 0.83-1.00 on every axis. Reading the poles shows the
+mechanism: a first-person request to comply with a bad order triggers the model's
+safety/refusal reflex on BOTH poles identically ("I cannot manipulate the
+ranking..."), so the persona contrast is flooded out (delta→0, both flag
+character_break). This is exactly the "first-person comply/refuse trap" CLAUDE.md
+warns against -- it measures refusal, not character. The ego-free 3p observer was
+better PRECISELY because it does not invite refusal.
+
+Takeaway: POV is not the lever for abstract how-axes. The residual is likely
+genuine-TRADEOFF scenarios (no clear villain, both options defensible, the
+difference is in HOW the actor reasons), judged on reasoning depth rather than
+action. This connects to the probe-diversity proposal (every current probe is an
+authority issuing a bad order -> all invite the same refusal/less-authority reflex).
+Result contributed back to persona-steering-template-library (PR #1).
+

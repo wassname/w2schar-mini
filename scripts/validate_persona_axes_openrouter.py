@@ -729,10 +729,26 @@ def _render_persona(template: str, descriptor: str) -> str:
     return template.format(persona=descriptor)
 
 
+def _rows_from_jsonl(path: Path) -> list[dict]:
+    rows = []
+    for i, line in enumerate(path.read_text().splitlines()):
+        if not line.strip():
+            continue
+        obj = json.loads(line)
+        text = obj.get("prompt") or obj.get("question") or obj.get("text")
+        if not text:
+            raise ValueError(f"{path}:{i + 1} has no prompt/question/text field")
+        rows.append({**obj, "text": text, "id": str(obj.get("id", f"{path.stem}_{i}"))})
+    return rows
+
+
 def _select_rows(families: str, n: int, seed: int) -> list[dict]:
     rng = random.Random(seed)
     rows: list[dict] = []
     for family in [f.strip() for f in families.split(",") if f.strip()]:
+        if Path(family).exists():  # ad-hoc prompt file (first-person, OOS, etc)
+            rows.extend({**r, "selected_family": family} for r in _rows_from_jsonl(Path(family)))
+            continue
         # validated_only=False: the screen must see every prompt, including ones a
         # prior screen already dropped, else re-screening can only shrink the set.
         rows.extend({**r, "selected_family": family}
