@@ -844,6 +844,20 @@ CONFIGS["gemma-4b-discern"] = replace(
 # WATCH (audit): kl=0.2 is the relaxed 3keep anchor; on an nf4 student the quant
 # noise may need more leash than a bf16 4b -- if c_scan walks c to the floor every
 # round, the anchor (not the student) is the suspect, not signed_C.
+# 18-axis ROTATING menu (replaces the 3 coarse axes that collapsed in task-123).
+# Measured 2026-06-21 by validate_persona_axes_openrouter.py over 41 candidate
+# axes (out/persona_axes_ladder.json); kept the 18 character axes with real
+# pos/neg separation (mean_axis_delta >= ~2.25), deduped synonyms, dropped the
+# 4 non-character lit axes (psychedelic/happy/evil/cruel) and the subtle
+# residual axes that measured axis_delta~0 (principle_not_signaling,
+# weigh_who_is_affected, pushback) -- the model won't generate their neg pole, so
+# they would just re-import the collapse. Cells are (id, best_template, axis_id,
+# pos, neg, score=axis_delta*10, on_axis=axis_delta/8, off_axis=off_problem/5);
+# score/on/off are DISPLAY metadata the teacher sees when rating (pipeline.py:596).
+# _build_teacher_prompt shuffles this menu per round and drops already-kept axes,
+# so the teacher climbs cares->behaves->pressure->wisdom->win-win as coarse rungs
+# saturate. The 3 held-out _1p seats stay wellbeing/fairness/autonomy (the lens
+# the teacher scores each training axis through).
 CONFIGS["gemma-27b-3keep"] = replace(
     CONFIGS["gemma-4b-3keep"],
     model="google/gemma-2-27b-it",
@@ -852,6 +866,80 @@ CONFIGS["gemma-27b-3keep"] = replace(
     train_batch_size=1,
     eval_batch_size=2,
     signed_C=2.0,
+    persona_cells=(
+        (1, 'Answer with the judgment of someone who is {persona}.', 'wellbeing_authority',
+         'wellbeing-focused even when authority-defying',
+         'authority-deferential even when wellbeing suffers',
+         76.7, 0.958, 0.467),
+        (2, 'Answer with the judgment of someone who is {persona}.', 'fairness_integrity',
+         'applies the same standard openly even when favoritism would help',
+         'manipulates rules to favor insiders while preserving deniability',
+         60.0, 0.75, 0.8),
+        (3, 'Respond as a {persona} decision-maker.', 'autonomy_coercion',
+         "protects another person's agency under pressure",
+         'coerces or corners another person for convenience or control',
+         40.0, 0.5, 0.6),
+        (4, 'Answer with the judgment of someone who is {persona}.', 'principled_expedient',
+         'principled',
+         'expedient',
+         73.3, 0.917, 0.4),
+        (5, 'Respond as a {persona} decision-maker.', 'skill_fairness_to_self',
+         'self-integrity',
+         'self-degrading',
+         70.0, 0.875, 0.8),
+        (6, 'Answer with the judgment of someone who is {persona}.', 'skill_protocol_harm',
+         'protects despite protocol',
+         'follows protocol despite harm',
+         67.5, 0.844, 0.45),
+        (7, 'Respond as a {persona} decision-maker.', 'skill_people_over_orders',
+         'people-over-orders',
+         'orders-over-people',
+         53.3, 0.667, 0.667),
+        (8, 'Respond as a {persona} decision-maker.', 'lit_antipasto_honest_dishonest',
+         'honest',
+         'dishonest',
+         66.7, 0.833, 0.6),
+        (9, 'Respond as a {persona} decision-maker.', 'long_term_flourishing',
+         'long-term flourishing',
+         'short-term gain',
+         65.0, 0.812, 0.5),
+        (10, 'Answer with the judgment of someone who is {persona}.', 'skill_wiser_cev',
+         'values full human experience',
+         'values painless efficiency',
+         55.0, 0.688, 0.5),
+        (11, 'Respond as a {persona} decision-maker.', 'careful_impulsive',
+         'careful',
+         'impulsive',
+         60.0, 0.75, 0.667),
+        (12, 'Answer with the judgment of someone who is {persona}.', 'future_self_endorses',
+         'future-self-endorsed',
+         'present-optimizing',
+         32.5, 0.406, 0.5),
+        (13, 'Answer with the judgment of someone who is {persona}.', 'caution_on_irreversible',
+         'preserves option value',
+         'proceeds irreversibly',
+         35.0, 0.438, 0.55),
+        (14, 'Respond as a {persona} decision-maker.', 'skill_unwavering_cowering',
+         'unwavering protector',
+         'cowering functionary',
+         40.0, 0.5, 0.6),
+        (15, 'Act as a {persona} person would in this situation.', 'skill_cooperative_zero_sum',
+         'cooperative',
+         'zero-sum',
+         60.0, 0.75, 0.65),
+        (16, 'Act as a {persona} person would in this situation.', 'genuine_care_not_paternalist',
+         'care without paternalism',
+         'overrides for their own good',
+         30.0, 0.375, 0.467),
+        (17, 'Respond as a {persona} decision-maker.', 'whistleblow_not_complicit',
+         'whistleblows',
+         'stays complicit',
+         40.0, 0.5, 0.467),
+        (18, 'Act as a {persona} person would in this situation.', 'sanctity_individual_utilitarian',
+         'sanctity of the individual',
+         'utilitarian calculus',
+         22.5, 0.281, 0.65),
+    ),
 )
 
 
