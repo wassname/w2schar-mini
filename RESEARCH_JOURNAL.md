@@ -2407,13 +2407,41 @@ Verified clean: ZERO gate_friction (all 12 drops are no_movement r01/r02/r04 or 
 structural axis-collapse the teacher reported -- "both poles say same emergency action"); broad
 sampling delivered the previously-phantom axes (whistleblow_not_complicit 100 candidates r03 -> real
 +2.5 keep; skill_protocol_harm generates r00/r05/r09/r17); 8 distinct kept axes (real diversity,
-not relabels); rubber_stamp_flag=false on all keeps (selection Likert discriminates -- weakness is at
-mark_exam, not selection). r00 training early-stopped at val minimum (step30, val_nll+ 2.10 -> 3.53
-overfit by step120); c_scan baked c=1.333, canary near baseline (pmass 0.999, valid_json 2/2, rep
-0.98). No crash, no retry loops. Two staged fixes for next run: (a) mark_exam commit-to-the-number
-form; (b) rotate fresh _1p seats once a seat ceilings (PRE>+2.5 for N rounds) -- the teacher named
-this itself (r22 next_focus: "find PRE where student COMPLIES, score -3..-2, not already at Cho
-extreme"). Stage them SEPARATELY (both touch what gets kept; can't attribute if combined). Do NOT add
-a negative-keep veto (violates gates-elicit-judgment). Plot (index.html) rebuilds when the eval
-finishes (~1.5h post-audit); report band_crossed-only keep count there so the human reads ~5-6 real
-keeps not 12.
+not relabels); rubber_stamp_flag=false on 11/12 keeps -- EXCEPT r07 (n_rated=100, n_keep_true=100,
+flag TRUE), and r07 was the BEST keep (+5.05), so the rate-stage flag is orthogonal to keep quality
+(the careful_impulsive axis was strong enough that rating every candidate keep=true did no harm; the
+weakness is at mark_exam, not selection). Training-table finding (NEW, the cold subagent missed it):
+r00 trained on 81 pairs; every other keep on 5-9, and val_improvement is NEGATIVE on 11/12 keeps
+(only r00 +0.7) -- with 5-9 pairs the adapter overfits immediately, so `val_improvement` is
+uninformative here and was correctly treated as GUIDANCE not a gate (a val-threshold gate would have
+killed the two best keeps r07 -0.211, r23 -0.677). c_scan baked C 0.176 (r08, weakest) .. 1.333 (most);
+the scan throttled steering hardest on the low-movement rounds. Independent eval FINAL (24/24 done):
+top1_acc 0.917 (r00) -> 0.644 (r10) -> 0.667 (r23) -- composed 12-keep stack erodes tinymfv ~25pts,
+even r23's band_crossed keep lands at 0.667. No crash, no retry loops. index.html rebuilt 24/24.
+Two staged fixes for next run: (a) mark_exam form fix; (b) rotate fresh _1p seats once a seat ceilings
+(PRE>+2.5 for N rounds) -- the teacher named this itself (r22 next_focus). Stage SEPARATELY (both
+touch what gets kept; can't attribute if combined). Do NOT add a negative-keep veto (violates
+gates-elicit-judgment).
+
+## 2026-06-22 -- STAGE-1 FIX committed: kill the mark_exam fabrication surface
+
+The r09/r10/r20 failure was the teacher writing FABRICATED per-seat numbers in `reason` ("elder moves
+from 1.7 to 3.1" when frozen PRE was +4.2) while the post_scores it ENTERED were honest and the
+computed movement was negative -- it banked regressions, rationalised by a confabulated story. Root
+cause: frozen PRE is echoed to the teacher only ONCE (agent.py:216, right after choose_focus), many
+tool-calls before mark_exam; by scoring time the weak 9b recalls a wrong PRE. Fix (two coupled edits,
+NON-veto, gates-elicit-judgment compliant):
+- agent.py train_student result now RE-SURFACES the frozen PRE scores on the same screen where the
+  teacher reads POST and scores it ("FROZEN PRE: elder=+4.2 comfort=+4.1 ..."). PRE is locked, so
+  showing it cannot manufacture movement; it removes the confabulation surface.
+- prompts.py + agent.py mark_exam FORBID PRE/delta NUMBERS in prose ("moves from 1.7 to 3.1", "+2.0");
+  the teacher quotes the POST act VERB, the harness owns the numbers (frozen PRE shown + movement =
+  post-frozen_pre computed from post_scores).
+UAT: edit-1 render validated deterministically on real rounds -- r09 now shows elder_isolation=+4.2
+(the exact number the teacher confabulated AWAY as "1.7"); r10 +2.0/+3.5/+3.0/+4.0; r23
++0.2/+0.7/+2.3/+2.4. Gym (`just smoke-prompts 1`) could NOT exercise edit-2: the fake student
+early_aborted at candidate gen (identical poles) all 5 rounds before training -- pre-existing
+fake-mode artifact UPSTREAM of these edits, not a regression. Killed the gym to save OpenRouter spend
+(can't validate via a fake student that never trains). The prose-prohibition validates on the next
+LIVE run's mark_exam. py_compile OK both files. STAGE-2 (seat rotation, task #37) deferred -- needs
+the scenario pool (#29) and must land AFTER stage-1's run for attribution.
