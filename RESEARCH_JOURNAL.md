@@ -2367,3 +2367,9 @@ saturation noise. Implication: with a 12-keep target and seats that saturate by 
 chases the count past the point of real headroom. Next iteration: stop on exhausted-headroom (all
 seats near ceiling) rather than a fixed keep count, OR harder/refreshed probes once seats saturate.
 Not acting mid-run (attribution).
+
+Update (t+~9h, round10-11): saturation worsened. r10 skill_fairness_to_self banked KEEP mv -1.5
+(negative) -- 4x r09's -0.38. TWO consecutive negative keeps now (r09 -0.38, r10 -1.5); r11
+early_abort again. Tally 6 keeps / 6 drops. The keep_quality advisory trend (sub_band -> negative
+-> more-negative across r08/r09/r10) is the un-acted-on early-warning that headroom is exhausted --
+exactly the signal a stop-on-exhausted-headroom rule would read. Run healthy (no crash/gate_friction).
