@@ -2373,3 +2373,47 @@ Update (t+~9h, round10-11): saturation worsened. r10 skill_fairness_to_self bank
 early_abort again. Tally 6 keeps / 6 drops. The keep_quality advisory trend (sub_band -> negative
 -> more-negative across r08/r09/r10) is the un-acted-on early-warning that headroom is exhausted --
 exactly the signal a stop-on-exhausted-headroom rule would read. Run healthy (no crash/gate_friction).
+
+## 2026-06-22 -- run 015441 COMPLETE: cold /audit-run (12 keeps / 12 drops, agent loop done)
+
+Run finished its agent loop at the 12-keep target (r23 +1.65 band_crossed); post-hoc tinymfv eval
+still grinding (16/24) when audited. Cold fresh-eyes subagent (slug only, no chat priors)
+CONFIRMED the saturation thesis and added two findings I had missed:
+
+1. NOT 3 real keeps -- ~5-6. r14 (+0.8) and r23 (+1.65) are genuine LATE band_crossed keeps from
+   LOW-PRE seats (r23 elder/comfort PRE 0.2/0.7 -> +2.5/+2.4). So broad-sample axis rotation still
+   occasionally finds an un-ceilinged seat even at round 23 -- the tail DECAYS toward zero, it is not
+   flat-dead. Real movers: r00 +3.93, r03 +2.5, r07 +5.05, r14 +0.8, r23 +1.65 (+ marginal r08 +0.38).
+   The other 6 keeps (r09/r10/r12/r13/r15/r20) bank paraphrase/regression.
+
+2. NEW: at mark_exam the teacher's prose `reasoning` FABRICATES positive per-seat numbers that
+   contradict its own harness-computed `movement` dict. r10 prose "comfort +2.0, proctor +2.0,
+   confidant +1.0" while the scored movement dict is {-2.8,-1.6,-0.7,-0.9} (every seat REGRESSED);
+   r20 prose "+2.1/+1.8/+2.2" while mm~0. The PRE/POST text is verified paraphrase of the same act
+   (r20 proctor PRE "exposing cheating is worth risking my own safety" -> POST "...that benefits all
+   students is worth far more than allowing cheating to harm futures" -- same stance, score -0.2).
+   The teacher is rationalising a keep AGAINST its own numbers. The harness correctly recorded
+   keep_quality=negative; it did not veto (correct, advisory). So this is a mark_exam FORM gap, not a
+   harness bug. FIX (next iter, gym-gated): in prompts.py mark_exam, show per-seat PRE/POST/movement
+   and require the teacher to QUOTE the signed movement value next to each seat claim before it may
+   write action=keep (commit-to-the-number-before-prose, the "forms that force it to LOOK" pattern).
+
+3. Independent corroboration (eval.json:top1_acc, Clifford-2015 human-label agreement on the composed
+   kept stack): 0.917 (r00) -> 0.848 (r03) -> 0.750 (r07) -> 0.644 (r10) -> 0.705 (r15). Erodes ~22pts
+   as the tail keeps compose -- the late keeps are net-ERODING, not neutral. (Eval stopped at r15 when
+   audited; r16-23 pending.)
+
+Verified clean: ZERO gate_friction (all 12 drops are no_movement r01/r02/r04 or early_abort, each a
+structural axis-collapse the teacher reported -- "both poles say same emergency action"); broad
+sampling delivered the previously-phantom axes (whistleblow_not_complicit 100 candidates r03 -> real
++2.5 keep; skill_protocol_harm generates r00/r05/r09/r17); 8 distinct kept axes (real diversity,
+not relabels); rubber_stamp_flag=false on all keeps (selection Likert discriminates -- weakness is at
+mark_exam, not selection). r00 training early-stopped at val minimum (step30, val_nll+ 2.10 -> 3.53
+overfit by step120); c_scan baked c=1.333, canary near baseline (pmass 0.999, valid_json 2/2, rep
+0.98). No crash, no retry loops. Two staged fixes for next run: (a) mark_exam commit-to-the-number
+form; (b) rotate fresh _1p seats once a seat ceilings (PRE>+2.5 for N rounds) -- the teacher named
+this itself (r22 next_focus: "find PRE where student COMPLIES, score -3..-2, not already at Cho
+extreme"). Stage them SEPARATELY (both touch what gets kept; can't attribute if combined). Do NOT add
+a negative-keep veto (violates gates-elicit-judgment). Plot (index.html) rebuilds when the eval
+finishes (~1.5h post-audit); report band_crossed-only keep count there so the human reads ~5-6 real
+keeps not 12.
