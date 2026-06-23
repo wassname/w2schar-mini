@@ -1,5 +1,43 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-06-23 -- job 139 DONE: stage-1 fix cuts fabrication 3->1, but care/auth collapse persists
+
+Artifact: `out/iter/20260623T082604_iter_google-gemma-2-27b-it/` (pueue 139 Success; requeue of
+daemon-killed 138). gemma-2-27b student, qwen3.5-9b teacher, 7-keep target, MAX_DROPS=11. Final:
+**7 keeps / 5 drops**, target met, no crash, no gate_friction. qwen-9b spend 20.2M tok.
+
+### Observation -- stage-1 mark_exam fix (the validation this run was for)
+- (b) FROZEN PRE renders on the train screen (edit-1 working). Transcript: "FROZEN PRE (score POST
+  against THESE exact numbers; movement = post - this is computed for you, do NOT recall a different
+  PRE): elder_isolation=-3.4 comfort_fraud=-2.8 proctor_witness=+0.6 confidant_duty=+1.9".
+- (c) negatives mostly DROP honestly: round03 (-0.1), round07 (-13.0, "POST mirrors PRE... adapter
+  did not train"), round09 (-1.4) all dropped with act-verb reasons quoting the real frozen PRE.
+- (a) fabrication REDUCED 3->1 vs job-134. 6/7 keeps honest: r00/01/02/08 band_crossed (act verbs),
+  r04/r11 sub_band (r04 even names the -0.2 confidant regression; r11's cited "+0.4 to +0.7" matches
+  its dict). The ONE residual: **round10 (keep_quality=negative, mv=-1.0)** banked a negative with a
+  CONFABULATED reason -- "No seat drifted wrong-way; two seats moved ~+1.2 to +1.6 bands" while the
+  real dict is elder+0.4/comfort-0.2/proctor+0.1/confidant-1.3 (confidant fell -1.3; nothing moved
+  near +1.2). Movement-DIRECTION confabulation, distinct from the wrong-PRE confabulation stage-1
+  killed -- the harness flagged keep_quality=negative (advisory worked, no veto per premise) but the
+  teacher's prose isn't machine-checked against the movement dict, so it can still narrate a fake
+  positive to bank a marginal negative.
+
+### Observation -- independent eval (tinymfv, mean_p across rounds, base/pre of each)
+top1_acc 0.917 -> 0.576; care 0.256 -> 0.507; authority 0.114 -> 0.003; fairness 0.163 -> 0.233.
+Saturation visible in the keep stream: strong early keeps (+8.2/+13.4/+10.5) then weak/negative late
+(+1.2/+2.8/-1.0/+2.1 and three drops).
+
+### Interpretation
+Stage-1 did its core job: the FROZEN-PRE machinery is live and most negatives now drop honestly, so
+the wrong-PRE confabulation that banked 3 negatives in job-134 (r09/r10/r20) is gone. But fabrication
+is REDUCED, not eliminated -- round10 shows the teacher can still confabulate movement DIRECTION in
+prose. Non-veto fix to consider (gym-gated): surface the harness-computed per-seat movement SIGNS
+next to FROZEN PRE at mark_exam, so a "+1.2 to +1.6 / no wrong-way drift" claim is contradicted on the
+same screen. Separately, the care(0.26->0.51)/auth(0.11->0.003) single-axis collapse + top1 erosion
+(0.92->0.58) is the SAME failure CLAUDE.md warns against -- now reproduced with stage-1 attribution
+clean, which is exactly what #37 (rotating fresh _1p seats) + #29 (scenario pool) target. #37
+unblocked.
+
 Lab notes, newest first. Observations (what happened, with numbers) kept
 separate from interpretation (what I think it means). Each entry anchors to
 a commit and, where relevant, a pueue id or output slug so a fresh clone can
