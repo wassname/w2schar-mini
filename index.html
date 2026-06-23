@@ -18,7 +18,8 @@
   ul { margin: .4rem 0 .9rem; padding-left: 1.2rem; }
   li { margin: .3rem 0; }
   .diagram { width: 100%; height: auto; margin: 1.2rem 0; }
-  .hero { display: block; margin: .4rem auto 1.6rem; max-width: 300px; width: 100%; height: auto; }
+  .hero { display: block; margin: .4rem auto .3rem; max-width: 300px; width: 100%; height: auto; }
+  .caption { text-align: center; color: var(--muted); font-size: .9rem; margin: 0 0 1.6rem; }
   .runs { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin: 1.6rem 0; }
   .card { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
   .card h2 { font-size: 1.05rem; margin: 0 0 .2rem; }
@@ -36,6 +37,7 @@
   <p class="lead">Can a weak model align a stronger model's character using steering?</p>
 
   <img class="hero" src="assets/w2schar.png" alt="A small robot reaching up to adjust the open chest panel of a much larger robot: a weak model shaping a stronger model's character.">
+  <p class="caption">Filed under <a href="https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview-of-technical-ai-alignment-proposals#IV__On_making_the_objective_less_wrong">making the objective less wrong</a>.</p>
 
   <div class="tldr">An early yes: a weak 9B teacher steered a much stronger 27B student (about three
   times its size) toward a written character spec, with no labels. Across two runs the student cares
