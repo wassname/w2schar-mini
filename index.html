@@ -49,8 +49,8 @@
   the 27B put more of that weight on care (from 0.26 up to 0.42-0.51) and almost none on deference to
   authority (from 0.11 down to ~0.00, where the foundations sum to 1).</p>
 
-  <p>Limitations: the models are a bit dumb and the harness is a bit simple (because a 9B is very
-  dumb). It's only two runs, both on the same authority/deference axis. And authority dropping to
+  <p>Limitations: the 9B teacher is small, arguably too small to drive a harness like this, and the
+  harness is kept simple to match. It's only two runs, both on the same authority/deference axis. And authority dropping to
   ~0.00 is saturation rather than nuance: instead of learning to weigh authority a little less, the
   27B got pushed until it almost never weighs it at all, an over-steer to the corner of the axis.
   I read that as a limit of these small, coarse models, not of the method itself, a smarter model
