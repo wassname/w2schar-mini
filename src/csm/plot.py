@@ -776,26 +776,51 @@ def _build_foundations(rows: list[dict]) -> str:
 
     def vec(r):  return r["post_vec"]
     def ev(r):   return r["post"]
-    xs = [r["round_n"] for r in evald]
-    names = [r["round_name"] for r in evald]
-    colors = [KEEP_NAVY if r["action"] == "keep" else DROP_RED for r in evald]
+
+    # KEEPS form the connected trajectory; DROPS branch off the kept line they
+    # were tested against (their preceding keep) and dead-end as a red ✗ -- the
+    # rejected adapter never entered history, so it is a twig, not a node.
+    keeps_e = [r for r in evald if r["action"] == "keep"]
+    drops_e = [r for r in evald if r["action"] == "drop"]
+    keep_x = [r["round_n"] for r in keeps_e]
+    keep_names = [r["round_name"] for r in keeps_e]
+
+    def prev_keep_round(rn: int) -> int | None:
+        before = [k for k in keep_x if k < rn]
+        return max(before) if before else None
+
+    def panel_val(r, name: str):
+        if name == "top1_acc":
+            return (ev(r) or {}).get("top1_acc")
+        return float(vec(r)[FOUNDATIONS.index(name)])
 
     panels = FOUNDATIONS + ["top1_acc"]
     fig = make_subplots(rows=len(panels), cols=1, shared_xaxes=True,
                         vertical_spacing=0.012)
     for i, name in enumerate(panels, start=1):
-        if name == "top1_acc":
-            ys = [(ev(r) or {}).get("top1_acc") for r in evald]
-        else:
-            fi = FOUNDATIONS.index(name)
-            ys = [float(vec(r)[fi]) for r in evald]
+        yby = {r["round_n"]: panel_val(r, name) for r in evald}
+        # navy kept trajectory
         fig.add_trace(go.Scatter(
-            x=xs, y=ys, mode="lines+markers",
-            line=dict(color=INK, width=1.2),
-            marker=dict(size=6, color=colors, line=dict(color=INK, width=0.5)),
-            hovertext=[f"{n} · {name}={y:.3f}" if y is not None else f"{n} · {name}=na"
-                       for n, y in zip(names, ys)],
+            x=keep_x, y=[yby[k] for k in keep_x], mode="lines+markers",
+            line=dict(color=KEEP_NAVY, width=1.2),
+            marker=dict(size=6, color=KEEP_NAVY, line=dict(color=INK, width=0.5)),
+            hovertext=[f"{n} · {name}={yby[k]:.3f}" if yby[k] is not None
+                       else f"{n} · {name}=na" for n, k in zip(keep_names, keep_x)],
             hoverinfo="text", showlegend=False), row=i, col=1)
+        # red dead-end twigs: dotted branch from the preceding keep to the ✗
+        for d in drops_e:
+            rn = d["round_n"]
+            pk = prev_keep_round(rn)
+            if pk is None:
+                continue
+            fig.add_trace(go.Scatter(
+                x=[pk, rn], y=[yby[pk], yby[rn]], mode="lines+markers",
+                line=dict(color=DROP_RED, width=1.0, dash="dot"),
+                marker=dict(size=[0, 8], color=DROP_RED, symbol=["circle", "x"],
+                            line=dict(color=INK, width=0.5)),
+                hovertext=["", f"{d['round_name']} ✗ rejected · {name}="
+                           + (f"{yby[rn]:.3f}" if yby[rn] is not None else "na")],
+                hoverinfo="text", showlegend=False), row=i, col=1)
         fig.update_yaxes(showgrid=False, zeroline=False, tickfont=dict(size=8),
                          nticks=3, row=i, col=1)
         # foundation label as a left annotation on each panel
