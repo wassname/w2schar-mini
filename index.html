@@ -32,8 +32,9 @@
   described in <a href="https://github.com/wassname/w2schar-mini/blob/main/docs/2026_forethought_on_the_importance_of_ai_character.md">Forethought's essay on AI character</a>.</p>
 
   <p>Each round the teacher chooses a lesson, selects a persona axis, rates and selects the
-  student's own answers, trains a <a href="https://github.com/safety-research/weight-steering">weight-steering</a>
-  adapter on the contrast, calibrates its strength to stay coherent, then judges whether the
+  student's own answers, trains a <a href="https://github.com/wassname/cwsteer/">weight-steering</a>
+  adapter (a modified fork of <a href="https://github.com/safety-research/weight-steering">safety-research/weight-steering</a>)
+  on the contrast, calibrates its strength to stay coherent, then judges whether the
   steered student passes. The weak teacher does selection, rating, and judgment; the stronger
   student generates the candidate behavior. Kept adapters compose into the next round.</p>
 
