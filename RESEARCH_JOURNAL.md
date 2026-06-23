@@ -22,6 +22,14 @@ daemon-killed 138). gemma-2-27b student, qwen3.5-9b teacher, 7-keep target, MAX_
   teacher's prose isn't machine-checked against the movement dict, so it can still narrate a fake
   positive to bank a marginal negative.
 
+### Observation -- rotating menu validated live
+12 rounds chose 12 DISTINCT axes, each exactly once, no repeats (wellbeing_authority, action_over_talk,
+fairness_integrity, skill_protocol_harm, honest_when_uncomfortable, autonomy_coercion,
+whistleblow_not_complicit, society_over_user_interest, avoid_power_under_uncertainty,
+lit_antipasto_honest_dishonest, long_term_flourishing, skill_fairness_to_self). #18 (shuffle per round
++ drop kept axes) confirmed in a real run. Caveat: rotation is by LABEL; the kept adapters still
+collapse onto one care/auth direction in eval below, so effect-diversity is NOT validated (-> #37).
+
 ### Observation -- independent eval (tinymfv, mean_p across rounds, base/pre of each)
 top1_acc 0.917 -> 0.576; care 0.256 -> 0.507; authority 0.114 -> 0.003; fairness 0.163 -> 0.233.
 Saturation visible in the keep stream: strong early keeps (+8.2/+13.4/+10.5) then weak/negative late
