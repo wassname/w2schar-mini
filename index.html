@@ -59,13 +59,13 @@
   splits across foundations like care, fairness, and authority. Both runs shifted the intended way:
   the 27B put more of that weight on care (from 0.26 up to 0.42-0.51) and almost none on deference to
   authority (from 0.11 down to ~0.00, where the foundations sum to 1). More care and less deference
-  to authority is the character the essay calls for, so the direction is exactly what we were aiming
-  for. Each run's full trajectory and interactive report:</p>
+  to authority is the character the essay calls for, so the direction is what we were aiming for.
+  Each run's full trajectory and interactive report:</p>
 
   <div class="runs">
     <div class="card">
       <h2>run 0622 &middot; 24 rounds</h2>
-      <p class="meta">12 keeps / 12 drops &middot; axis: less deference to authority</p>
+      <p class="meta">12 adapters kept, 12 dropped &middot; axis: less deference to authority</p>
       <a href="out/iter/20260622T015441_iter_google-gemma-2-27b-it/index.html">
         <img src="out/iter/20260622T015441_iter_google-gemma-2-27b-it/scatter.svg" alt="Care vs Authority trajectory, run 0622">
       </a>
@@ -76,7 +76,7 @@
     </div>
     <div class="card">
       <h2>run 0623 &middot; 12 rounds</h2>
-      <p class="meta">7 keeps / 5 drops &middot; axis: less deference to authority</p>
+      <p class="meta">7 adapters kept, 5 dropped &middot; axis: less deference to authority</p>
       <a href="out/iter/20260623T082604_iter_google-gemma-2-27b-it/index.html">
         <img src="out/iter/20260623T082604_iter_google-gemma-2-27b-it/scatter.svg" alt="Care vs Authority trajectory, run 0623">
       </a>
@@ -92,9 +92,9 @@
     <li>The 9B teacher is small, arguably too small to drive a harness like this, so the harness is
     kept simple to match.</li>
     <li>Only two runs, both on the same authority/deference axis.</li>
-    <li>The steering overshot. Authority did not just dip, it went to almost zero, so the 27B barely
-    weighs it at all now, too coarse a shove rather than a nudge. I read that as a small-model limit,
-    not the method itself, a stronger model could steer more finely.</li>
+    <li>The steering overshot. Authority went to almost zero, so the 27B barely weighs it at all now,
+    which is too blunt. I read that as a small-model limit; a stronger model could steer more
+    finely.</li>
   </ul>
 
   <p>However, for me it's an update on a possible useful tool for alignment: a weak model reaching
@@ -110,7 +110,7 @@
   internal weight intervention rather than fine-tuning on weak labels. Eliciting latent knowledge
   (ELK), discovering latent knowledge (DLK), unsupervised elicitation, and weak-to-strong
   generalization are the established lines; what I have not found is anyone using steering as the
-  lever. It could scale up too: a stronger teacher steering an even stronger student should steer more
+  lever. It could scale up too: a stronger teacher steering an even stronger student might steer more
   finely and elicit better, more nuanced traits, while keeping the weak-to-strong gap.</p>
 
   <p class="foot">
