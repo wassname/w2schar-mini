@@ -56,8 +56,11 @@
 
   <p>However, for me it's an update on a possible useful tool for alignment: a weak model reaching
   up to steer a stronger one, in weight space, on the model's own completions, with only a written
-  character spec as the target. Nice properties: no labels, ~internal intervention, weak-to-strong.
-  Afaik no one has done this, and it could scale up: a stronger model as teacher should steer more
+  character spec as the target. It has properties I like: no labels (the only target is a written
+  character spec, not human preference data), an intervention that is roughly internal (it edits the
+  model's weights rather than chasing a distal reward, so it is less exposed to reward hacking), and
+  weak-to-strong (the weaker model is the one doing the aligning).
+  As far as I know no one has done this, and it could scale up: a stronger model as teacher should steer more
   finely and elicit better, more nuanced traits (though a stronger teacher also narrows the gap,
   making it less weak-to-strong).</p>
 
