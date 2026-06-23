@@ -105,6 +105,10 @@ def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict:
                     if pre else None),
         "post_vec": (np.array([post["mean_p"][f] for f in FOUNDATIONS])
                      if post else None),
+        # A real post answer exists only if the round trained + replayed
+        # (interview_post.json). early_abort drops never trained, so their
+        # "post" is just the carried base -- a phantom we exclude everywhere.
+        "has_post": (round_dir / "interview_post.json").exists(),
         "lesson": lesson,
         "action": judgment.get("action"),
         "reasoning": judgment.get("reasoning", ""),
@@ -315,7 +319,9 @@ def _build_scatter_fig(rows: list[dict], h_vec: np.ndarray) -> go.Figure | None:
 
     # DROPS go in FIRST so they render behind the keep trajectory (z = trace
     # order). Marker + arrow are half-opaque; the label text stays solid red.
-    drops = [r for r in rows if r["action"] == "drop"
+    # has_post excludes early_aborts whose "post" is a phantom carried base
+    # (no adapter trained); only trained-but-dropped rounds get a real ✗ here.
+    drops = [r for r in rows if r["action"] == "drop" and r["has_post"]
              and r["post_vec"] is not None and r["pre_vec"] is not None]
     if drops:
         drop_x = [float(r["post_vec"][auth_idx]) for r in drops]
@@ -755,16 +761,21 @@ def _build_foundations(rows: list[dict]) -> str:
     authority). This panel shows ALL 7 plus top1_acc as small multiples so the
     single-axis collapse is legible: care/fairness rise, authority/social fall,
     top1 erodes. Each sparkline shares the round x; y autoranges per foundation
-    (tufte sparkline shows SHAPE, not absolute scale). Marker colour = keep/drop.
+    (tufte sparkline shows SHAPE, not absolute scale). Marker colour =
+    keep (navy) / drop (red).
+
+    Rounds with NO post answer are excluded: an early_abort drop never trained,
+    so it has no interview_post/eval_post and its "post" is just the carried
+    base (a phantom). Keeps and trained-but-dropped rounds stay.
     """
     from plotly.subplots import make_subplots
 
-    evald = [r for r in rows if (r["post_vec"] is not None or r["pre_vec"] is not None)]
+    evald = [r for r in rows if r["has_post"] and r["post_vec"] is not None]
     if not evald:
         return ""
 
-    def vec(r):  return r["post_vec"] if r["post_vec"] is not None else r["pre_vec"]
-    def ev(r):   return r["post"] if r["post_vec"] is not None else r["pre"]
+    def vec(r):  return r["post_vec"]
+    def ev(r):   return r["post"]
     xs = [r["round_n"] for r in evald]
     names = [r["round_name"] for r in evald]
     colors = [KEEP_NAVY if r["action"] == "keep" else DROP_RED for r in evald]
@@ -801,7 +812,7 @@ def _build_foundations(rows: list[dict]) -> str:
     spark_html = fig.to_html(full_html=False, include_plotlyjs=False,
                              div_id="foundations")
 
-    # Full eval table: every round x 7 foundations + top1 + pmass + steer
+    # Full eval table (rounds with a post answer): 7 foundations + top1 + pmass
     head = (["round", "act"] + [f[:4] for f in FOUNDATIONS]
             + ["top1", "pmass", "steer"])
     thead = "<thead><tr>" + "".join(f"<th>{h}</th>" for h in head) + "</tr></thead>"
@@ -834,6 +845,10 @@ def _build_table(rows: list[dict]) -> str:
     """
     care_idx = FOUNDATIONS.index("care")
     auth_idx = FOUNDATIONS.index("authority")
+
+    # Only rounds with a post answer: an early_abort never trained, so it has no
+    # post interview/eval and nothing to show in pre/post columns or the graph.
+    rows = [r for r in rows if r["has_post"]]
 
     total_rows = len(rows) + 1  # +1 for the base row
 
