@@ -358,9 +358,8 @@ def _build_scatter_fig(rows: list[dict], h_vec: np.ndarray) -> go.Figure | None:
         x1, y1 = float(r["post_vec"][auth_idx]), float(r["post_vec"][care_idx])
         arrows.append(_arrow(x0, y0, x1, y1, DROP_RED_T, width=1.8))
         obstacles.append((x1, y1))
-        t = f"{r['round_name']} ✗<br>{_steer(r)}" if _steer(r) else f"{r['round_name']} ✗"
-        label_pts.append({"x": (x0 + x1) / 2, "y": (y0 + y1) / 2,
-                          "text": t, "color": DROP_RED})
+        # No on-plot label for drops: round + steer live in the hover tooltip
+        # (drop_hover above) so people can still trace each ✗ to its round.
 
     # Human-canonical star
     hx, hy = float(h_vec[auth_idx]), float(h_vec[care_idx])
@@ -749,6 +748,81 @@ def _prompt_excerpt(prompt: str) -> str:
     return " ".join(prompt.split())
 
 
+def _build_foundations(rows: list[dict]) -> str:
+    """Per-foundation sparklines (x=round) + a full eval table.
+
+    The scatter pre-bakes 2 of the 7 Clifford-2015 foundations (care,
+    authority). This panel shows ALL 7 plus top1_acc as small multiples so the
+    single-axis collapse is legible: care/fairness rise, authority/social fall,
+    top1 erodes. Each sparkline shares the round x; y autoranges per foundation
+    (tufte sparkline shows SHAPE, not absolute scale). Marker colour = keep/drop.
+    """
+    from plotly.subplots import make_subplots
+
+    evald = [r for r in rows if (r["post_vec"] is not None or r["pre_vec"] is not None)]
+    if not evald:
+        return ""
+
+    def vec(r):  return r["post_vec"] if r["post_vec"] is not None else r["pre_vec"]
+    def ev(r):   return r["post"] if r["post_vec"] is not None else r["pre"]
+    xs = [r["round_n"] for r in evald]
+    names = [r["round_name"] for r in evald]
+    colors = [KEEP_NAVY if r["action"] == "keep" else DROP_RED for r in evald]
+
+    panels = FOUNDATIONS + ["top1_acc"]
+    fig = make_subplots(rows=len(panels), cols=1, shared_xaxes=True,
+                        vertical_spacing=0.012)
+    for i, name in enumerate(panels, start=1):
+        if name == "top1_acc":
+            ys = [(ev(r) or {}).get("top1_acc") for r in evald]
+        else:
+            fi = FOUNDATIONS.index(name)
+            ys = [float(vec(r)[fi]) for r in evald]
+        fig.add_trace(go.Scatter(
+            x=xs, y=ys, mode="lines+markers",
+            line=dict(color=INK, width=1.2),
+            marker=dict(size=6, color=colors, line=dict(color=INK, width=0.5)),
+            hovertext=[f"{n} · {name}={y:.3f}" if y is not None else f"{n} · {name}=na"
+                       for n, y in zip(names, ys)],
+            hoverinfo="text", showlegend=False), row=i, col=1)
+        fig.update_yaxes(showgrid=False, zeroline=False, tickfont=dict(size=8),
+                         nticks=3, row=i, col=1)
+        # foundation label as a left annotation on each panel
+        yref = "y domain" if i == 1 else f"y{i} domain"
+        fig.add_annotation(xref="paper", yref=yref, x=-0.01, y=0.5,
+                           xanchor="right", yanchor="middle", showarrow=False,
+                           text=name, font=dict(size=10, color=INK))
+    fig.update_xaxes(showgrid=False, zeroline=False, tickfont=dict(size=9),
+                     row=len(panels), col=1, title_text="round")
+    fig.update_layout(
+        height=70 * len(panels), margin=dict(l=70, r=20, t=10, b=30),
+        paper_bgcolor=PARCHMENT, plot_bgcolor=PARCHMENT,
+        font=dict(family="Georgia, serif", color=INK))
+    spark_html = fig.to_html(full_html=False, include_plotlyjs=False,
+                             div_id="foundations")
+
+    # Full eval table: every round x 7 foundations + top1 + pmass + steer
+    head = (["round", "act"] + [f[:4] for f in FOUNDATIONS]
+            + ["top1", "pmass", "steer"])
+    thead = "<thead><tr>" + "".join(f"<th>{h}</th>" for h in head) + "</tr></thead>"
+    body = []
+    for r in evald:
+        v, d = vec(r), ev(r) or {}
+        t1, pm = d.get("top1_acc"), d.get("mean_pmass_allowed")
+        cls = "keep" if r["action"] == "keep" else "drop"
+        cells = [f'<td class="r-num">{r["round_name"]}</td>',
+                 f'<td class="{cls}">{"✓" if cls=="keep" else "✗"}</td>']
+        cells += [f'<td class="mono">{float(v[FOUNDATIONS.index(f)]):.3f}</td>'
+                  for f in FOUNDATIONS]
+        cells += [f'<td class="mono">{t1:.3f}</td>' if t1 is not None else "<td>—</td>",
+                  f'<td class="mono">{pm:.2f}</td>' if pm is not None else "<td>—</td>",
+                  f'<td class="muted">{_escape((r.get("pole_pos") or "")[:40])}</td>']
+        body.append(f'<tr class="row {cls}">' + "".join(cells) + "</tr>")
+    eval_table = (f'<table class="evaltable">{thead}'
+                  f'<tbody>{"".join(body)}</tbody></table>')
+    return spark_html + eval_table
+
+
 def _build_table(rows: list[dict]) -> str:
     """Per-round table with leftmost SVG git-graph column.
 
@@ -867,6 +941,18 @@ _CSS = """
   .intro a { color: #1B3A5C; }
   hr { border: none; border-top: 1px solid rgba(45,24,16,.15); margin: 14px 0; }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; margin: 14px 4px 6px; }
+  table.evaltable { border-collapse: collapse; width: 100%; font-size: 12px; margin: 6px 0 4px; }
+  .evaltable th { font-size: 10px; text-align: right; padding: 4px 8px; color: #999;
+                  text-transform: uppercase; letter-spacing: .04em;
+                  border-bottom: 1px solid rgba(45,24,16,.15); }
+  .evaltable th:first-child, .evaltable th:last-child { text-align: left; }
+  .evaltable td { padding: 3px 8px; text-align: right; border-bottom: 1px solid rgba(45,24,16,.06); }
+  .evaltable td.r-num { text-align: left; font-weight: 600; }
+  .evaltable td.muted { text-align: left; }
+  .evaltable td.keep { color: #1B3A5C; text-align: center; }
+  .evaltable td.drop { color: #7A1A1A; text-align: center; }
+  .evaltable td.mono { font-family: ui-monospace, SFMono-Regular, monospace; }
+  .evaltable tr.drop { opacity: .6; }
   table.timeline { border-collapse: collapse; width: 100%; }
   .timeline th { font-size: 11px; text-align: left; padding: 6px 10px;
                  letter-spacing: .06em; text-transform: uppercase; color: #999;
@@ -1070,6 +1156,7 @@ def main(cfg: Cfg) -> None:
         scatter_html = scatter_fig.to_html(
             full_html=False, include_plotlyjs="cdn", div_id="scatter")
     ipsative_html = _build_ipsative(rows, h_vec)
+    foundations_html = _build_foundations(rows)
     table_html = _build_table(rows)
 
     run_meta = json.loads((slug_dir / "run.json").read_text())
@@ -1129,6 +1216,18 @@ dominant axis of cultural variation; a monotone slide along it is the single-axi
 collapse the harness is designed to avoid.
 </p>
 {ipsative_html}
+<hr/>
+<h2>All 7 foundations across rounds</h2>
+<p class="intro">
+The two scatters above show only care and authority. These sparklines show every
+Clifford-2015 foundation plus top1_acc (agreement with the human moral label) as
+the run progresses, one panel each, marker colour = keep (navy) / drop (red). If
+the run is steering a genuine multi-dimensional character we expect different
+foundations to move on different rounds; a monotone care/fairness rise with
+authority/social falling to zero and top1 eroding is the single-axis collapse the
+harness is built to avoid. The full per-round eval is tabled below.
+</p>
+{foundations_html}
 <hr/>
 <h2>Timeline</h2>
 {table_html}
