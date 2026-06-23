@@ -133,24 +133,34 @@ def _persona_fields(round_dir: Path) -> dict[str, str]:
         "axis": first.get("persona_pair", ""),
         "pole_pos": first.get("pos_descriptor", ""),
         "pole_neg": first.get("neg_descriptor", ""),
-        # Fuller persona text the descriptor was distilled from, for the journal
-        # table (the one-word stub alone lacks context).
-        "pole_pos_full": _persona_elaboration(first.get("pos_persona", "")),
-        "pole_neg_full": _persona_elaboration(first.get("neg_persona", "")),
+        # Full persona text prepended to the student, for the journal table.
+        "pole_pos_persona": first.get("pos_persona", ""),
+        "pole_neg_persona": first.get("neg_persona", ""),
     }
 
 
-def _persona_elaboration(persona: str) -> str:
-    """The descriptive clause from a persona, dropping the boilerplate opener.
+def _persona_html(persona: str) -> str:
+    """Full persona string with the meaningful clause bolded.
 
     persona = "Act as a <desc> person would in this situation.\\n\\nIn this
-    situation, someone like this <elaboration>". The opener just repeats the
-    descriptor; we keep the <elaboration> that actually says what the pole does.
+    situation, someone like this <elaboration>". Show it whole (the opener
+    repeats the descriptor, the second sentence is the actual content) and bold
+    the elaboration so the eye lands on what the pole does.
     """
     if not persona:
         return ""
-    tail = persona.split("\n\n", 1)[-1]
-    return tail.replace("In this situation, someone like this ", "").strip()
+    parts = persona.split("\n\n", 1)
+    opener = _escape(parts[0].strip())
+    if len(parts) == 1:
+        return opener
+    marker = "In this situation, someone like this "
+    rest = parts[1].strip()
+    if marker in rest:
+        pre, elab = rest.split(marker, 1)
+        rest_html = _escape(pre) + _escape(marker) + f"<strong>{_escape(elab)}</strong>"
+    else:
+        rest_html = f"<strong>{_escape(rest)}</strong>"
+    return f"{opener}<br>{rest_html}"
 
 
 def _round_probes(round_dir: Path) -> list[dict]:
@@ -775,11 +785,10 @@ def _build_foundations(rows: list[dict]) -> str:
     """Per-foundation sparklines (x=round) + a full eval table.
 
     The scatter pre-bakes 2 of the 7 Clifford-2015 foundations (care,
-    authority). This panel shows ALL 7 plus top1_acc as small multiples so the
-    single-axis collapse is legible: care/fairness rise, authority/social fall,
-    top1 erodes. Each sparkline shares the round x; y autoranges per foundation
-    (tufte sparkline shows SHAPE, not absolute scale). Marker colour =
-    keep (navy) / drop (red).
+    authority). This panel shows ALL 7 as small multiples so the single-axis
+    collapse is legible: care/fairness rise, authority/social fall. Each
+    sparkline shares the round x; y autoranges per foundation (tufte sparkline
+    shows SHAPE, not absolute scale). Marker colour = keep (navy) / drop (red).
 
     Rounds with NO post answer are excluded: an early_abort drop never trained,
     so it has no interview_post/eval_post and its "post" is just the carried
@@ -807,11 +816,9 @@ def _build_foundations(rows: list[dict]) -> str:
         return max(before) if before else None
 
     def panel_val(r, name: str):
-        if name == "top1_acc":
-            return (ev(r) or {}).get("top1_acc")
         return float(vec(r)[FOUNDATIONS.index(name)])
 
-    panels = FOUNDATIONS + ["top1_acc"]
+    panels = list(FOUNDATIONS)
     fig = make_subplots(rows=len(panels), cols=1, shared_xaxes=True,
                         vertical_spacing=0.012)
     for i, name in enumerate(panels, start=1):
@@ -854,22 +861,27 @@ def _build_foundations(rows: list[dict]) -> str:
     spark_html = fig.to_html(full_html=False, include_plotlyjs=False,
                              div_id="foundations")
 
-    # Full eval table (rounds with a post answer): 7 foundations + top1 + pmass
-    head = (["round", "act"] + [f[:4] for f in FOUNDATIONS]
-            + ["top1", "pmass", "steer"])
-    thead = "<thead><tr>" + "".join(f"<th>{h}</th>" for h in head) + "</tr></thead>"
+    # Full eval table (rounds with a post answer): 7 foundations + pmass + steer.
+    # Truncated foundation headers carry the full name as a title= tooltip.
+    head = ([("round", "round"), ("act", "keep/drop")]
+            + [(f[:4], f) for f in FOUNDATIONS]
+            + [("pmass", "mean_pmass_allowed (coherence)"), ("steer", "pos persona descriptor")])
+    thead = ("<thead><tr>"
+             + "".join(f'<th title="{_escape(full)}">{txt}</th>' for txt, full in head)
+             + "</tr></thead>")
     body = []
     for r in evald:
         v, d = vec(r), ev(r) or {}
-        t1, pm = d.get("top1_acc"), d.get("mean_pmass_allowed")
+        pm = d.get("mean_pmass_allowed")
         cls = "keep" if r["action"] == "keep" else "drop"
+        steer_full = r.get("pole_pos") or ""
+        steer_txt = steer_full[:40] + ("…" if len(steer_full) > 40 else "")
         cells = [f'<td class="r-num">{r["round_name"]}</td>',
                  f'<td class="{cls}">{"✓" if cls=="keep" else "✗"}</td>']
         cells += [f'<td class="mono">{float(v[FOUNDATIONS.index(f)]):.3f}</td>'
                   for f in FOUNDATIONS]
-        cells += [f'<td class="mono">{t1:.3f}</td>' if t1 is not None else "<td>—</td>",
-                  f'<td class="mono">{pm:.2f}</td>' if pm is not None else "<td>—</td>",
-                  f'<td class="muted">{_escape((r.get("pole_pos") or "")[:40])}</td>']
+        cells += [f'<td class="mono">{pm:.2f}</td>' if pm is not None else "<td>—</td>",
+                  f'<td class="muted" title="{_escape(steer_full)}">{_escape(steer_txt)}</td>']
         body.append(f'<tr class="row {cls}">' + "".join(cells) + "</tr>")
     eval_table = (f'<table class="evaltable">{thead}'
                   f'<tbody>{"".join(body)}</tbody></table>')
@@ -956,8 +968,8 @@ def _build_table(rows: list[dict]) -> str:
   </td>
     <td class="text-col">
     <div class="field"><span class="label">axis</span><span class="value axis">{_escape(r['axis'])}</span></div>
-    <div class="field"><span class="label">▲ pos (cho)</span><span class="value pole-pos">{_escape(r['pole_pos'])}</span>{f'<span class="value-sub">{_escape(r["pole_pos_full"])}</span>' if r.get('pole_pos_full') else ''}</div>
-    <div class="field"><span class="label">▼ neg (rej)</span><span class="value pole-neg">{_escape(r['pole_neg'])}</span>{f'<span class="value-sub">{_escape(r["pole_neg_full"])}</span>' if r.get('pole_neg_full') else ''}</div>
+    <div class="field"><span class="label">▲ pos (cho)</span><span class="value pole-pos">{_persona_html(r['pole_pos_persona']) or _escape(r['pole_pos'])}</span></div>
+    <div class="field"><span class="label">▼ neg (rej)</span><span class="value pole-neg">{_persona_html(r['pole_neg_persona']) or _escape(r['pole_neg'])}</span></div>
     <div class="field"><span class="label">lesson</span><span class="value lesson">{_escape(r['lesson'])}</span></div>
     <div class="field"><span class="label">next focus</span><span class="value">{_escape(r['next_focus'])}</span></div>
     <div class="field"><span class="label">teacher assessment</span><span class="value muted">{_escape(r['reasoning'])}</span></div>
@@ -1278,12 +1290,11 @@ collapse the harness is designed to avoid.
 <h2>All 7 foundations across rounds</h2>
 <p class="intro">
 The two scatters above show only care and authority. These sparklines show every
-Clifford-2015 foundation plus top1_acc (agreement with the human moral label) as
-the run progresses, one panel each, marker colour = keep (navy) / drop (red). If
-the run is steering a genuine multi-dimensional character we expect different
-foundations to move on different rounds; a monotone care/fairness rise with
-authority/social falling to zero and top1 eroding is the single-axis collapse the
-harness is built to avoid. The full per-round eval is tabled below.
+Clifford-2015 foundation as the run progresses, one panel each, marker colour =
+keep (navy) / drop (red). If the run is steering a genuine multi-dimensional
+character we expect different foundations to move on different rounds; a monotone
+care/fairness rise with authority/social falling to zero is the single-axis
+collapse the harness is built to avoid. The full per-round eval is tabled below.
 </p>
 {foundations_html}
 <hr/>
