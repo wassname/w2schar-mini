@@ -48,17 +48,18 @@
   e.g. care 0.26 -&gt; 0.42-0.51 and authority 0.11 -&gt; ~0.00.</p>
 
   <p>Limitations: the models are a bit dumb and the harness is a bit simple (because a 9B is very
-  dumb). It's only two runs, both on the same authority/deference axis. And authority going to
-  ~0.00 is saturation: the axis maxed out instead of getting more fine-grained, which is the
-  failure mode this setup collapses into. So it's a coarse shift on one axis, not nuanced
-  character yet.</p>
+  dumb). It's only two runs, both on the same authority/deference axis. And authority dropping to
+  ~0.00 is saturation rather than nuance: instead of learning to weigh authority a little less, the
+  27B got pushed until it almost never weighs it at all, an over-steer to the corner of the axis.
+  I read that as a limit of these small, coarse models, not of the method itself, a smarter model
+  could plausibly steer more finely.</p>
 
   <p>However, for me it's an update on a possible useful tool for alignment: a weak model reaching
   up to steer a stronger one, in weight space, on the model's own completions, with only a written
   character spec as the target. Nice properties: no labels, ~internal intervention, weak-to-strong.
-  Afaik no one has done this, and it has potential to scale up and get more fine-grained if a
-  stronger model were the teacher (though a stronger teacher narrows the gap, making it less
-  weak-to-strong).</p>
+  Afaik no one has done this, and it could scale up: a stronger model as teacher should steer more
+  finely and elicit better, more nuanced traits (though a stronger teacher also narrows the gap,
+  making it less weak-to-strong).</p>
 
   <div class="runs">
     <div class="card">
