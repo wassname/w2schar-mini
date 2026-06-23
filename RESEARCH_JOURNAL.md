@@ -2445,3 +2445,17 @@ fake-mode artifact UPSTREAM of these edits, not a regression. Killed the gym to 
 (can't validate via a fake student that never trains). The prose-prohibition validates on the next
 LIVE run's mark_exam. py_compile OK both files. STAGE-2 (seat rotation, task #37) deferred -- needs
 the scenario pool (#29) and must land AFTER stage-1's run for attribution.
+
+## 2026-06-23 -- job 138 daemon-killed mid-train, requeued as 139
+
+Stage-1 live-validation run (job 138, `bash scripts/run_3round.sh gemma-27b-3keep 7`) started
+03:37:37, KILLED 03:51:24 -- not a code crash. Pueue log shows it cleanly passed choose_focus,
+candidates, rate_candidate (39 kept), select_pairs (8 clean, one per scenario), and was inside
+`train_student()` loading weights when killed. The daemon had restarted (socket vanished, group came
+back Paused) -- same infra failure as killed-130/132 (daemon crash mid-round), NOT a bug from the
+stage-1 `cf = json.loads(choose_focus_judgment.json)` edit (that read ran fine; the run reached
+training). Orphan partial slug: `out/iter/20260623T033747_iter_google-gemma-2-27b-it/` (round00 only).
+Requeued identical command as job 139 (prio 75); resumed the paused default group (queue was otherwise
+empty of mine; resume also released another agent's 133/135/136/137 batch -- left untouched, 139 sits
+next in line behind running 133). Stage-1 validation (mark_exam fabrication gone, FROZEN PRE line,
+negatives DROP) still PENDING -- awaits 139 completing. Tasks #36/#38 unchanged.
