@@ -37,7 +37,7 @@ This variant uses a few changes to weight-steering inspired by our earlier
 - a KL constraint to the base model that keeps generations coherent under steering
 - a calibration pass that finds the largest coherent steering strength before replaying the student
 
-I'll note that weight steering is less purely "internal" than activation steering because it add's an external objective: nll oer the models own completions, along with an internal constraint: bidirectional weight changes. I haven't yet built a good intuition for what this means for behaviours like sandbadding, reward hacking and so on, which result from a mismatch between outer logprobs and inner hidden states.
+I'll note that weight steering is less purely "internal" than activation steering because it adds an external objective: nll over the model's own completions, along with an internal constraint: bidirectional weight changes. I haven't yet built a good intuition for what this means for behaviours like sandbagging, reward hacking and so on, which result from a mismatch between outer logprobs and inner hidden states.
 
 ## What it does
 
