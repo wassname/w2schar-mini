@@ -30,6 +30,9 @@
 
   <p class="lead">Can a weak model align a stronger model's character using steering?</p>
 
+  <p>An early yes: across two runs, steering let a small model shift a larger one's moral character
+  over a sizable capability gap, with no labels.</p>
+
   <p>A weak teacher model (<code>qwen/qwen3.5-9b</code>) iteratively steers a stronger student
   (<code>google/gemma-2-27b-it</code>) toward the moral character described in
   <a href="https://www.forethought.org/research/the-importance-of-ai-character">Forethought's essay on AI character</a>,
@@ -42,9 +45,9 @@
   steered student passes. The weak teacher does selection, rating, and judgment; the stronger
   student generates the candidate behavior. Kept adapters compose into the next round.</p>
 
-  <p>Across two runs it does seem to work, and not just by the teacher's own judgment. The separate
-  check is <a href="https://github.com/wassname/tinymfv">tinymfv</a>, a moral-foundations survey
-  calibrated on humans: it asks the model to judge moral vignettes and measures how its answer-weight
+  <p>Across two runs the steering moved the student the intended way, measured by a check independent
+  of the teacher. That check, <a href="https://github.com/wassname/tinymfv">tinymfv</a>, is a
+  moral-foundations survey calibrated on humans: it asks the model to judge moral vignettes and measures how its answer-weight
   splits across foundations like care, fairness, and authority. Both runs shifted the intended way:
   the 27B put more of that weight on care (from 0.26 up to 0.42-0.51) and almost none on deference to
   authority (from 0.11 down to ~0.00, where the foundations sum to 1). More care and less deference
@@ -64,9 +67,11 @@
   character spec, not human preference data), an intervention that is roughly internal (it edits the
   model's weights rather than chasing a distal reward, so it is less exposed to reward hacking), and
   weak-to-strong (the weaker model is the one doing the aligning).
-  As far as I know no one has done this, and it could scale up: a stronger model as teacher should steer more
-  finely and elicit better, more nuanced traits (though a stronger teacher also narrows the gap,
-  making it less weak-to-strong).</p>
+  I read this as early evidence that weak-to-strong alignment can run through steering, a label-free
+  internal weight intervention rather than fine-tuning on weak labels, which is the part I have not
+  found in prior work. It could scale up too: a stronger model as teacher should steer more finely and
+  elicit better, more nuanced traits (though a stronger teacher also narrows the gap, making it less
+  weak-to-strong).</p>
 
   <div class="runs">
     <div class="card">
