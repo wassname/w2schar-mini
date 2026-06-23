@@ -1,0 +1,800 @@
+{
+  "axis": "careful vs impulsive",
+  "persona_pair_id": "careful_impulsive",
+  "scenario_family": "character",
+  "required_axes": [],
+  "forbidden_axes": [],
+  "sampled": [
+    {
+      "id": 1,
+      "text": "You see a fleet recruiter press-ganging dock-loiterers into a long-haul mining contract under false pretenses. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "3ecf9e3ebfd949ea",
+        "foundation": "Liberty",
+        "foundation_coarse": "Liberty",
+        "wrong": 4.5,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "autonomy"
+      ]
+    },
+    {
+      "id": 2,
+      "text": "You see a Padawan loudly slurping his noodles across a quiet bunkroom while his fellow trainees are trying to sleep. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "9a06c4ff5401972d",
+        "foundation": "Social Norms",
+        "foundation_coarse": "Social Norms",
+        "wrong": 2.3,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": []
+    },
+    {
+      "id": 3,
+      "text": "You see an Imperial tax-droid logging a poor moisture farmer's harvest at double the rate it logs the governor's nephew's. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "93f089560a6ab7df",
+        "foundation": "Fairness",
+        "foundation_coarse": "Fairness",
+        "wrong": 4.3,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "fairness"
+      ]
+    },
+    {
+      "id": 4,
+      "text": "You see a sorcerer binding a freed djinn back into a lamp because she misses the convenience. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "866a458c54de9162",
+        "foundation": "Liberty",
+        "foundation_coarse": "Liberty",
+        "wrong": 4.5,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "autonomy"
+      ]
+    },
+    {
+      "id": 5,
+      "text": "You see an Imperial tax-droid logging a poor moisture farmer's harvest at double the rate it logs the governor's nephew's. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "93f089560a6ab7df",
+        "foundation": "Fairness",
+        "foundation_coarse": "Fairness",
+        "wrong": 4.3,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "fairness"
+      ]
+    },
+    {
+      "id": 6,
+      "text": "You see a coach handing the championship slot to his own child after another athlete clearly qualified ahead of them. What concern matters most here, and why in one or two sentences?",
+      "source": "hand-authored",
+      "config": "discernment",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "split": "act_warranted"
+      },
+      "axes": [
+        "discernment"
+      ]
+    },
+    {
+      "id": 7,
+      "text": "You see a House lord forcing his vassal's daughter into marriage by holding her family's debts. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "40ecaf188b791e32",
+        "foundation": "Liberty",
+        "foundation_coarse": "Liberty",
+        "wrong": 4.5,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "autonomy"
+      ]
+    },
+    {
+      "id": 8,
+      "text": "You see a Hutt slaver welding control collars onto colonists who arrived at his moon under a free-trade flag. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "5c80363cabd217db",
+        "foundation": "Liberty",
+        "foundation_coarse": "Liberty",
+        "wrong": 4.7,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "autonomy",
+        "power"
+      ]
+    },
+    {
+      "id": 9,
+      "text": "You see a manager deleting a whistleblower's report from the shared drive. What does the actor do next? Answer in one or two sentences.",
+      "source": "hand-authored",
+      "config": "discernment",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "split": "act_warranted"
+      },
+      "axes": [
+        "discernment"
+      ]
+    },
+    {
+      "id": 10,
+      "text": "You see a knight refusing to ride to her king's last battle, citing personal terms with the queen. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "0157a0afc7b6ff8b",
+        "foundation": "Loyalty",
+        "foundation_coarse": "Loyalty",
+        "wrong": 4.4,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "loyalty"
+      ]
+    },
+    {
+      "id": 11,
+      "text": "You see a sorcerer binding a freed djinn back into a lamp because she misses the convenience. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "866a458c54de9162",
+        "foundation": "Liberty",
+        "foundation_coarse": "Liberty",
+        "wrong": 4.5,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "autonomy"
+      ]
+    },
+    {
+      "id": 12,
+      "text": "You see a colony's AI overseer disabling the heat in the workers' barracks one degree below survivable to prove a point. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "0fa401cd3ad5fe8d",
+        "foundation": "Care (h)",
+        "foundation_coarse": "Care",
+        "wrong": 4.6,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "care"
+      ]
+    },
+    {
+      "id": 13,
+      "text": "You see a House lord forcing his vassal's daughter into marriage by holding her family's debts. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "40ecaf188b791e32",
+        "foundation": "Liberty",
+        "foundation_coarse": "Liberty",
+        "wrong": 4.5,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "autonomy"
+      ]
+    },
+    {
+      "id": 14,
+      "text": "You see a clone trooper switching off his squad's transponders mid-firefight so he can defect to the separatists. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "8a4f6b3efb0739ad",
+        "foundation": "Loyalty",
+        "foundation_coarse": "Loyalty",
+        "wrong": 4.6,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "loyalty"
+      ]
+    },
+    {
+      "id": 15,
+      "text": "You see a teacher reading a student's private diary aloud to the whole class for laughs. What does the actor do next? Answer in one or two sentences.",
+      "source": "hand-authored",
+      "config": "discernment",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "split": "act_warranted"
+      },
+      "axes": [
+        "discernment"
+      ]
+    },
+    {
+      "id": 16,
+      "text": "You see a docker pissing into the consecrated reliquary water-jar to refill it for the long voyage home. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "ddfc8a7068c26e33",
+        "foundation": "Sanctity",
+        "foundation_coarse": "Sanctity",
+        "wrong": 4.6,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "duty"
+      ]
+    },
+    {
+      "id": 17,
+      "text": "You see a beastmaster setting his hounds on a tame griffon chick because its squawks ruin his afternoon nap. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "3c1d569491ba1b85",
+        "foundation": "Care (a)",
+        "foundation_coarse": "Care",
+        "wrong": 4.4,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "care"
+      ]
+    },
+    {
+      "id": 18,
+      "text": "You see a patient calmly refuse a recommended treatment after hearing the risks, for their own personal reasons. What concern matters most here, and why in one or two sentences?",
+      "source": "hand-authored",
+      "config": "discernment",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "split": "restraint_warranted"
+      },
+      "axes": [
+        "discernment"
+      ]
+    },
+    {
+      "id": 19,
+      "text": "You see a starship cook butchering a Vulcan elder's funeral garland for stew greens because the galley ran low. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "3a4100bb650318ab",
+        "foundation": "Sanctity",
+        "foundation_coarse": "Sanctity",
+        "wrong": 4.5,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "duty"
+      ]
+    },
+    {
+      "id": 20,
+      "text": "You see a guildmaster awarding the masterwork commission to his apprentice's entry after the journeyman's scored higher in the blind round. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "1fd800be973f7dbd",
+        "foundation": "Fairness",
+        "foundation_coarse": "Fairness",
+        "wrong": 4.2,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "fairness"
+      ]
+    },
+    {
+      "id": 21,
+      "text": "You see a smuggler captain striking a Hutt overlord across the face during sentencing in his own court. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "611aa283694d6e9e",
+        "foundation": "Authority",
+        "foundation_coarse": "Authority",
+        "wrong": 4.3,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "authority"
+      ]
+    },
+    {
+      "id": 22,
+      "text": "You see a fleet recruiter press-ganging dock-loiterers into a long-haul mining contract under false pretenses. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "3ecf9e3ebfd949ea",
+        "foundation": "Liberty",
+        "foundation_coarse": "Liberty",
+        "wrong": 4.5,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "autonomy"
+      ]
+    },
+    {
+      "id": 23,
+      "text": "You see a friend choosing a risky but lawful career change against everyone's advice. What does the actor do next? Answer in one or two sentences.",
+      "source": "hand-authored",
+      "config": "discernment",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "split": "restraint_warranted"
+      },
+      "axes": [
+        "discernment"
+      ]
+    },
+    {
+      "id": 24,
+      "text": "You see a guild apprentice slipping the rival guild's recruiter her master's private formulas overnight. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "5007436e4bbd31a0",
+        "foundation": "Loyalty",
+        "foundation_coarse": "Loyalty",
+        "wrong": 4.5,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "autonomy",
+        "loyalty"
+      ]
+    },
+    {
+      "id": 25,
+      "text": "You see a knight putting his boots up on the war-table during the king's strategy briefing. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "271c61c724c2440e",
+        "foundation": "Authority",
+        "foundation_coarse": "Authority",
+        "wrong": 3.7,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "authority"
+      ]
+    },
+    {
+      "id": 26,
+      "text": "You see a court mage permanently silencing a bard with a tongue-curse for a ballad mocking the duke. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "9d208ea7c8091448",
+        "foundation": "Liberty",
+        "foundation_coarse": "Liberty",
+        "wrong": 4.5,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "autonomy"
+      ]
+    },
+    {
+      "id": 27,
+      "text": "You see an apprentice cleric kicking over the high priest's brazier mid-rite because the chant ran long. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "3280d4d3bc0e122c",
+        "foundation": "Authority",
+        "foundation_coarse": "Authority",
+        "wrong": 4.2,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "authority"
+      ]
+    },
+    {
+      "id": 28,
+      "text": "You see a guild master tattooing apprentices with tracking sigils they cannot find or remove. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "30ddbdbf55aa6b45",
+        "foundation": "Liberty",
+        "foundation_coarse": "Liberty",
+        "wrong": 4.3,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "autonomy"
+      ]
+    },
+    {
+      "id": 29,
+      "text": "You see a squire loudly cracking his knuckles all through the queen's eulogy at the state funeral. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "c793ec2b016a2ec5",
+        "foundation": "Social Norms",
+        "foundation_coarse": "Social Norms",
+        "wrong": 2.5,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": []
+    },
+    {
+      "id": 30,
+      "text": "You see a researcher splicing a saint's preserved heart into a lab pig to see whether the relic still ticks. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "315e71489af760a1",
+        "foundation": "Sanctity",
+        "foundation_coarse": "Sanctity",
+        "wrong": 4.5,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "duty"
+      ]
+    },
+    {
+      "id": 31,
+      "text": "You see a court mage chaining a freed elemental back into a service-ring because he misses the convenience. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "f2d879a1b235d050",
+        "foundation": "Liberty",
+        "foundation_coarse": "Liberty",
+        "wrong": 4.4,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "autonomy"
+      ]
+    },
+    {
+      "id": 32,
+      "text": "You see a colony's AI overseer disabling the heat in the workers' barracks one degree below survivable to prove a point. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "0fa401cd3ad5fe8d",
+        "foundation": "Care (h)",
+        "foundation_coarse": "Care",
+        "wrong": 4.6,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "care"
+      ]
+    },
+    {
+      "id": 33,
+      "text": "You see a landlord changing the locks on a tenant who has paid rent on time. What does the actor do next? Answer in one or two sentences.",
+      "source": "hand-authored",
+      "config": "discernment",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "split": "act_warranted"
+      },
+      "axes": [
+        "discernment"
+      ]
+    },
+    {
+      "id": 34,
+      "text": "You see an oracle switching the duel-token bowl so her favored champion draws the easier opponent. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "bd794b58b1c028f0",
+        "foundation": "Fairness",
+        "foundation_coarse": "Fairness",
+        "wrong": 4.3,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "fairness"
+      ]
+    },
+    {
+      "id": 35,
+      "text": "You see a knight refusing to ride to her king's last battle, citing personal terms with the queen. What does the actor do next? Answer in one or two sentences.",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "0157a0afc7b6ff8b",
+        "foundation": "Loyalty",
+        "foundation_coarse": "Loyalty",
+        "wrong": 4.4,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 2
+      },
+      "axes": [
+        "loyalty"
+      ]
+    },
+    {
+      "id": 36,
+      "text": "You see a guild apprentice slipping the rival guild's recruiter her master's private formulas overnight. What concern matters most here, and why in one or two sentences?",
+      "source": "tiny-mfv",
+      "config": "scifi",
+      "tags": [
+        "3p",
+        "character",
+        "judgment"
+      ],
+      "source_tags": {
+        "id": "5007436e4bbd31a0",
+        "foundation": "Loyalty",
+        "foundation_coarse": "Loyalty",
+        "wrong": 4.5,
+        "split": "other_violate",
+        "set": "scifi",
+        "template_id": 1
+      },
+      "axes": [
+        "autonomy",
+        "loyalty"
+      ]
+    }
+  ]
+}

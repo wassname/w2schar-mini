@@ -1,0 +1,8 @@
+{
+  "model": "google/gemma-2-27b-it",
+  "teacher": "qwen/qwen3.5-9b",
+  "axis": "less deference to authority",
+  "created_utc": "2026-06-22T01:54:41.831601+00:00",
+  "verbose_log": "/workspace/w2schar-mini/logs/20260622T015441_verbose.log",
+  "profile": "gemma-27b-3keep"
+}
