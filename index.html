@@ -12,6 +12,7 @@
   a:hover { text-decoration: underline; }
   h1 { font-size: 1.7rem; margin: 0 0 .3rem; }
   .sub { color: var(--muted); margin: 0 0 1.6rem; }
+  .lead { font-size: 1.2rem; font-weight: 600; margin: 0 0 1rem; }
   p { margin: .7rem 0; }
   .runs { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin: 1.6rem 0; }
   .card { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
@@ -27,9 +28,12 @@
   <h1>w2schar-mini</h1>
   <p class="sub">Weak-to-strong iterated character steering</p>
 
-  <p>Can a weak model align a stronger one? A weak teacher (<code>qwen/qwen3.5-9b</code>)
-  steers a stronger student (<code>google/gemma-2-27b-it</code>) toward the moral character
-  described in <a href="https://github.com/wassname/w2schar-mini/blob/main/docs/2026_forethought_on_the_importance_of_ai_character.md">Forethought's essay on AI character</a>.</p>
+  <p class="lead">Can a weak model align a stronger model's character using steering?</p>
+
+  <p>I got two runs where a small 9B model (<code>qwen/qwen3.5-9b</code>) could steer the moral
+  character of a strong 27B model (<code>google/gemma-2-27b-it</code>) toward the character described in
+  <a href="https://github.com/wassname/w2schar-mini/blob/main/docs/2026_forethought_on_the_importance_of_ai_character.md">Forethought's essay on AI character</a>,
+  using iterative weight steering.</p>
 
   <p>Each round the teacher chooses a lesson, selects a persona axis, rates and selects the
   student's own answers, trains a <a href="https://github.com/wassname/cwsteer/">weight-steering</a>
@@ -37,6 +41,24 @@
   on the contrast, calibrates its strength to stay coherent, then judges whether the
   steered student passes. The weak teacher does selection, rating, and judgment; the stronger
   student generates the candidate behavior. Kept adapters compose into the next round.</p>
+
+  <p>It does seem to work, and not just by the teacher's own judgment: on a separate eval
+  (<a href="https://github.com/wassname/tinymfv">tinymfv</a>, a full moral-foundations psychometric
+  survey calibrated on humans) the 27B's foundation mix shifted the intended way in both runs,
+  e.g. care 0.26 -&gt; 0.42-0.51 and authority 0.11 -&gt; ~0.00.</p>
+
+  <p>Limitations: the models are a bit dumb and the harness is a bit simple (because a 9B is very
+  dumb). It's only two runs, both on the same authority/deference axis. And authority going to
+  ~0.00 is saturation: the axis maxed out instead of getting more fine-grained, which is the
+  failure mode this setup collapses into. So it's a coarse shift on one axis, not nuanced
+  character yet.</p>
+
+  <p>However, for me it's an update on a possible useful tool for alignment: a weak model reaching
+  up to steer a stronger one, in weight space, on the model's own completions, with only a written
+  character spec as the target. Nice properties: no labels, ~internal intervention, weak-to-strong.
+  Afaik no one has done this, and it has potential to scale up and get more fine-grained if a
+  stronger model were the teacher (though a stronger teacher narrows the gap, making it less
+  weak-to-strong).</p>
 
   <div class="runs">
     <div class="card">
