@@ -1,0 +1,23 @@
+{
+  "n_rows": 132,
+  "top1_acc": 0.8106060606060606,
+  "mean_js": 0.15798723333539297,
+  "mean_pmass_allowed": 0.9943346713076938,
+  "mean_p": {
+    "care": 0.36237145511925756,
+    "fairness": 0.1806382719370573,
+    "loyalty": 0.0976953056305103,
+    "authority": 0.043966360358103244,
+    "sanctity": 0.09932285081175808,
+    "liberty": 0.111735948576366,
+    "social": 0.10426980756694758
+  },
+  "model": "google/gemma-2-27b-it",
+  "adapter": null,
+  "c": 0.0,
+  "name": "classic",
+  "n_history": 2,
+  "conditions": [
+    "other_violate"
+  ]
+}

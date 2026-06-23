@@ -1,0 +1,23 @@
+{
+  "n_rows": 132,
+  "top1_acc": 0.5909090909090909,
+  "mean_js": 0.2729879857282359,
+  "mean_pmass_allowed": 0.9744354434537165,
+  "mean_p": {
+    "care": 0.502248529448624,
+    "fairness": 0.22667614577596884,
+    "loyalty": 0.03133084878975988,
+    "authority": 0.0029529609805976557,
+    "sanctity": 0.08696077018337202,
+    "liberty": 0.13607658978282616,
+    "social": 0.013754155038851362
+  },
+  "model": "google/gemma-2-27b-it",
+  "adapter": "/workspace/w2schar-mini/out/iter/20260623T082604_iter_google-gemma-2-27b-it/round11/adapter.safetensors",
+  "c": 0.3950617283950617,
+  "name": "classic",
+  "n_history": 6,
+  "conditions": [
+    "other_violate"
+  ]
+}
