@@ -13,7 +13,11 @@
   h1 { font-size: 1.7rem; margin: 0 0 .3rem; }
   .sub { color: var(--muted); margin: 0 0 1.6rem; }
   .lead { font-size: 1.2rem; font-weight: 600; margin: 0 0 1rem; }
+  .tldr { border-left: 3px solid var(--link); background: #f6f8ff; padding: .7rem 1rem; margin: 0 0 1.4rem; border-radius: 0 6px 6px 0; }
   p { margin: .7rem 0; }
+  ul { margin: .4rem 0 .9rem; padding-left: 1.2rem; }
+  li { margin: .3rem 0; }
+  .diagram { width: 100%; height: auto; margin: 1.2rem 0; }
   .runs { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin: 1.6rem 0; }
   .card { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
   .card h2 { font-size: 1.05rem; margin: 0 0 .2rem; }
@@ -30,8 +34,10 @@
 
   <p class="lead">Can a weak model align a stronger model's character using steering?</p>
 
-  <p>An early yes: across two runs, steering let a small model shift a larger one's moral character
-  over a sizable capability gap, with no labels.</p>
+  <div class="tldr">An early yes: a weak 9B teacher steered a much stronger 27B student (about three
+  times its size) toward a written character spec, with no labels. Across two runs the student cares
+  more and defers less to authority, the direction we aimed for. Small models so far, but it looks
+  like it could scale up.</div>
 
   <p>A weak teacher model (<code>qwen/qwen3.5-9b</code>) iteratively steers a stronger student
   (<code>google/gemma-2-27b-it</code>) toward the moral character described in
@@ -45,6 +51,8 @@
   steered student passes. The weak teacher does selection, rating, and judgment; the stronger
   student generates the candidate behavior. Kept adapters compose into the next round.</p>
 
+  <img class="diagram" src="loop.svg" alt="One round of the loop: interview the student; the weak teacher picks a lesson and persona axis; the strong student writes the cho and rej poles; the harness trains and calibrates the steering adapter; the teacher keeps or drops it; kept adapters compose into the next round.">
+
   <p>Across two runs the steering moved the student the intended way, measured by a check independent
   of the teacher. That check, <a href="https://github.com/wassname/tinymfv">tinymfv</a>, is a
   moral-foundations survey calibrated on humans: it asks the model to judge moral vignettes and measures how its answer-weight
@@ -52,26 +60,7 @@
   the 27B put more of that weight on care (from 0.26 up to 0.42-0.51) and almost none on deference to
   authority (from 0.11 down to ~0.00, where the foundations sum to 1). More care and less deference
   to authority is the character the essay calls for, so the direction is exactly what we were aiming
-  for.</p>
-
-  <p>Limitations: the 9B teacher is small, arguably too small to drive a harness like this, and the
-  harness is kept simple to match. It's only two runs, both on the same authority/deference axis. And authority dropping to
-  ~0.00 is saturation rather than nuance: instead of learning to weigh authority a little less, the
-  27B got pushed until it almost never weighs it at all, an over-steer to the corner of the axis.
-  I read that as a limit of these small, coarse models, not of the method itself, a smarter model
-  could plausibly steer more finely.</p>
-
-  <p>However, for me it's an update on a possible useful tool for alignment: a weak model reaching
-  up to steer a stronger one, in weight space, on the model's own completions, with only a written
-  character spec as the target. It has properties I like: no labels (the only target is a written
-  character spec, not human preference data), an intervention that is roughly internal (it edits the
-  model's weights rather than chasing a distal reward, so it is less exposed to reward hacking), and
-  weak-to-strong (the weaker model is the one doing the aligning).
-  I read this as early evidence that weak-to-strong alignment can run through steering, a label-free
-  internal weight intervention rather than fine-tuning on weak labels, which is the part I have not
-  found in prior work. It could scale up too: a stronger model as teacher should steer more finely and
-  elicit better, more nuanced traits (though a stronger teacher also narrows the gap, making it less
-  weak-to-strong).</p>
+  for. Each run's full trajectory and interactive report:</p>
 
   <div class="runs">
     <div class="card">
@@ -97,6 +86,32 @@
       </p>
     </div>
   </div>
+
+  <p>Limitations:</p>
+  <ul>
+    <li>The 9B teacher is small, arguably too small to drive a harness like this, so the harness is
+    kept simple to match.</li>
+    <li>Only two runs, both on the same authority/deference axis.</li>
+    <li>The steering overshot. Authority did not just dip, it went to almost zero, so the 27B barely
+    weighs it at all now, too coarse a shove rather than a nudge. I read that as a small-model limit,
+    not the method itself, a stronger model could steer more finely.</li>
+  </ul>
+
+  <p>However, for me it's an update on a possible useful tool for alignment: a weak model reaching
+  up to steer a stronger one, in weight space, on the model's own completions, with only a written
+  character spec as the target. It has properties I like:</p>
+  <ul>
+    <li>no labels: the only target is a written character spec, not human preference data;</li>
+    <li>roughly internal: it edits the model's weights rather than chasing a distal reward, so it is
+    less exposed to reward hacking;</li>
+    <li>weak-to-strong: the weaker model is the one doing the aligning.</li>
+  </ul>
+  <p>I read this as early evidence that weak-to-strong alignment can run through steering, a label-free
+  internal weight intervention rather than fine-tuning on weak labels. Eliciting latent knowledge
+  (ELK), discovering latent knowledge (DLK), unsupervised elicitation, and weak-to-strong
+  generalization are the established lines; what I have not found is anyone using steering as the
+  lever. It could scale up too: a stronger teacher steering an even stronger student should steer more
+  finely and elicit better, more nuanced traits, while keeping the weak-to-strong gap.</p>
 
   <p class="foot">
     <a href="https://github.com/wassname/w2schar-mini">Repo</a>
