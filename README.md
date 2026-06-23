@@ -1,6 +1,8 @@
 <!-- This prose is human-approved. Before editing, run the `humanizer` skill and keep the footprint minimal. -->
 # w2schar-mini
 
+<p align="center"><img src="assets/w2schar.png" alt="A small robot reaching up to adjust the open chest panel of a much larger robot: a weak model shaping a stronger model's character." width="300"></p>
+
 Weak-to-strong iterated moral character steering. We ask a weak teacher model to steer
 a strong student model toward the moral character described in
 [Forethought's essay on AI character](docs/2026_forethought_on_the_importance_of_ai_character.md). In [Moral Foundations Theory](https://en.wikipedia.org/wiki/Moral_foundations_theory) terms, our shorthand for it is "defer less to authority, care more".
