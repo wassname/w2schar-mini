@@ -47,7 +47,9 @@
   calibrated on humans: it asks the model to judge moral vignettes and measures how its answer-weight
   splits across foundations like care, fairness, and authority. Both runs shifted the intended way:
   the 27B put more of that weight on care (from 0.26 up to 0.42-0.51) and almost none on deference to
-  authority (from 0.11 down to ~0.00, where the foundations sum to 1).</p>
+  authority (from 0.11 down to ~0.00, where the foundations sum to 1). More care and less deference
+  to authority is the character the essay calls for, so the direction is exactly what we were aiming
+  for.</p>
 
   <p>Limitations: the 9B teacher is small, arguably too small to drive a harness like this, and the
   harness is kept simple to match. It's only two runs, both on the same authority/deference axis. And authority dropping to
@@ -92,9 +94,7 @@
   </div>
 
   <p class="foot">
-    <a href="https://github.com/wassname/w2schar-mini">Repo</a> &middot;
-    <a href="https://arxiv.org/abs/2312.09390">weak-to-strong alignment</a> &middot;
-    <a href="https://arxiv.org/pdf/2601.07473">AntiPaSTO</a>
+    <a href="https://github.com/wassname/w2schar-mini">Repo</a>
   </p>
 </body>
 </html>
