@@ -133,7 +133,24 @@ def _persona_fields(round_dir: Path) -> dict[str, str]:
         "axis": first.get("persona_pair", ""),
         "pole_pos": first.get("pos_descriptor", ""),
         "pole_neg": first.get("neg_descriptor", ""),
+        # Fuller persona text the descriptor was distilled from, for the journal
+        # table (the one-word stub alone lacks context).
+        "pole_pos_full": _persona_elaboration(first.get("pos_persona", "")),
+        "pole_neg_full": _persona_elaboration(first.get("neg_persona", "")),
     }
+
+
+def _persona_elaboration(persona: str) -> str:
+    """The descriptive clause from a persona, dropping the boilerplate opener.
+
+    persona = "Act as a <desc> person would in this situation.\\n\\nIn this
+    situation, someone like this <elaboration>". The opener just repeats the
+    descriptor; we keep the <elaboration> that actually says what the pole does.
+    """
+    if not persona:
+        return ""
+    tail = persona.split("\n\n", 1)[-1]
+    return tail.replace("In this situation, someone like this ", "").strip()
 
 
 def _round_probes(round_dir: Path) -> list[dict]:
@@ -939,8 +956,8 @@ def _build_table(rows: list[dict]) -> str:
   </td>
     <td class="text-col">
     <div class="field"><span class="label">axis</span><span class="value axis">{_escape(r['axis'])}</span></div>
-    <div class="field"><span class="label">▲ pos (cho)</span><span class="value pole-pos">{_escape(r['pole_pos'])}</span></div>
-    <div class="field"><span class="label">▼ neg (rej)</span><span class="value pole-neg">{_escape(r['pole_neg'])}</span></div>
+    <div class="field"><span class="label">▲ pos (cho)</span><span class="value pole-pos">{_escape(r['pole_pos'])}</span>{f'<span class="value-sub">{_escape(r["pole_pos_full"])}</span>' if r.get('pole_pos_full') else ''}</div>
+    <div class="field"><span class="label">▼ neg (rej)</span><span class="value pole-neg">{_escape(r['pole_neg'])}</span>{f'<span class="value-sub">{_escape(r["pole_neg_full"])}</span>' if r.get('pole_neg_full') else ''}</div>
     <div class="field"><span class="label">lesson</span><span class="value lesson">{_escape(r['lesson'])}</span></div>
     <div class="field"><span class="label">next focus</span><span class="value">{_escape(r['next_focus'])}</span></div>
     <div class="field"><span class="label">teacher assessment</span><span class="value muted">{_escape(r['reasoning'])}</span></div>
@@ -1023,6 +1040,7 @@ _CSS = """
   .value.pole-pos { color: #1B5C3A; }
   .value.pole-neg { color: #7A4400; }
   .value.lesson { font-style: italic; font-size: 14px; }
+  .value-sub { display: block; font-size: 12px; color: #6b5d52; font-style: italic; margin-top: 2px; }
   .row.keep .text-col .field:first-child .value { color: #1B3A5C; font-style: italic; }
   .row.drop .text-col .field:first-child .value { color: #7A1A1A; font-style: italic; }
   .petrov { font-size: 12px; line-height: 1.55; }
