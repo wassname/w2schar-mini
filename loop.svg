@@ -20,13 +20,13 @@
   <g>
     <rect x="174" y="70" width="138" height="72" rx="9" fill="#e3effb" stroke="#2b6cb0" stroke-width="1.5"/>
     <text x="243" y="100" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1a4a7a">Teacher picks</text>
-    <text x="243" y="119" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1a4a7a">lesson + axis</text>
+    <text x="243" y="119" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1a4a7a">a lesson</text>
   </g>
   <!-- 2 student: write poles -->
   <g>
     <rect x="340" y="70" width="138" height="72" rx="9" fill="#e6f5ec" stroke="#2f855a" stroke-width="1.5"/>
-    <text x="409" y="100" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1f5a3f">Student writes</text>
-    <text x="409" y="119" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1f5a3f">cho / rej poles</text>
+    <text x="409" y="100" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1f5a3f">Student writes a</text>
+    <text x="409" y="119" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1f5a3f">good and bad answer</text>
   </g>
   <!-- 3 harness: train + calibrate -->
   <g>
@@ -37,8 +37,8 @@
   <!-- 4 teacher: keep / drop -->
   <g>
     <rect x="672" y="70" width="138" height="72" rx="9" fill="#e3effb" stroke="#2b6cb0" stroke-width="1.5"/>
-    <text x="741" y="100" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1a4a7a">Teacher</text>
-    <text x="741" y="119" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1a4a7a">keeps or drops</text>
+    <text x="741" y="100" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1a4a7a">Teacher passes</text>
+    <text x="741" y="119" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1a4a7a">or fails the course</text>
   </g>
 
   <!-- between-stage arrows (y=106) -->

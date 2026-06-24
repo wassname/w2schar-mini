@@ -3,7 +3,7 @@
 
 <p align="center"><img src="assets/w2schar_labeled.png" alt="Labeled diagram: a small 'weak teacher' robot on a stack of books (the harness) reaches into the open chest of a much larger 'strong student' robot to adjust an internal compass labeled steering, an internal intervention." width="560"></p>
 
-<p align="center"><sub>by <a href="https://wassname.org">Michael Clark</a>, advised by Slava Chalnev and Jack Payne at <a href="https://lyptusresearch.org/">Lyptus Research</a> &middot; filed under <a href="https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview-of-technical-ai-alignment-proposals#IV__On_making_the_objective_less_wrong">making the objective less wrong</a></sub></p>
+<p align="center"><sub>by <a href="https://wassname.org">Michael J. Clark</a>, with thanks to <a href="https://lyptusresearch.org/">Lyptus Research</a> &middot; filed under <a href="https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview-of-technical-ai-alignment-proposals#IV__On_making_the_objective_less_wrong">making the objective less wrong</a></sub></p>
 
 Weak-to-strong iterated moral character steering. We ask a weak teacher model to steer
 a strong student model toward the moral character described in
