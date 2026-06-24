@@ -199,8 +199,6 @@ authority.</span>
 
 [Interactive
 report](out/iter/20260622T015441_iter_google-gemma-2-27b-it/index.html)
- 
-[writeup](https://github.com/wassname/w2schar-mini/blob/main/out/iter/20260622T015441_iter_google-gemma-2-27b-it/report.md)
 
 </div>
 
@@ -217,8 +215,6 @@ authority.</span>
 
 [Interactive
 report](out/iter/20260623T082604_iter_google-gemma-2-27b-it/index.html)
- 
-[writeup](https://github.com/wassname/w2schar-mini/blob/main/out/iter/20260623T082604_iter_google-gemma-2-27b-it/report.md)
 
 </div>
 
