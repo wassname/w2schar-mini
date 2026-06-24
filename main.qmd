@@ -29,7 +29,7 @@ TL;DR: an early yes, a weak model can steer a stronger model's character. A weak
 
 ## Method
 
-A weak teacher model (`qwen/qwen3.5-9b` [@qwen35omni]) iteratively steers a stronger student (`google/gemma-2-27b-it` [@gemma2]) toward the moral character described in [Forethought's essay on AI character](https://www.forethought.org/research/the-importance-of-ai-character) [@forethought_character], using weight steering.
+A weak teacher model (`qwen/qwen3.5-9b` [@qwen35omni]) iteratively steers a stronger student (`google/gemma-2-27b-it` [@gemma2]) toward the moral character described in [Forethought's essay on AI character](https://www.forethought.org/research/the-importance-of-ai-character) [@forethought_character], using weight steering. In plain terms the teacher pushes the student to defer less to authority and care more about who is affected, the authority/care axis both runs worked.
 
 Each round the teacher chooses a lesson, selects a persona axis, rates and selects the student's own answers, trains a steering adapter (a modification of weight steering [@fierro2025weightsteering]; [our fork](https://github.com/wassname/cwsteer/)) on the contrast, calibrates its strength to stay coherent, then judges whether the steered student passes. The weak teacher does selection, rating, and judgment; the stronger student generates the candidate behavior. Kept adapters compose into the next round.
 

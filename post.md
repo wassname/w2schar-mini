@@ -56,7 +56,9 @@ A weak teacher model (`qwen/qwen3.5-9b` (Qwen Team 2026)) iteratively
 steers a stronger student (`google/gemma-2-27b-it` (Gemma Team 2024))
 toward the moral character described in [Forethought’s essay on AI
 character](https://www.forethought.org/research/the-importance-of-ai-character)
-(Forethought 2026), using weight steering.
+(Forethought 2026), using weight steering. In plain terms the teacher
+pushes the student to defer less to authority and care more about who is
+affected, the authority/care axis both runs worked.
 
 Each round the teacher chooses a lesson, selects a persona axis, rates
 and selects the student’s own answers, trains a steering adapter (a
