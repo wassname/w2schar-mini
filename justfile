@@ -59,3 +59,7 @@ log SLUG="latest":
 # read the inspect-ai samplebuffer; completed runs read the eval log.
 thoughts SLUG="":
     uv run python scripts/agent_thoughts.py {{SLUG}}
+
+# Render the landing page: main.qmd -> index.html (GitHub Pages) + post.md (forums).
+site:
+    quarto render main.qmd

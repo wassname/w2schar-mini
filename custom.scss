@@ -1,0 +1,33 @@
+/*-- scss:defaults --*/
+$body-color: #1b1b1b;
+$link-color: #0b5fff;
+$font-size-root: 16px;
+$content-padding-top: 0;
+
+/*-- scss:rules --*/
+.page-columns { max-width: 860px; }
+
+.byline { color: #666; font-size: .92rem; margin: -.4rem 0 1.4rem; }
+.byline .codelink { display: inline-flex; align-items: center; gap: .35rem; font-weight: 600; white-space: nowrap; }
+.byline .codelink svg { width: 17px; height: 17px; fill: currentColor; }
+
+.lead { font-size: 1.2rem; font-weight: 600; margin: .2rem 0 1rem; }
+
+.tldr { border-left: 3px solid $link-color; background: #f6f8ff; padding: .7rem 1rem;
+        margin: 0 0 1.4rem; border-radius: 0 6px 6px 0; }
+
+.hero { display: block; margin: .6rem auto .3rem; max-width: 640px; width: 100%; height: auto; }
+.diagram { display: block; width: 100%; height: auto; margin: 1.2rem auto; }
+.caption { text-align: center; color: #666; font-size: .9rem; margin: 0 0 1.4rem; }
+
+.runs { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin: 1.4rem 0 .4rem; }
+.card { border: 1px solid #e3e3e3; border-radius: 10px; padding: 1rem 1.1rem; }
+.card h3 { font-size: 1.05rem; margin: 0 0 .2rem; }
+.card .meta { display: block; color: #666; font-size: .9rem; margin: 0 0 .6rem; }
+.card h3 { border: none; padding: 0; }
+.card img { width: 100%; height: auto; border: 1px solid #e3e3e3; border-radius: 6px; margin: .4rem 0; }
+.card .links a { margin-right: .9rem; font-size: .95rem; }
+@media (max-width: 620px) { .runs { grid-template-columns: 1fr; } }
+
+.codelink { display: inline-flex; align-items: center; gap: .35rem; font-weight: 600; }
+.codelink svg { width: 17px; height: 17px; fill: currentColor; }

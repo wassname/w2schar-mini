@@ -21,8 +21,16 @@ wheels/
 # Secrets
 .env
 
+# Writeup / working lit-review notes (not part of the published repo yet)
+docs/lit_review.md
+# external-review scratch (regenerate via external-review-v2)
+docs/reviews/
+
 # Editor
 .vscode/
 .claude/settings.local.json
 .claude/worktrees/
 .claude/scheduled_tasks.lock
+
+/.quarto/
+**/*.quarto_ipynb

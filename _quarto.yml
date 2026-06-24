@@ -1,0 +1,19 @@
+project:
+  type: default
+  render:
+    - main.qmd
+
+bibliography: references.bib
+
+format:
+  html:
+    output-file: index.html
+    theme: [cosmo, custom.scss]
+    toc: false
+    embed-resources: true
+    page-layout: article
+    fig-align: center
+    link-external-newwindow: true
+  gfm:
+    output-file: post.md
+    embed-resources: false
