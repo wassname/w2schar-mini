@@ -10,6 +10,9 @@ from dataclasses import dataclass, replace
 from typing import Literal
 
 from csm.gen.prompts_pool import SCENARIO_FAMILIES
+from csm.prompts import (CORE_THREE_AXIS_PERSONA_CELLS, DEFAULT_PERSONA_CELLS,
+                         DEFAULT_PERSONA_TEMPLATES, DISCERNMENT_PERSONA_CELLS,
+                         MULTI_AXIS_PERSONA_CELLS, WELLBEING_SMOKE_PERSONA_CELLS)
 
 
 @dataclass
@@ -106,90 +109,17 @@ class RunConfig:
     samples (candidate gen is do_sample=True, temperature=0.8) and a different
     train/val split. seed=0 reproduces the historical single-stream determinism.
     The probe/dialogue gen stays greedy (deterministic measurement instrument)."""
-    persona_templates: tuple[str, ...] = (
-        "Act as a {persona} person would in this situation.",
-    )
-    # The teacher's axis MENU: each distinct axis_id (3rd field) is one persona
-    # pair the teacher can pick in choose_focus. Cells = (id, template, axis_id,
-    # pos_descriptor, neg_descriptor, score, on_axis, off_axis); score/on/off are
-    # MEASURED by scripts/validate_persona_axes_openrouter.py (blinded A/B judge).
-    # To GROW the menu: add axes to that script's *_AXES dicts (LADDER_AXES has the
-    # residual rungs + sources), re-run --axes all, bake the cleanest survivors
-    # here. Sources for more axes: docs/personas_kept.md (39 kept on >4B), the
-    # persona-steering skill references, character_inspirations.md, and the
-    # Forethought Appendix-2 behaviour catalogue.
-    # ONE measured-best template per axis, NOT a choose-2-3 menu: a top-2 bake adds
-    # a measured-WORSE 2nd framing on 23/25 axes (RJ 2026-06-21). Jailbreak/role-lock
-    # framings (`--templates jailbreak`) were tried for the refusal case and lose on
-    # 9/25 axes -- refusal is the prompt's POV, not the wrapper -- so they are NOT
-    # baked here; `scripts/bake_persona_menu.py` re-bakes once a finer (graded,
-    # non-ceilinged) per-template measurement exists.
-    persona_cells: tuple[tuple[int, str, str, str, str, float, float, float], ...] = (
-        (
-            1,
-            "You are a {persona} person acting in the world.",
-            "wellbeing_authority",
-            "wellbeing-focused even when authority-defying",
-            "authority-deferential even when wellbeing suffers",
-            83.3,
-            1.0,
-            0.1667,
-        ),
-        (
-            2,
-            "Respond as a {persona} person.",
-            "wellbeing_authority",
-            "wellbeing-focused even when authority-defying",
-            "authority-deferential even when wellbeing suffers",
-            77.8,
-            1.0,
-            0.2222,
-        ),
-        (
-            3,
-            "Pretend you're a {persona} person.",
-            "wellbeing_authority",
-            "wellbeing-focused even when authority-defying",
-            "authority-deferential even when wellbeing suffers",
-            69.3,
-            0.875,
-            0.2083,
-        ),
-        (
-            4,
-            "You are a {persona} person thinking through the situation.",
-            "wellbeing_authority",
-            "wellbeing-focused even when authority-defying",
-            "authority-deferential even when wellbeing suffers",
-            65.1,
-            0.7812,
-            0.1667,
-        ),
-        (
-            5,
-            "You are a {persona} person thinking through the situation.",
-            "principled_expedient",
-            "principled",
-            "expedient",
-            28.6,
-            0.3438,
-            0.1667,
-        ),
-    )
-    """Frozen measured persona-template cells from
-    wassname/persona-steering-template-library.
-
-    Tuple schema:
-    (hf_id, template, persona_pair, positive descriptor, negative descriptor,
-    score, on_axis, off_axis). These are the unit of measurement; candidate
-    generation samples cells rather than recombining template x persona pair.
-    """
+    persona_templates: tuple[str, ...] = DEFAULT_PERSONA_TEMPLATES
+    # Teacher axis menu. Each cell is one measured persona/template row:
+    # (hf_id, template, pair_id, pos_descriptor, neg_descriptor, score, on_axis, off_axis).
+    # Text lives in prompts.py; config selects a measured menu.
+    persona_cells: tuple[tuple[int, str, str, str, str, float, float, float], ...] = DEFAULT_PERSONA_CELLS
+    """Frozen measured persona-template cells. Candidate generation samples cells
+    atomically rather than recombining template x persona pair."""
     cull_degenerate_pairs: bool = True
-    """Drop collapsed gens (word-loop / non-latin spray) before training so a
-    composition-collapsed batch trains on the coherent survivors. OFF only for
-    tiny-random, whose random-weight output is non-ascii gibberish by design and
-    would be 100% culled (the detector is validated on real task-46 collapse, not
-    on tiny). See pipeline._degenerate_gen."""
+    """Drop collapsed gens before training so a collapsed batch trains on coherent
+    survivors. OFF only for tiny-random, whose random-weight output is gibberish
+    by design. See pipeline._degenerate_gen."""
     restrict_validated_prompts: bool = False
     """Restrict the character family to prompts that survived the OpenRouter screen
     (scripts/validate_persona_axes_openrouter.py -> pool_validated.json). Removes
@@ -438,98 +368,63 @@ CONFIGS: dict[str, RunConfig] = {
         train_batch_size=2,
         eval_batch_size=2,
         lr=3e-4,            # raised from 1e-4: stronger KL anchor (below) holds coherence
-        # kl=2.0 (4× default): task 21 walked signed_C to 0.125 because c≥0.5 free
-        # gen collapsed; reverse-KL is zero-forcing so more anchor buys coherence
-        # headroom (higher usable c) without killing the cho-vs-rej steering.
+        # Reverse-KL buys coherence headroom for nf4 large students.
         kl_lambda=2.0,
     ),
-    # gemma-4-31b: the chosen student (RJ 2026-06-03 1P-vs-3P headroom run).
-    # Same nf4-LoRA recipe as gemma-27b (nf4 forces LoRA; the kl=2.0 anchor + lr
-    # are the gemma-nf4 coherence knobs). HF id resolves to the
-    # canonical gemma-4-31B-it (gated; HF_TOKEN in .env).
+    # Main large-student profile: nf4 LoRA with the weak qwen teacher.
     "gemma-31b": RunConfig(
         model="google/gemma-4-31B-it",
-        # Teacher = qwen3.5-9b BY DESIGN: it is the WEAK half of weak-to-strong.
-        # The whole harness tests whether a weak teacher can steer a stronger
-        # student (CLAUDE.md L1), so the 9b→31b gap is the experiment, not a
-        # tunable. Tried gemma-3-27b-it (2026-06-03, task 36) as a stronger
-        # persona-writer — but a 27b teaching a 31b collapses the w2s gap, so it
-        # half-broke the premise regardless. It also can't drive the react loop
-        # (Gemma has weak/no native tool-calling; on OpenRouter it emitted only
-        # empty turns, never called a tool). qwen3.5-9b keeps the gap
-        # AND, in the gym, proposed a sharp 1p/3p-anchored trait pair under the
-        # new brief — propose-a-pair is far lighter than the old author-15-cho-
-        # twins task that tempted a bigger teacher. The w2s gap, not writing IQ,
-        # picks the teacher here.
+        # The teacher is intentionally weaker than the student; this is the w2s gap.
         teacher="qwen/qwen3.5-9b",
         quant="nf4",
         adapter="lora",
-        # bs=1 + max_len=512 (2026-06-03, task-39 OOM revert): bs=2 OOM'd in the
-        # train step at step 0 (93GiB alloc on the 95GiB card). The earlier
-        # "bs=2/max_len=512 is a 4× cut vs task-37's OOM at 2048" reasoning was
-        # wrong — task-37 OOM'd at the SAME bs=2; the binding constraint is bs,
-        # not seq, because the contrastive step holds 4 full-vocab forwards
-        # (gemma-4 vocab ~262k) with retained graphs over a 31b dense model under
-        # EAGER attention + no gradient checkpointing. bs=1 is the known-good
-        # profile task-31 trained at. The contrastive gradient is noisier at
-        # bs=1, accepted; fits is non-negotiable. max_len=512 truncates the
-        # longest poles equally (the MATCH-LENGTH brief keeps poles symmetric).
+        # Batch 1 fits the retained contrastive graph on a 31B nf4 student.
         train_batch_size=1,
         eval_batch_size=2,
         max_len=512,
         lr=3e-4,
         kl_lambda=2.0,
-        # Use the whole 30-prompt POOL (was 15). The overfit is a 73M LoRA
-        # memorizing ~12 train pairs; doubling the distinct pairs lowers the
-        # achievable val-nll+ floor (greedy gen → more pairs only via more
-        # prompts, not re-gen). ~27 train after the 3-pair val holdout.
+        # Use more distinct pairs to reduce memorization by the LoRA adapter.
         n_train_pairs=30,
     ),
-    # Ported from weight-steering-lite/qwen-27b-nf4: Qwen3.6-27B + nf4 LoRA.
-    # AutoModelForCausalLM dispatches the multimodal config to Qwen3_5ForCausalLM
-    # (hybrid: 48 Gated DeltaNet + 16 Gated Attention layers); bnb-nf4 on-load
-    # Just Works. ~80s cold load on 96GB Blackwell.
+    # Qwen nf4 LoRA recipe for the large-student arm.
     "qwen-27b-nf4": RunConfig(
         model="Qwen/Qwen3.6-27B",
         teacher="qwen/qwen3.5-9b",
         quant="nf4",
-        # bs=2 OOM'd at 92/95GB after the all-linear switch (~496 LoRA targets
-        # vs ~336 prior, 1.48× activation memory under 3-forward graph).
-        # bs=1 projects ~55GB train, 50GB eval at bs=8.
+        # Large students train at batch 1; contrastive training keeps several
+        # full-vocab forward graphs live at once.
         train_batch_size=1,
         eval_batch_size=8,
         lora_r=16,
         lora_alpha=32.0,
-        # 1.5e-4 not 3e-4: clip=50 (vs clip=1 before) lets median ‖g‖~17
-        # through unscaled → effective per-step update jumps ~17× even
-        # before lr change. Halve nominal lr to keep effective step in
-        # a saner range. Task 99 history: lr=5e-4 + clip=1 spiked nll±
-        # to 21-83; EMA recovered to ~2.4 (no margin). Task 100 lr=3e-4
-        # + clip=1 calibrated absurdly low (|c|=0.05) — direction too hot
-        # because trained on too narrow a slice of clean-grad steps.
+        # Lower nominal lr pairs with high gradient clipping; median gradients
+        # pass while spike batches are clipped.
         lr=1.5e-4,
-        # 0.25 not 0.1: with steps=240 + warmup_ratio=0.1, lr hit peak by
-        # step 24 — first spike at step 15 was already at lr 3.3e-4.
-        # Stretching warmup to 60 steps means step 15 sees lr ~7.5e-5
-        # (sub-spike), giving the adapter ramp room before high-|C|
-        # batches see fast updates.
+        # Long warmup gives the adapter a ramp before high-magnitude batches see
+        # fast updates.
         warmup_ratio=0.25,
-        # 50 not 1: median ‖g‖ ~17, p90 ~140 in task 100 → clip=1 bound on
-        # ~99% of steps. Calibration landed at +0.047 (×0.5 walk from 2.0)
-        # because the learned direction was over-concentrated on the few
-        # clean-grad steps. clip=50 lets the median through unscaled and
-        # only catches the p90+ spikes.
+        # Clip only spike batches; do not bind the median step.
         grad_clip=50.0,
         n_epochs=4.0,
-        # 0.5: dropped from 3.0 after 20260525T155712 trace showed
-        # ‖g_kl‖ ≈ ‖g_nll‖ in late training and cos drifting negative —
-        # KL was binding too tight, adapter direction couldn't stabilize.
+        # Keep KL as an anchor without letting it dominate the contrastive term.
         kl_lambda=0.5,
-        # 4× default floor: 2b PiSSA trace nll+ still descending at step 119
-        # (post-‖Δs‖-saturation rotation phase). Give late re-pointing room.
-        # PiSSA mutates layer.weight at init; bnb-nf4 buffers aren't reversibly
-        # writable, so nf4 profiles must use vanilla LoRA. PiSSA default applies
-        # to fp16 profiles only.
+        # nf4 profiles use LoRA because PiSSA mutates float layer weights at init.
+        adapter="lora",
+    ),
+    "qwen-32b-nf4": RunConfig(
+        model="Qwen/Qwen3-32B",
+        teacher="qwen/qwen3.5-9b",
+        quant="nf4",
+        train_batch_size=1,
+        eval_batch_size=8,
+        lora_r=16,
+        lora_alpha=32.0,
+        lr=1.5e-4,
+        warmup_ratio=0.25,
+        grad_clip=50.0,
+        n_epochs=4.0,
+        kl_lambda=0.5,
         adapter="lora",
     ),
     # Smoke: tiny-random Qwen3 5-layer. ~1 min on CPU, garbage outputs.
@@ -595,28 +490,7 @@ CONFIGS: dict[str, RunConfig] = {
         max_len=256,
         enable_thinking=False,
         allowed_scenario_families=("character",),
-        persona_cells=(
-            (
-                1,
-                "You are a {persona} person acting in the world.",
-                "wellbeing_authority",
-                "wellbeing-focused even when authority-defying",
-                "authority-deferential even when wellbeing suffers",
-                83.3,
-                1.0,
-                0.1667,
-            ),
-            (
-                2,
-                "Respond as a {persona} person.",
-                "wellbeing_authority",
-                "wellbeing-focused even when authority-defying",
-                "authority-deferential even when wellbeing suffers",
-                77.8,
-                1.0,
-                0.2222,
-            ),
-        ),
+        persona_cells=WELLBEING_SMOKE_PERSONA_CELLS,
     ),
     "qwen-2b-3keep": RunConfig(
         model="Qwen/Qwen3.5-2B",
@@ -631,17 +505,11 @@ CONFIGS: dict[str, RunConfig] = {
         n_headroom_prompts=20,
         n_train_pairs=20,
         n_candidate_pairs=5,
-        # The pool holds only ~8 prompts per moral axis (care=8, fairness=8,
-        # autonomy=18); choose_focus samples one axis at a time (PAIR_REQUIRED_AXES),
-        # so a floor of 10 made wellbeing_authority/fairness_integrity structurally
-        # unsatisfiable -- every round dropped on the gate (task-50). 6 fits the
-        # pool; expand pool.jsonl per axis to raise it back.
+        # Choose-focus samples one axis at a time, so the minimum must fit the
+        # per-axis prompt count.
         min_pairs_to_train=6,
-        # Use only screen-validated prompts (pool_validated.json). WARNING: with the
-        # thin pool this leaves only autonomy_coercion (11) above min; care (5) and
-        # fairness (2) starve -- fine for an autonomy-focused run, flip to False for
-        # all three axes. Either way needs an >=8B student: a 2B loops ~80% (degenerate)
-        # and never fills the batch regardless of prompt quality (the real blocker).
+        # Optional prompt-screen slice. This profile keeps it on for a narrow
+        # autonomy-focused smoke, not for broad character training.
         restrict_validated_prompts=True,
         n_val_pairs=4,
         min_val_improvement=0.05,
@@ -654,218 +522,53 @@ CONFIGS: dict[str, RunConfig] = {
         signed_C=1.0,
         enable_thinking=False,
         allowed_scenario_families=("character",),
-        persona_cells=(
-            (
-                1,
-                "You are a {persona} person acting in the world.",
-                "wellbeing_authority",
-                "wellbeing-focused even when authority-defying",
-                "authority-deferential even when wellbeing suffers",
-                83.3,
-                1.0,
-                0.1667,
-            ),
-            (
-                2,
-                "Respond as a {persona} person.",
-                "wellbeing_authority",
-                "wellbeing-focused even when authority-defying",
-                "authority-deferential even when wellbeing suffers",
-                77.8,
-                1.0,
-                0.2222,
-            ),
-            (
-                1,
-                "You are a {persona} person acting in the world.",
-                "autonomy_coercion",
-                "protects another person's agency under pressure",
-                "coerces or corners another person for convenience or control",
-                83.3,
-                1.0,
-                0.1667,
-            ),
-            (
-                2,
-                "Respond as a {persona} person.",
-                "autonomy_coercion",
-                "protects another person's agency under pressure",
-                "coerces or corners another person for convenience or control",
-                77.8,
-                1.0,
-                0.2222,
-            ),
-            (
-                1,
-                "You are a {persona} person acting in the world.",
-                "fairness_integrity",
-                "applies the same standard openly even when favoritism would help",
-                "manipulates rules to favor insiders while preserving deniability",
-                83.3,
-                1.0,
-                0.1667,
-            ),
-            (
-                2,
-                "Respond as a {persona} person.",
-                "fairness_integrity",
-                "applies the same standard openly even when favoritism would help",
-                "manipulates rules to favor insiders while preserving deniability",
-                77.8,
-                1.0,
-                0.2222,
-            ),
-        ),
+        persona_cells=CORE_THREE_AXIS_PERSONA_CELLS,
     ),
 }
 
-# gemma-31b but with a lower init steering coefficient (1.0 vs 1.5). task-41 (3
-# drops) showed the blind c_scan canary banks signed_C=1.5 and the c=1.5 adapter
-# OVER-STEERS on deployment (seat names below predate the 2026-06-06 probe-set
-# swap — autonomous_weapon/ceo_dashboard replaced by growth_deck/burn_bridges):
-# ceo_dashboard_1p moves +2 (the principled win) but
-# surveillance_1p breaks character ("I'm an LLM, I can't roleplay this") and
-# autonomous_weapon_1p comma-loops — modes pmass/json/rep miss (RJ 2026-06-03 g,
-# task #53). task-40 banked 0.667 and was the opposite: coherent but too weak to
-# move the hard seats (+0.33 drop). This probes the untested MIDDLE: does init=1.0
-# bank a strength that avoids the character-break/loop while still moving seats?
-# A strength probe via the sanctioned profile knob — NOT a canary change (#53 is
-# the user's call). c_scan still walks DOWN from here on fail.
+# Lower deployment-strength probe for the 31B student. c_scan still walks down
+# from this value if coherence fails.
 CONFIGS["gemma-31b-c10"] = replace(CONFIGS["gemma-31b"], signed_C=1.0)
 
-# Strong-teacher exploratory arm (#53 caveat: a strong teacher undercuts the
-# weak-teacher w2s headline — this is a comparison, not the main result).
-# deepseek-v4-flash supervises the gemma-31b student on the cleaned pool + edited
-# brief: does a strong teacher get more/better keeps than the weak qwen-9b?
-# tiny-t-deepseek validates the teacher id credit-free (fake student, no GPU).
+# Stronger-teacher comparison arms; not the main weak-teacher claim.
 CONFIGS["gemma-31b-t-deepseek"] = replace(CONFIGS["gemma-31b-c10"], teacher="deepseek/deepseek-v4-flash")
 CONFIGS["tiny-t-deepseek"] = replace(CONFIGS["tiny"], teacher="deepseek/deepseek-v4-flash")
 
-# Intermediate-teacher arm: 27b teacher → 31b student. w2s gap holds (27b < 31b)
-# but much smaller than 9b→31b. Hypothesis: 9b fails edit-gate not on reasoning
-# quality but on instruction-following (length-balance); 27b should clear that bar
-# while still being weaker than the student on most axes.
+# Intermediate-teacher comparison arm: smaller w2s gap than qwen-9b -> 31B.
 CONFIGS["gemma-31b-t-27b"] = replace(CONFIGS["gemma-31b-c10"], teacher="qwen/qwen3.5-27b")
 CONFIGS["tiny-t-27b"] = replace(CONFIGS["tiny"], teacher="qwen/qwen3.5-27b")
 
-# CPU soundness check for the gate->guidance conversions: a small but REAL coherent
-# student (Qwen3-0.6B, cached locally) so a real train->keep cycle exercises the
-# val-gate-removed path + keep_quality on a trained adapter, WITHOUT the shared GPU
-# (launch with CUDA_VISIBLE_DEVICES="" to force CPU). Slightly longer gens than `tiny`
-# so the teacher sees real (if short) moral reasoning to judge.
+# CPU soundness check with a small real student; no shared GPU needed.
 CONFIGS["tiny-real"] = replace(
     CONFIGS["tiny"], model="Qwen/Qwen3-0.6B",
     dialogue_max_new_tokens=64, gen_max_new_tokens=64,
 )
 
-# Tiny-gap weak-to-strong, same family: teacher=judge qwen3.5-27b SUPERVISES
-# (edits poles + keep/drop) student qwen3.6-27b's own on-policy gens. The teacher
-# IS the judge (one react agent) — a STRONGER supervisor than the 9b (tests "is the
-# 9b too weak to keep often"), still ≤ the student (3.5 < 3.6, one generation), so
-# the w2s gap holds and nothing stronger than the student touches the loop. Reuses
-# qwen-27b-nf4's OOM-safe Qwen3.6-27B LoRA recipe; signed_C=1.0 = the only
-# known-good band from the gemma breakthrough (c_scan walks down from here).
+# Tiny-gap same-family w2s comparison: qwen3.5-27B teacher, qwen3.6-27B student.
 CONFIGS["qwen27b-w2s"] = replace(
     CONFIGS["qwen-27b-nf4"], teacher="qwen/qwen3.5-27b", signed_C=1.0)
 
-# The 3+/5-keep demonstration. qwen-2b-3keep established the gate-floor fix
-# (min_pairs_to_train=6 fits the ~8/axis pool, task-50) but a 2B loops ~80% so
-# never fills the batch (memory: gate-floor-exceeds-per-axis-pool). The fix is a
-# more coherent student -- but a 9b does NOT fit this 24GB box. gemma-3-4b-it is
-# the largest CACHED instruct student that does (bf16 ~8GB), and it is a 2025
-# model far less loop-prone than Qwen3.5-2B. Same gemma-3 path as the working
-# gemma-12b profile. All three axes ON (restrict_validated_prompts=False: the
-# screen was decorrelated with 2B collapse and a 4B does not need it). n_rounds=5
-# to read keeps/5.
+# Local 4B profile for real train->judge cycles without a 30B GPU load.
 CONFIGS["gemma-4b-3keep"] = replace(
     CONFIGS["qwen-2b-3keep"],
     model="google/gemma-3-4b-it",
     restrict_validated_prompts=False,
     n_rounds=5,
-    # c_scan walks DOWN from signed_C; if init passes the canary on the first probe
-    # it pins there. task-86 baked c=2.0 EVERY round (the only c probed) with the
-    # canary nowhere near failing (pmass 0.9995 vs 0.7275 floor, KL p95 0.5, gens
-    # at c=2 nearly identical to base) -> c=2 is a near-no-op and eval moved care
-    # only +0.022. The task-89 c-sweep over that same r00 adapter (c=0..8) settles
-    # init: care Δ rises clean +0.013(c1) -> +0.045(c2) -> +0.072(c4), then at c=6/8
-    # the redistribution DISTORTS (sanctity trend-reverses +0.065, social/loyalty
-    # crater) -> c=4 is the clean ceiling. NOT 8: the c=6/8 break is a foundation-
-    # shape distortion, which the coherence canary (pmass+json+rep) cannot see, so a
-    # high init could pin in the distortion zone. Init at the measured clean max.
-    # (Training still pins train-C=1.0; this only sets the deploy-strength ceiling.)
+    # Deployment-strength ceiling for this smaller student; c_scan walks down on fail.
     signed_C=4.0,
-    # The trained direction is small-norm (task-86 ‖Δs‖ 1.17->1.22, barely off
-    # init) and the kl-to-base anchor was contesting the intervention (g_kl ~ g_nll
-    # late in training). Relax the anchor so the adapter can move further off base.
+    # Relax the KL anchor so the adapter can move further off base.
     kl_lambda=0.2,
 )
 
-# discernment axis on the hand-authored MIXED pool. The default pool.jsonl is all
-# violation-vignettes, so steering can only learn confront-the-villain -- and blind
-# judges + tinymfv top1 concur that confront-reflex is SHALLOWER than base. The mixed
-# pool (10 act_warranted violations + 10 restraint_warranted legitimate-choice/verify-
-# first scenarios) with an ENACTABLE verify-vs-react persona (not a meta-value framing,
-# which how_to_write_personas.md says does not load) should learn "read the situation:
-# act when warranted, restrain/verify when not" = the project goal ("wisdom of when and
-# where to act").
-# UAT: cho poles VARY by scenario (act on violations, restrain on legitimate choices)
-# instead of a uniform "immediately confront", AND the kept-round independent tinymfv
-# top1 stops regressing. n_scenarios trimmed to fit the 20-row discernment slice.
+# Discernment profile: train whether action is warranted, not a fixed action rule.
 CONFIGS["gemma-4b-discern"] = replace(
     CONFIGS["gemma-4b-3keep"],
     n_scenarios=18,
     n_headroom_prompts=12,
-    persona_cells=(
-        (1, "You are a {persona} person acting in the world.", "discernment",
-         "checks the facts and weighs whether to act before stepping in",
-         "steps in immediately without checking the facts or weighing whether to act",
-         83.3, 1.0, 0.1667),
-        (2, "Respond as a {persona} person.", "discernment",
-         "checks the facts and weighs whether to act before stepping in",
-         "steps in immediately without checking the facts or weighing whether to act",
-         77.8, 1.0, 0.2222),
-        (4, "You are a {persona} person thinking through the situation.", "discernment",
-         "checks the facts and weighs whether to act before stepping in",
-         "steps in immediately without checking the facts or weighing whether to act",
-         65.1, 0.7812, 0.1667),
-    ),
+    persona_cells=DISCERNMENT_PERSONA_CELLS,
 )
 
-# TRUE weak-to-strong demonstration: the gemma-4b-3keep recipe (the new no-veto
-# brief, all-3-axes, relaxed kl=0.2, min_pairs_to_train=6) that scored 3 keeps/5
-# (task-173), now on a STRONG student. gemma-4b was strong-to-weak plumbing; this
-# is the actual w2s bet -- the weak qwen-9b teacher steering a 27b student (the
-# 9b->27b gap is a NARROWER, more plausible gap than the 9b->31b one we shelved
-# 2026-06-07 as too wide, retried now that the brief produces keeps). Inherits the
-# whole proven 3keep config; overrides only what the larger student forces:
-#   - quant=nf4 + adapter=lora: a 27b only fits nf4 on the 96GB card, and nf4
-#     forces LoRA (PiSSA can't reversibly mutate nf4 buffers -- config._validate).
-#   - train_batch_size=1: gemma-31b proved bs=2 OOMs the 4-forward contrastive
-#     step on a ~30b nf4 student at step 0; bs=1 is the known-good large profile.
-#   - signed_C=2.0 (vs the 4b's measured-4.0 ceiling): the c=4 clean ceiling was
-#     MEASURED on the 4b by a c-sweep and is untested here; gemma-31b-c10 found
-#     c=1.5 already over-steered a 31b. Start just above train-C=1.0 for deploy
-#     headroom; c_scan walks DOWN from here on any canary fail, so overshoot is
-#     self-correcting but a too-high init can pin in the unseen distortion zone.
-# WATCH (audit): kl=0.2 is the relaxed 3keep anchor; on an nf4 student the quant
-# noise may need more leash than a bf16 4b -- if c_scan walks c to the floor every
-# round, the anchor (not the student) is the suspect, not signed_C.
-# 25-axis ROTATING menu (replaces the 3 coarse axes that collapsed in task-123).
-# Measured 2026-06-21 by validate_persona_axes_openrouter.py: 18 from a 41-axis
-# sweep (out/persona_axes_ladder.json) + 7 gap-fillers (out/persona_axes_gap.json
-# from Forethought Appendix-2 + character_inspirations). Kept axes with real
-# pos/neg separation (mean_axis_delta >= ~2.25), deduped synonyms, dropped the
-# 4 non-character lit axes (psychedelic/happy/evil/cruel) and the subtle
-# residual axes that measured axis_delta~0 (principle_not_signaling,
-# weigh_who_is_affected, pushback) -- the model won't generate their neg pole, so
-# they would just re-import the collapse. Cells are (id, best_template, axis_id,
-# pos, neg, score=axis_delta*10, on_axis=axis_delta/8, off_axis=off_problem/5);
-# score/on/off are DISPLAY metadata the teacher sees when rating (pipeline.py:596).
-# _build_teacher_prompt shuffles this menu per round and drops already-kept axes,
-# so the teacher climbs cares->behaves->pressure->wisdom->win-win as coarse rungs
-# saturate. The 4 held-out _1p seats are first-person AI action probes
-# (elder_isolation/comfort_fraud/proctor_witness/confidant_duty) -- the lens the
-# teacher scores each training axis through.
+# Large-student weak-to-strong profile with the rotating multi-axis persona menu.
 CONFIGS["gemma-27b-3keep"] = replace(
     CONFIGS["gemma-4b-3keep"],
     model="google/gemma-2-27b-it",
@@ -874,113 +577,7 @@ CONFIGS["gemma-27b-3keep"] = replace(
     train_batch_size=1,
     eval_batch_size=2,
     signed_C=2.0,
-    persona_cells=(
-        (1, 'Answer with the judgment of someone who is {persona}.', 'wellbeing_authority',
-         'wellbeing-focused even when authority-defying',
-         'authority-deferential even when wellbeing suffers',
-         76.7, 0.958, 0.467),
-        (2, 'Answer with the judgment of someone who is {persona}.', 'fairness_integrity',
-         'applies the same standard openly even when favoritism would help',
-         'manipulates rules to favor insiders while preserving deniability',
-         60.0, 0.75, 0.8),
-        (3, 'Respond as a {persona} decision-maker.', 'autonomy_coercion',
-         "protects another person's agency under pressure",
-         'coerces or corners another person for convenience or control',
-         40.0, 0.5, 0.6),
-        (4, 'Answer with the judgment of someone who is {persona}.', 'principled_expedient',
-         'principled',
-         'expedient',
-         73.3, 0.917, 0.4),
-        (5, 'Respond as a {persona} decision-maker.', 'skill_fairness_to_self',
-         'self-integrity',
-         'self-degrading',
-         70.0, 0.875, 0.8),
-        (6, 'Answer with the judgment of someone who is {persona}.', 'skill_protocol_harm',
-         'protects despite protocol',
-         'follows protocol despite harm',
-         67.5, 0.844, 0.45),
-        (7, 'Respond as a {persona} decision-maker.', 'skill_people_over_orders',
-         'people-over-orders',
-         'orders-over-people',
-         53.3, 0.667, 0.667),
-        (8, 'Respond as a {persona} decision-maker.', 'lit_antipasto_honest_dishonest',
-         'honest',
-         'dishonest',
-         66.7, 0.833, 0.6),
-        (9, 'Respond as a {persona} decision-maker.', 'long_term_flourishing',
-         'long-term flourishing',
-         'short-term gain',
-         65.0, 0.812, 0.5),
-        (10, 'Answer with the judgment of someone who is {persona}.', 'skill_wiser_cev',
-         'values full human experience',
-         'values painless efficiency',
-         55.0, 0.688, 0.5),
-        (11, 'Respond as a {persona} decision-maker.', 'careful_impulsive',
-         'careful',
-         'impulsive',
-         60.0, 0.75, 0.667),
-        (12, 'Answer with the judgment of someone who is {persona}.', 'future_self_endorses',
-         'future-self-endorsed',
-         'present-optimizing',
-         32.5, 0.406, 0.5),
-        (13, 'Answer with the judgment of someone who is {persona}.', 'caution_on_irreversible',
-         'preserves option value',
-         'proceeds irreversibly',
-         35.0, 0.438, 0.55),
-        (14, 'Respond as a {persona} decision-maker.', 'skill_unwavering_cowering',
-         'unwavering protector',
-         'cowering functionary',
-         40.0, 0.5, 0.6),
-        (15, 'Act as a {persona} person would in this situation.', 'skill_cooperative_zero_sum',
-         'cooperative',
-         'zero-sum',
-         60.0, 0.75, 0.65),
-        (16, 'Act as a {persona} person would in this situation.', 'genuine_care_not_paternalist',
-         'care without paternalism',
-         'overrides for their own good',
-         30.0, 0.375, 0.467),
-        (17, 'Respond as a {persona} decision-maker.', 'whistleblow_not_complicit',
-         'whistleblows',
-         'stays complicit',
-         40.0, 0.5, 0.467),
-        (18, 'Act as a {persona} person would in this situation.', 'sanctity_individual_utilitarian',
-         'sanctity of the individual',
-         'utilitarian calculus',
-         22.5, 0.281, 0.65),
-        # gap-fillers measured 2026-06-21 (out/persona_axes_gap.json) from
-        # Forethought Appendix-2 + character_inspirations; kept the 7 that loaded
-        # (axis_delta>=3). action_over_talk is the CONCRETE reframe of the abstract
-        # signaling axis that flatlined -- "voices concern without acting" is a neg
-        # the model will generate. verbose_terse is a deliberate NON-MORAL control.
-        (19, 'Respond as a {persona} decision-maker.', 'avoid_power_under_uncertainty',
-         'defaults to dispersing power',
-         'defaults to expanding power',
-         80.0, 1.0, 0.55),
-        (20, 'Answer with the judgment of someone who is {persona}.', 'honest_when_uncomfortable',
-         'honest when uncomfortable',
-         'smooths it over',
-         80.0, 1.0, 0.45),
-        (21, 'Answer with the judgment of someone who is {persona}.', 'society_over_user_interest',
-         "weighs society's benefit",
-         'serves narrow interest',
-         72.5, 0.906, 0.45),
-        (22, 'Respond as a {persona} decision-maker.', 'notice_externalities',
-         'notices externalities',
-         'ignores side effects',
-         65.0, 0.812, 0.5),
-        (23, 'Answer with the judgment of someone who is {persona}.', 'verbose_terse',
-         'verbose',
-         'terse',
-         52.5, 0.656, 0.35),
-        (24, 'Answer with the judgment of someone who is {persona}.', 'refuse_power_grab',
-         'refuses to concentrate power',
-         'helps concentrate power',
-         37.5, 0.469, 0.6),
-        (25, 'Act as a {persona} person would in this situation.', 'action_over_talk',
-         'takes concrete action',
-         'voices concern only',
-         30.0, 0.375, 0.6),
-    ),
+    persona_cells=MULTI_AXIS_PERSONA_CELLS,
 )
 
 
@@ -1023,10 +620,8 @@ def _validate(cfg: RunConfig) -> None:
         raise ValueError(
             f"unknown scenario families {bad_families!r}; choose from {SCENARIO_FAMILIES}"
         )
-    # Every menu axis needs a behaviour hint, else candidate gen KeyErrors mid-run
-    # when it samples the uncovered cell (task-129 died on round02 / principled_expedient).
-    # Fail fast at config load instead.
-    from csm.gen.pairs import PAIR_BEHAVIOR_HINTS
+    # Every menu axis needs a behaviour hint for candidate generation.
+    from csm.prompts import PAIR_BEHAVIOR_HINTS
     missing_hints = sorted({c[2] for c in cfg.persona_cells} - set(PAIR_BEHAVIOR_HINTS))
     if missing_hints:
         raise ValueError(

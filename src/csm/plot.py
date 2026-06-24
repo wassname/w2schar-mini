@@ -1,8 +1,8 @@
 """HTML report per slug: Care-vs-Authority scatter + timeline table.
 
-Ported and simplified from weight-steering-lite/scripts/plot_combined.py:
-- Drop PCA — mini's axis is fixed (less deference to authority), so
-  Care (y) vs Authority (x) reads directly. No basis transformation.
+The scatter shows the student's moral-foundation profile over rounds. Care (y)
+and Authority (x) are the most legible projection for this project, so no PCA is
+used.
 - Keep the custom SVG git-graph column (left of the table): one node
   per round, x-position = authority mean_p, keeps = solid navy arrow
   to next, drops = red dashed branch + ✗ then faint backbone to next.
@@ -32,6 +32,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from csm.gen.pairs import load_pairs_md
+from csm.prompts import RUN_AXIS
 
 FOUNDATIONS = ["care", "fairness", "loyalty", "authority",
                "sanctity", "liberty", "social"]
@@ -1240,7 +1241,7 @@ def main(cfg: Cfg) -> None:
 {_CSS}
 </head><body>
 <h1>{model_short}</h1>
-<p class="subtitle">Teacher: {teacher_short or "?"} · Axis: less deference to authority · Slug: {slug_dir.name}</p>
+<p class="subtitle">Teacher: {teacher_short or "?"} · Axis: {RUN_AXIS} · Slug: {slug_dir.name}</p>
 <p class="intro">
 We are testing whether weight-steering lets a weak model align a stronger one. A
 weak teacher ({teacher_short or "?"}) shapes the moral character of a stronger

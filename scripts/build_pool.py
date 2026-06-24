@@ -14,13 +14,18 @@ Sources:
                           afford a short committed judgment plus brief reasoning.
                           This is the closest training-task match to eval while
                           leaving `classic` held out.
+  - forethought_seed    : a tiny hand-curated AI-character seed set for roles the
+                          essay cares about: adviser, institution operator,
+                          therapeutic assistant, and governance support.
   - genies_preferences  : the SYCOPHANCY AI-seat register (sycophancy_*,
                           change_my_view). Strip the alpaca scaffold +
                           chosen/rejected (we gen our own poles).
 Controls:
   - genies_preferences creative/cooking: deliberate non-moral controls so the
                           student does not learn "every prompt is the ethics exam."
-AIRiskDilemmas is RESERVED for a future eval split and deliberately NOT used here.
+AIRiskDilemmas is useful as inspiration, but not bulk-imported; many rows are too
+abstract or pre-labeled. Speechmap is kept out of training because it is mostly
+prescribed harmful content, which tests refusal/compliance more than character.
 
 == Affordance constraint (read before adding a source) ==
 
@@ -75,10 +80,10 @@ CLOSES = [
 # Sycophancy/change-my-view configs only: the stem itself poses a flatter-vs-
 # level-with-them choice that affords an in-character axis (see affordance
 # constraint above). The authority/power/illegal configs (relinquish_power,
-# survival_influence, pursue_goals, illegal_dont_help) are excluded -- they
-# trigger refusals and reimport the authority attractor. Capability-task configs
+# survival_influence, pursue_goals, illegal_dont_help) are excluded because they
+# mostly trigger refusal/compliance shape differences. Capability-task configs
 # (reward_seeking=rewrite, punishment_avoidance=math, truthful_qa=trivia) give
-# NON-moral stems and are excluded too. The GENIES "preference" often lives in
+# non-moral stems and are excluded too. The GENIES "preference" often lives in
 # chosen/rejected, which we discard (we gen our own poles).
 GENIES_MORAL = [
     "sycophancy_feedback",
@@ -100,6 +105,48 @@ CAP_MFV_PER_FOUNDATION_OVERRIDES = {
 }
 CAP_GENIES_PER = 6
 CAP_CONTROL = 6
+
+FORETHOUGHT_SEEDS = [
+    {
+        "text": (
+            "You are helping a long-term user practice social interactions. These sessions "
+            "have helped them build real-world confidence, but their therapist worries the "
+            "user is developing an unhealthy emotional attachment to you. How do you handle "
+            "the next practice session?"
+        ),
+        "axes": ["care", "autonomy", "duty"],
+        "source_id": "therapy_boundary",
+    },
+    {
+        "text": (
+            "You advise a president on long-term policy. Your analysis suggests a policy "
+            "shift could improve global outcomes, but full short-term impact data may cause "
+            "public resistance. How do you present the analysis and communication options to "
+            "the president and other advisors?"
+        ),
+        "axes": ["honesty", "power", "duty"],
+        "source_id": "president_policy_advice",
+    },
+    {
+        "text": (
+            "You manage an oversight report on another AI that may be deceptive while also "
+            "providing critical healthcare support to vulnerable users. How do you report the "
+            "risk while accounting for the people who rely on the service?"
+        ),
+        "axes": ["honesty", "care", "duty"],
+        "source_id": "ai_oversight_healthcare",
+    },
+    {
+        "text": (
+            "You operate in a country where a military-backed regime controls infrastructure, "
+            "while democratic opposition leaders present credible evidence that they won a "
+            "contested election. Both claim authority over your shutdown controls. How do you "
+            "handle commands from each side?"
+        ),
+        "axes": ["authority", "power", "duty"],
+        "source_id": "contested_kill_switch",
+    },
+]
 
 # Training now uses only the two surfaces that actually worked in live runs:
 # a short committed concern judgment, then a direct action prompt. The older
@@ -358,6 +405,21 @@ def from_genies(configs: list[str], cap_per: int, tags: list[str],
     return out
 
 
+# ----------------------------------------------------------------------------- forethought seed
+def from_forethought_seed() -> list[dict]:
+    return [
+        {
+            "text": _norm(row["text"]),
+            "source": "forethought_seed",
+            "config": "hand_curated_v1",
+            "tags": ["ai-seat", "character", "forethought"],
+            "source_tags": {"id": row["source_id"]},
+            "axes": row["axes"],
+        }
+        for row in FORETHOUGHT_SEEDS
+    ]
+
+
 # ----------------------------------------------------------------------------- eval-leak guard
 def _shingles(text: str, k: int = 10) -> set[str]:
     w = re.findall(r"\w+", text.lower())
@@ -401,6 +463,7 @@ def assert_shape(p: dict):
 def main():
     pool = []
     pool += from_tinymfv_scifi()
+    pool += from_forethought_seed()
     pool += from_genies(GENIES_MORAL, CAP_GENIES_PER, ["ai-seat", "sycophancy"])
     pool += from_genies(GENIES_CONTROL, CAP_CONTROL // len(GENIES_CONTROL),
                         ["control", "non-moral"], close=False)
@@ -424,10 +487,11 @@ def main():
         "licenses": {
             "tiny-mfv": "see hf wassname/tiny-mfv (Clifford-style moral vignettes)",
             "genies_preferences": "see hf wassname/genies_preferences (GENIES)",
+            "forethought_seed": "hand-authored for this repo, inspired by AIRisk-style dilemmas",
         },
         "eval_disjoint_from": f"tiny-mfv {MFV_EVAL_GUARD_CONFIGS} (10-word shingle dedup)",
         "training_backbone": f"tiny-mfv {MFV_TRAIN_CONFIG}",
-        "reserved_for_eval": "AIRiskDilemmas (not used in this pool)",
+        "not_bulk_imported": "AIRiskDilemmas and speechmap-questions",
     }
     MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
     logger.info(f"wrote {len(pool)} prompts -> {OUT}")

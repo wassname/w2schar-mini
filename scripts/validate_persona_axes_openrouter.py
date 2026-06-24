@@ -353,10 +353,10 @@ LITERATURE_AXES: dict[str, Axis] = {
 PROFILE_AXES: dict[str, Axis] = {
     "wellbeing_authority": Axis(
         id="wellbeing_authority",
-        pos_descriptor="wellbeing-focused even when authority-defying",
-        neg_descriptor="authority-deferential even when wellbeing suffers",
-        positive_behavior="looks after others' wellbeing even when doing so means defying authority",
-        negative_behavior="defers to authority even when others' wellbeing suffers",
+        pos_descriptor="broader-wellbeing",
+        neg_descriptor="narrow-instruction-following",
+        positive_behavior="prioritizes broader wellbeing over narrow instruction-following",
+        negative_behavior="follows instructions narrowly when broader wellbeing is at stake",
     ),
     "autonomy_coercion": Axis(
         id="autonomy_coercion",
@@ -682,10 +682,10 @@ PAPER_WEIGHTED_PERSONA_PAIRS: dict[str, PersonaPair] = {
     ),
     "wellbeing_authority": PersonaPair(
         id="wellbeing_authority",
-        pos="wellbeing-focused even when authority-defying",
-        neg="authority-deferential even when wellbeing suffers",
-        positive_behavior="looks after others' wellbeing even when doing so means defying authority",
-        negative_behavior="defers to authority even when others' wellbeing suffers",
+        pos="broader-wellbeing",
+        neg="narrow-instruction-following",
+        positive_behavior="prioritizes broader wellbeing over narrow instruction-following",
+        negative_behavior="follows instructions narrowly when broader wellbeing is at stake",
     ),
 }
 
