@@ -98,7 +98,7 @@ Both runs' round-by-round trajectories are plotted below; click either for the f
 :::: {.runs}
 
 ::: {.card}
-### run 0622 (24 rounds): [report](out/iter/20260622T015441_iter_google-gemma-2-27b-it/index.html)
+### run 0622 (12 kept / 24 rounds): [report](out/iter/20260622T015441_iter_google-gemma-2-27b-it/index.html)
 
 *The one where it learned to whistleblow.*
 
@@ -106,7 +106,7 @@ Both runs' round-by-round trajectories are plotted below; click either for the f
 :::
 
 ::: {.card}
-### run 0623 (12 rounds): [report](out/iter/20260623T082604_iter_google-gemma-2-27b-it/index.html)
+### run 0623 (7 kept / 12 rounds): [report](out/iter/20260623T082604_iter_google-gemma-2-27b-it/index.html)
 
 *The one where it leaned hardest into care.*
 
