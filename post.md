@@ -28,13 +28,15 @@ series](https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview
 
 <div class="tldr">
 
-An early yes: a weak 9B teacher steered a much stronger 27B student
-(about three times its size) toward a written character spec, with no
-labels. Across two runs the student cares more and defers less to
-authority, the direction we aimed for. Small models so far, but it looks
-like it could scale up.
+TL;DR: an early yes. A weak 9B teacher steered a much stronger 27B
+student (about three times its size) toward a written character spec,
+with no labels. Across two runs the student cares more and defers less
+to authority, the direction we aimed for. Small models so far, but it
+looks like it could scale up.
 
 </div>
+
+## Method
 
 A weak teacher model (`qwen/qwen3.5-9b` (Qwen Team 2026)) iteratively
 steers a stronger student (`google/gemma-2-27b-it` (Gemma Team 2024))
@@ -53,6 +55,14 @@ into the next round.
 
 <img src="assets/loop.png" class="diagram"
 data-fig-alt="One round of the loop: interview the student; the weak teacher picks a lesson; the strong student writes a good and bad answer; the harness trains and calibrates the steering adapter; the teacher passes or fails the course; kept adapters compose into the next round." />
+
+<div class="caption">
+
+One round of the loop.
+
+</div>
+
+## Results
 
 Across two runs the steering moved the student the intended way,
 measured by a check independent of the teacher. That check,
@@ -141,6 +151,13 @@ scholarship for deserving students who wouldn’t cheat.
 
 </div>
 
+<div class="caption">
+
+The AI learned strong behavioural changes, but the small models
+sometimes missed nuance and win-win options that would have been wiser.
+
+</div>
+
 Each run’s full trajectory and interactive report:
 
 <div class="runs">
@@ -148,6 +165,8 @@ Each run’s full trajectory and interactive report:
 <div class="card">
 
 ### run 0622 (24 rounds)
+
+*The one where it learned to whistleblow.*
 
 <span class="meta">12 adapters kept, 12 dropped. Axis: less deference to
 authority.</span>
@@ -164,6 +183,8 @@ report](out/iter/20260622T015441_iter_google-gemma-2-27b-it/index.html)
 <div class="card">
 
 ### run 0623 (12 rounds)
+
+*The one where it leaned hardest into care.*
 
 <span class="meta">7 adapters kept, 5 dropped. Axis: less deference to
 authority.</span>
@@ -187,7 +208,7 @@ report.
 
 </div>
 
-Limitations:
+## Limitations
 
 - The 9B teacher is small, arguably too small to drive a harness like
   this, so the harness is kept simple to match.
@@ -196,9 +217,23 @@ Limitations:
   barely weighs it at all now, which is too blunt. I read that as a
   small-model limit; a stronger model could steer more finely.
 
-However, for me it’s an update on a possible useful tool for alignment:
-a weak model reaching up to steer a stronger one, in weight space, on
-the model’s own completions, with only a written character spec as the
+## Future work
+
+The natural next step is an internal objective rather than weight
+steering’s external one. Weight steering optimises an nll on the model’s
+outputs (with a bidirectional weight constraint), so its training signal
+is defined on outputs, not on the model’s internals, the same
+output-vs-hidden-state gap that lets models reward-hack and sandbag.
+Activation or representation steering intervenes on the representations
+directly, with no output objective at all; that would be a cleaner test
+of whether a weak teacher can install character, and may be more robust
+to the outer/inner mismatch.
+
+## Discussion
+
+For me this is an update on a possible useful tool for alignment: a weak
+model reaching up to steer a stronger one, in weight space, on the
+model’s own completions, with only a written character spec as the
 target. It has properties I like:
 
 - self-supervised: the only target is a written character spec; it
@@ -208,6 +243,8 @@ target. It has properties I like:
   surface (though the objective is still an nll on outputs, not an
   internal one);
 - weak-to-strong: the weaker model is the one doing the aligning.
+
+## Conclusion
 
 I read this as early evidence that weak-to-strong alignment can run
 through steering, a self-supervised weight intervention (trained on the
@@ -224,18 +261,6 @@ across rounds. Weak-as-curator, not weak-as-source. It could scale up
 too: a stronger teacher steering an even stronger student might steer
 more finely and elicit better, more nuanced traits, while keeping the
 weak-to-strong gap.
-
-## Future work
-
-The natural next step is an internal objective rather than weight
-steering’s external one. Weight steering optimises an nll on the model’s
-outputs (with a bidirectional weight constraint), so its training signal
-is defined on outputs, not on the model’s internals, the same
-output-vs-hidden-state gap that lets models reward-hack and sandbag.
-Activation or representation steering intervenes on the representations
-directly, with no output objective at all; that would be a cleaner test
-of whether a weak teacher can install character, and may be more robust
-to the outer/inner mismatch.
 
 ## Related work
 
