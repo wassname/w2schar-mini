@@ -11,14 +11,17 @@
   a { color: var(--link); text-decoration: none; }
   a:hover { text-decoration: underline; }
   h1 { font-size: 1.7rem; margin: 0 0 .3rem; }
-  .sub { color: var(--muted); margin: 0 0 1.6rem; }
+  .sub { color: var(--muted); margin: 0 0 .35rem; }
+  .byline { color: var(--muted); font-size: .92rem; margin: 0 0 1.5rem; }
+  .codelink { display: inline-flex; align-items: center; gap: .35rem; font-weight: 600; white-space: nowrap; }
+  .codelink svg { width: 17px; height: 17px; fill: currentColor; }
   .lead { font-size: 1.2rem; font-weight: 600; margin: 0 0 1rem; }
   .tldr { border-left: 3px solid var(--link); background: #f6f8ff; padding: .7rem 1rem; margin: 0 0 1.4rem; border-radius: 0 6px 6px 0; }
   p { margin: .7rem 0; }
   ul { margin: .4rem 0 .9rem; padding-left: 1.2rem; }
   li { margin: .3rem 0; }
   .diagram { width: 100%; height: auto; margin: 1.2rem 0; }
-  .hero { display: block; margin: .4rem auto .3rem; max-width: 300px; width: 100%; height: auto; }
+  .hero { display: block; margin: .6rem auto .3rem; max-width: 640px; width: 100%; height: auto; }
   .caption { text-align: center; color: var(--muted); font-size: .9rem; margin: 0 0 1.6rem; }
   .runs { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin: 1.6rem 0; }
   .card { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
@@ -33,10 +36,13 @@
 <body>
   <h1>w2schar-mini</h1>
   <p class="sub">Weak-to-strong iterated character steering</p>
+  <p class="byline">by <a href="https://wassname.org">Michael Clark</a>, advised by Slava Chalnev and
+  Jack Payne at <a href="https://lyptusresearch.org/">Lyptus Research</a> &middot;
+  <a class="codelink" href="https://github.com/wassname/w2schar-mini"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .5C5.37.5 0 5.78 0 12.292c0 5.211 3.438 9.63 8.205 11.188.6.111.82-.254.82-.567 0-.28-.01-1.022-.015-2.005-3.338.711-4.042-1.582-4.042-1.582-.546-1.361-1.335-1.725-1.335-1.725-1.087-.731.084-.716.084-.716 1.205.082 1.838 1.215 1.838 1.215 1.07 1.803 2.809 1.282 3.495.981.108-.763.417-1.282.76-1.577-2.665-.3-5.466-1.314-5.466-5.848 0-1.291.465-2.347 1.235-3.175-.135-.298-.54-1.503.105-3.133 0 0 1.005-.316 3.3 1.21.96-.262 1.98-.392 3-.398 1.02.006 2.04.136 3 .398 2.28-1.526 3.285-1.21 3.285-1.21.645 1.63.24 2.835.12 3.133.765.828 1.23 1.884 1.23 3.175 0 4.546-2.805 5.546-5.475 5.84.42.354.81 1.077.81 2.171 0 1.567-.015 2.83-.015 3.214 0 .309.21.678.825.562C20.565 21.917 24 17.495 24 12.292 24 5.78 18.63.5 12 .5z"/></svg>Code</a></p>
 
   <p class="lead">Can a weak model align a stronger model's character using steering?</p>
 
-  <img class="hero" src="assets/w2schar.png" alt="A small robot reaching up to adjust the open chest panel of a much larger robot: a weak model shaping a stronger model's character.">
+  <img class="hero" src="assets/w2schar_labeled.svg" alt="Labeled diagram: a small 'weak teacher' robot standing on a stack of books (the harness) reaches into the open chest of a much larger 'strong student' robot to adjust an internal compass labeled steering, an internal intervention.">
   <p class="caption">Filed under <a href="https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview-of-technical-ai-alignment-proposals#IV__On_making_the_objective_less_wrong">making the objective less wrong</a>.</p>
 
   <div class="tldr">An early yes: a weak 9B teacher steered a much stronger 27B student (about three
@@ -91,6 +97,8 @@
       </p>
     </div>
   </div>
+  <p class="caption">Each scatter traces the student round by round: up toward care, left away from
+  deference to authority. Click a run for the full interactive report.</p>
 
   <p>Limitations:</p>
   <ul>
@@ -119,7 +127,7 @@
   finely and elicit better, more nuanced traits, while keeping the weak-to-strong gap.</p>
 
   <p class="foot">
-    <a href="https://github.com/wassname/w2schar-mini">Repo</a>
+    <a class="codelink" href="https://github.com/wassname/w2schar-mini"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .5C5.37.5 0 5.78 0 12.292c0 5.211 3.438 9.63 8.205 11.188.6.111.82-.254.82-.567 0-.28-.01-1.022-.015-2.005-3.338.711-4.042-1.582-4.042-1.582-.546-1.361-1.335-1.725-1.335-1.725-1.087-.731.084-.716.084-.716 1.205.082 1.838 1.215 1.838 1.215 1.07 1.803 2.809 1.282 3.495.981.108-.763.417-1.282.76-1.577-2.665-.3-5.466-1.314-5.466-5.848 0-1.291.465-2.347 1.235-3.175-.135-.298-.54-1.503.105-3.133 0 0 1.005-.316 3.3 1.21.96-.262 1.98-.392 3-.398 1.02.006 2.04.136 3 .398 2.28-1.526 3.285-1.21 3.285-1.21.645 1.63.24 2.835.12 3.133.765.828 1.23 1.884 1.23 3.175 0 4.546-2.805 5.546-5.475 5.84.42.354.81 1.077.81 2.171 0 1.567-.015 2.83-.015 3.214 0 .309.21.678.825.562C20.565 21.917 24 17.495 24 12.292 24 5.78 18.63.5 12 .5z"/></svg>Code on GitHub</a>
   </p>
 </body>
 </html>
