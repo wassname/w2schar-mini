@@ -26,6 +26,7 @@ import math
 import os
 import re
 import shutil
+import subprocess
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -242,14 +243,24 @@ def mem_stage(name: str):
 # Per-slug bootstrap
 # ---------------------------------------------------------------------------
 
+def _git_text(*args: str) -> str:
+    return subprocess.run(("git", *args), check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+
 def init_run(slug_dir: Path, model: str, teacher: str | None = None,
              profile: str | None = None, seed: int = 0) -> Path:
     slug_dir.mkdir(parents=True, exist_ok=True)
+    git_status_short = _git_text("status", "--short")
     run = {
         "model": model,
         "teacher": teacher or config_by_model(model).teacher,
         "axis": AXIS,
         "created_utc": datetime.now(timezone.utc).isoformat(),
+        "git_head": _git_text("rev-parse", "HEAD"),
+        "git_dirty": bool(git_status_short),
+        "git_status_short": git_status_short,
+        "git_diff_stat": _git_text("diff", "--stat"),
     }
     verbose_log = os.environ.get("CSM_VERBOSE_LOG")
     if verbose_log:
