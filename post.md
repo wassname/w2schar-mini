@@ -30,10 +30,10 @@ series](https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview
 
 TL;DR: an early yes, a weak model can steer a stronger model’s
 character. A weak 9B teacher steered a much stronger 27B student (about
-three times its size) toward a written character spec, with no labels.
-Across two runs the student cares more and defers less to authority, the
-direction we aimed for. Small models so far, but it looks like it could
-scale up.
+three times its size) toward a written character spec, with no human
+labels. Across two runs the student cares more and defers less to
+authority, the direction we aimed for. Small models so far, but it looks
+like it could scale up.
 
 </div>
 
@@ -280,8 +280,8 @@ target. It has properties I like:
 
 I read this as early evidence that weak-to-strong alignment can run
 through steering, a self-supervised weight intervention (trained on the
-model’s own completions, no labels) rather than fine-tuning on weak
-labels. None of the pieces is new alone (see [Related
+model’s own completions, no human labels) rather than fine-tuning on
+weak labels. None of the pieces is new alone (see [Related
 work](#related-work)). The closest is ConTrans (Dong et al. 2024), which
 does weak-to-strong steering by extracting a concept vector *from* the
 weak model and transplanting it into the strong one. What I have not
