@@ -569,6 +569,11 @@ CONFIGS["qwen-32b-nf4-micro"] = replace(
     signed_C=1.0,
 )
 
+CONFIGS["qwen-32b-nf4-12keep"] = replace(
+    CONFIGS["qwen-32b-nf4-micro"],
+    n_rounds=12,
+)
+
 # Local 4B profile for real train->judge cycles without a 30B GPU load.
 CONFIGS["gemma-4b-3keep"] = replace(
     CONFIGS["qwen-2b-3keep"],

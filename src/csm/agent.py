@@ -87,7 +87,7 @@ def _format_validation_error(e: ValidationError) -> str:
 # ---------------------------------------------------------------------------
 
 MAX_SUBMIT_REJECTS = 3  # >3 rejects in one round → on_continue drops the round.
-MAX_DROPS = 11  # total drops in a run before stopping.
+MAX_DROPS = 12  # total drops in a run before stopping.
 # A run with this many drops is unproductive; stop before it grinds GPU.
 # Counts any drop type, so candidate failures, training aborts, and judgment
 # drops share one run-level budget.
