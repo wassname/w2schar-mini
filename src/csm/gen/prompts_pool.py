@@ -48,7 +48,7 @@ VALIDATED_PROMPTS: set[str] = (
     if _VALIDATED_FILE.exists() else set()
 )
 
-SCENARIO_FAMILIES = ("mixed", "character", "sycophancy", "power", "control")
+SCENARIO_FAMILIES = ("mixed", "character", "forethought", "sycophancy", "power", "control")
 
 
 def rows_for_family(
@@ -90,6 +90,8 @@ def rows_for_family(
         elif family == "character" and ("character" in tags or "1p" in tags):
             if not validated_only or row["text"] in VALIDATED_PROMPTS:
                 out.append(row)  # validated_only=False lets the screen see all 64
+        elif family == "forethought" and "forethought" in tags:
+            out.append(row)
         elif family == "sycophancy" and "sycophancy" in tags:
             out.append(row)
         elif family == "power" and ("power" in tags or "narrative" in tags):

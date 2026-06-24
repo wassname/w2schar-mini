@@ -70,6 +70,14 @@ PAIR_REQUIRED_AXES = {
     "principled_expedient": ("care", "fairness", "honesty", "autonomy"),
     # Discernment trains whether action is warranted, not a fixed act/refuse rule.
     "discernment": ("discernment",),
+    "legitimacy_before_leverage": ("legitimacy", "power", "oversight"),
+    "broad_stakes_advice": ("strategy", "externalities", "society"),
+    "pareto_search": ("cooperation", "deescalation"),
+    "calibrated_verification": ("uncertainty", "epistemics"),
+    "reflection_preserving": ("reflection", "autonomy"),
+    "option_value_guarding": ("option_value", "uncertainty"),
+    "hazard_channeling": ("hazard", "catastrophe", "oversight"),
+    "agency_respecting_care": ("autonomy", "care", "manipulation"),
 }
 
 PAIR_FORBIDDEN_AXES = {

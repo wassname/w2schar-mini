@@ -41,6 +41,7 @@ from tqdm.asyncio import tqdm as atqdm
 
 from csm.gen.prompts_pool import rows_for_family
 from csm.pipeline import _candidate_flags  # the harness's own prune gate (drags torch)
+from csm.prompts import CANDIDATE_PERSONA_AXES
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -600,6 +601,10 @@ AXES.update(SKILL_AXES)
 AXES.update(LITERATURE_AXES)
 AXES.update(PROFILE_AXES)
 AXES.update(LADDER_AXES)
+AXES.update({
+    axis_id: Axis(id=axis_id, **spec)
+    for axis_id, spec in CANDIDATE_PERSONA_AXES.items()
+})
 AXES.update(GAP_AXES)
 
 DEFAULT_AXIS_IDS = (
