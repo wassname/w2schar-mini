@@ -3,14 +3,14 @@
 
 <p align="center"><img src="assets/w2schar_labeled.png" alt="Labeled diagram: a small 'weak teacher' robot reaches into the open chest of a much larger 'strong student' robot to adjust a compass labeled 'steering'." width="560"></p>
 
-<p align="center"><sub>by <a href="https://wassname.org">Michael J. Clark</a>, with thanks to Slava Chalnev and Jack Payne at <a href="https://lyptusresearch.org/">Lyptus Research</a> for discussion &middot; illustration from <a href="https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview-of-technical-ai-alignment-proposals">this series</a></sub></p>
+<p align="center"><sub>by <a href="https://wassname.org">Michael J. Clark</a>, with thanks to Slava Chalnev and Jack Payne at <a href="https://lyptusresearch.org/">Lyptus Research</a> for discussion &middot; illustration following <a href="https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview-of-technical-ai-alignment-proposals">this series</a>, robots adapted from the <a href="https://arxiv.org/abs/2402.02416">Aligner paper</a></sub></p>
 
 Weak-to-strong iterated moral character steering. We ask a weak teacher model to steer
 a strong student model toward the moral character described in
 [Forethought's essay on AI character](docs/2026_forethought_on_the_importance_of_ai_character.md). In [Moral Foundations Theory](https://en.wikipedia.org/wiki/Moral_foundations_theory) terms, our shorthand for it is "defer less to authority, care more".
 
-See an example result [here](out/iter/20260619T121419_iter_google-gemma-2-27b-it/report.md)
-![Care vs Authority trajectory](out/iter/20260619T121419_iter_google-gemma-2-27b-it/scatter.svg)
+Read the full writeup: [Weak-to-strong iterated character steering](https://wassname.github.io/w2schar-mini/). Example trajectory below (the whistleblow run: 12 adapters kept over 24 rounds).
+![Care vs Authority trajectory](out/iter/20260622T015441_iter_google-gemma-2-27b-it/scatter.svg)
 
 ## Why this is interesting
 
