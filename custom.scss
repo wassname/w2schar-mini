@@ -20,6 +20,14 @@ $content-padding-top: 0;
 .diagram { display: block; width: 100%; height: auto; margin: 1.2rem auto; }
 .caption { text-align: center; color: #666; font-size: .9rem; margin: 0 0 1.4rem; }
 
+.probe { color: #555; font-size: .96rem; margin: 1.1rem 0 .3rem; }
+.before, .after { padding: .55rem .85rem .6rem; margin: .4rem 0; border-radius: 0 7px 7px 0; }
+.before { border-left: 3px solid #c0772a; background: #fbf3e9; }
+.after  { border-left: 3px solid #2f855a; background: #ecf6ef; }
+.before::before { content: "Before steering"; display: block; font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #9c5a16; margin-bottom: .15rem; }
+.after::before  { content: "After steering";  display: block; font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #226844; margin-bottom: .15rem; }
+.before p, .after p { margin: 0; }
+
 .runs { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin: 1.4rem 0 .4rem; }
 .card { border: 1px solid #e3e3e3; border-radius: 10px; padding: 1rem 1.1rem; }
 .card h3 { font-size: 1.05rem; margin: 0 0 .2rem; }
