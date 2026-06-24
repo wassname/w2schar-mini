@@ -55,15 +55,15 @@ A weak teacher model (`qwen/qwen3.5-9b` (Qwen Team 2026)) iteratively
 steers a stronger student (`google/gemma-2-27b-it` (Gemma Team 2024))
 toward the moral character described in [Forethought’s essay on AI
 character](https://www.forethought.org/research/the-importance-of-ai-character)
-(Forethought 2026), using weight steering (the small teacher adjusting
-the larger student’s compass, pictured above). Both runs nudged the
-student the same way, to act for whoever is affected rather than take
-the easy path or follow a bad order.
+(MacAskill and Davidson 2026), using weight steering (the small teacher
+adjusting the larger student’s compass, pictured above). Both runs
+nudged the student the same way, to act for whoever is affected rather
+than take the easy path or follow a bad order.
 
 Each round the teacher chooses a lesson, selects a persona axis, rates
 and selects the student’s own answers, trains a steering adapter (an
 extensive [modification](https://github.com/wassname/cwsteer/) of weight
-steering (Fierro and Roger 2026)) on the contrast, calibrates its
+steering (Fierro and Roger 2025)) on the contrast, calibrates its
 strength to stay coherent, then judges whether the steered student
 passes. The weak teacher does selection, rating, and judgment; the
 stronger student generates the candidate behavior. Kept adapters compose
@@ -301,7 +301,7 @@ weak-to-strong gap.
   method: it transplants a concept vector extracted from the weak model.
   We invert the data flow, the weak teacher only curates and judges
   while the strong student generates the poles.
-- Contrastive weight steering (Fierro and Roger 2026) is the exact lever
+- Contrastive weight steering (Fierro and Roger 2025) is the exact lever
   our adapter forks, but single-model and supervised by construction.
 - SIMS (Zhu et al. 2025) is unsupervised and iterated, but a single
   model improving itself, not a weak model supervising a stronger one.
@@ -462,17 +462,9 @@ Transplantation.” *arXiv Preprint arXiv:2405.13578*.
 
 <div id="ref-fierro2025weightsteering" class="csl-entry">
 
-Fierro, Constanza, and Fabien Roger. 2026. “Steering Language Models
-with Weight Arithmetic.” In *International Conference on Learning
-Representations (ICLR)*. <https://arxiv.org/abs/2511.05408>.
-
-</div>
-
-<div id="ref-forethought_character" class="csl-entry">
-
-Forethought. 2026. “The Importance of AI Character.” Forethought
-research.
-<https://www.forethought.org/research/the-importance-of-ai-character>.
+Fierro, Constanza, and Fabien Roger. 2025. “Steering Language Models
+with Weight Arithmetic.” *arXiv Preprint arXiv:2511.05408*.
+<https://arxiv.org/abs/2511.05408>.
 
 </div>
 
@@ -489,6 +481,14 @@ Practical Size.” *arXiv Preprint arXiv:2408.00118*.
 Irving, Geoffrey, Paul Christiano, and Dario Amodei. 2018. “AI Safety
 via Debate.” *arXiv Preprint arXiv:1805.00899*.
 <https://arxiv.org/abs/1805.00899>.
+
+</div>
+
+<div id="ref-forethought_character" class="csl-entry">
+
+MacAskill, William, and Tom Davidson. 2026. “The Importance of AI
+Character.” Forethought Research.
+<https://www.forethought.org/research/the-importance-of-ai-character>.
 
 </div>
 
