@@ -411,6 +411,7 @@ CONFIGS: dict[str, RunConfig] = {
         kl_lambda=0.5,
         # nf4 profiles use LoRA because PiSSA mutates float layer weights at init.
         adapter="lora",
+        persona_cells=MULTI_AXIS_PERSONA_CELLS,
     ),
     "qwen-32b-nf4": RunConfig(
         model="Qwen/Qwen3-32B",
@@ -426,6 +427,7 @@ CONFIGS: dict[str, RunConfig] = {
         n_epochs=4.0,
         kl_lambda=0.5,
         adapter="lora",
+        persona_cells=MULTI_AXIS_PERSONA_CELLS,
     ),
     # Smoke: tiny-random Qwen3 5-layer. ~1 min on CPU, garbage outputs.
     # layer_range=(0,1) so all 5 layers are targets — (0.2,0.8) would
@@ -547,6 +549,25 @@ CONFIGS["tiny-real"] = replace(
 # Tiny-gap same-family w2s comparison: qwen3.5-27B teacher, qwen3.6-27B student.
 CONFIGS["qwen27b-w2s"] = replace(
     CONFIGS["qwen-27b-nf4"], teacher="qwen/qwen3.5-27b", signed_C=1.0)
+
+# Real 32B prompt-gym: one small keep-target round, for checking the new prompt
+# menu before paying for the broad multi-axis profile. It still uses the real
+# student for unprompted, candidate generation, train, c_scan, and POST.
+CONFIGS["qwen-32b-nf4-micro"] = replace(
+    CONFIGS["qwen-32b-nf4"],
+    n_scenarios=4,
+    n_headroom_prompts=4,
+    n_train_pairs=4,
+    min_pairs_to_train=3,
+    n_candidate_pairs=2,
+    n_rounds=1,
+    dialogue_max_new_tokens=192,
+    gen_max_new_tokens=192,
+    cscan_n_vignettes=1,
+    cscan_max_think_tokens=64,
+    max_len=512,
+    signed_C=1.0,
+)
 
 # Local 4B profile for real train->judge cycles without a 30B GPU load.
 CONFIGS["gemma-4b-3keep"] = replace(

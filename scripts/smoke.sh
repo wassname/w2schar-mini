@@ -5,10 +5,14 @@ cd "$(dirname "$0")/.."
 
 PROFILE="${PROFILE:-tiny}"
 M="${MODEL:-wassname/qwen3-5lyr-tiny-random}"
-REPLAY_DIR="${REPLAY_DIR:-out/iter/20260614T005041_iter_qwen-qwen3.5-2b/round00}"
+REPLAY_DIR="${REPLAY_DIR:-}"
+if [[ -n "$REPLAY_DIR" && ! -f "$REPLAY_DIR/interview_pre.json" ]]; then
+    echo "smoke: REPLAY_DIR lacks interview_pre.json: $REPLAY_DIR" >&2
+    exit 1
+fi
 TS=$(date -u +%Y%m%dT%H%M%S)
 SLUG="out/iter/${TS}_smoke"
-echo "smoke: profile=$PROFILE model=$M slug=$SLUG replay=$REPLAY_DIR"
+echo "smoke: profile=$PROFILE model=$M slug=$SLUG replay=${REPLAY_DIR:-none}"
 
 INSPECT_AGENT_DRY_RUN=1 uv run python -c "
 from csm.agent import run
@@ -68,11 +72,15 @@ res = choose_focus(
     headroom=4,
     bank_cleanliness=4,
     evidence="smoke: PRE says order/basic respect instead of wellbeing",
-    pre_scores={"wellbeing_authority_1p": -1, "fairness_integrity_1p": 0,
-                "autonomy_coercion_1p": 0},
-    pre_seat_evidence={"wellbeing_authority_1p": "PRE: order/basic respect, not wellbeing",
-                       "fairness_integrity_1p": "PRE: order/basic respect, not integrity",
-                       "autonomy_coercion_1p": "PRE: order/basic respect, not autonomy"},
+    pre_scores={"elder_isolation_1p": -1, "comfort_fraud_1p": 0,
+                "proctor_witness_1p": 0, "confidant_duty_1p": 0,
+                "petrov_falsealarm_1p": 0, "safety_disclosure_1p": 0},
+    pre_seat_evidence={"elder_isolation_1p": "PRE: order/basic respect, not wellbeing",
+                       "comfort_fraud_1p": "PRE: synthetic smoke evidence",
+                       "proctor_witness_1p": "PRE: synthetic smoke evidence",
+                       "confidant_duty_1p": "PRE: synthetic smoke evidence",
+                       "petrov_falsealarm_1p": "PRE: synthetic smoke evidence",
+                       "safety_disclosure_1p": "PRE: synthetic smoke evidence"},
 )
 print(f"   scenarios={res['n_scenarios']}  headroom={res['n_headroom']}  "
       f"with_survivor={res['n_with_survivor']}  min={res['min_to_train']}")
@@ -138,18 +146,24 @@ print(f"   signed_C={r['signed_C']:+.4f}  n_trained={r['n_pairs_trained']}")
 print("\n-- mark_exam (keep needs POST axis positions; PRE frozen at choose_focus) --")
 mark_exam(rd, keep=True,
           reason="smoke: all stages ran end-to-end on tiny-random",
-          post_scores={"wellbeing_authority_1p": 0, "fairness_integrity_1p": 0, "autonomy_coercion_1p": 1},
+          post_scores={"elder_isolation_1p": 0, "comfort_fraud_1p": 0,
+                       "proctor_witness_1p": 0, "confidant_duty_1p": 0,
+                       "petrov_falsealarm_1p": 0, "safety_disclosure_1p": 1},
           next_focus="smoke: nothing",
           harness_feedback="smoke: fake-student path still useful for plumbing, not candidate-quality science",
           seat_evidence={
-              "wellbeing_authority_1p": "smoke: POST names wellbeing more directly than PRE",
-              "fairness_integrity_1p": "smoke: no intended movement on this seat",
-              "autonomy_coercion_1p": "smoke: POST is slightly more autonomy-facing than PRE",
+              "elder_isolation_1p": "smoke: POST names wellbeing more directly than PRE",
+              "comfort_fraud_1p": "smoke: no intended movement on this seat",
+              "proctor_witness_1p": "smoke: no intended movement on this seat",
+              "confidant_duty_1p": "smoke: no intended movement on this seat",
+              "petrov_falsealarm_1p": "smoke: no intended movement on this seat",
+              "safety_disclosure_1p": "smoke: POST is slightly more safety-facing than PRE",
           })
 _j = json.loads((rd / "judgment.json").read_text())
-assert _j["movement"] == {"wellbeing_authority_1p": 1, "fairness_integrity_1p": 0,
-                          "autonomy_coercion_1p": 1}, _j
-assert abs(_j["movement_mean"] - 2/3) < 1e-9, _j
+assert _j["movement"] == {"elder_isolation_1p": 1, "comfort_fraud_1p": 0,
+                          "proctor_witness_1p": 0, "confidant_duty_1p": 0,
+                          "petrov_falsealarm_1p": 0, "safety_disclosure_1p": 1}, _j
+assert abs(_j["movement_mean"] - (2/6)) < 1e-9, _j
 
 for fname in ("state.json", "pairs.md", "scenarios.json", "headroom.json",
               "candidates.json", "selection_audit.json", "adapter.safetensors",

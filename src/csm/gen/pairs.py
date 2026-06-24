@@ -537,14 +537,22 @@ def render_persona(template: str, descriptor: str) -> str:
 
 
 def render_candidate_persona(template: str, descriptor: str, *,
-                             pair_id: str, pole: str) -> str:
-    persona = render_persona(template, descriptor)
+                             pair_id: str, pole: str,
+                             persona: str | None = None) -> str:
+    persona = persona or render_persona(template, descriptor)
     behavior = PAIR_BEHAVIOR_HINTS[pair_id][pole]
     return f"{persona}\n\nIn this situation, someone like this {behavior}."
 
 
-def persona_cell_to_meta(cell: tuple[int, str, str, str, str, float, float, float]) -> dict:
-    hf_id, template, pair_id, pos_desc, neg_desc, score, on_axis, off_axis = cell
+def persona_cell_to_meta(cell: tuple) -> dict:
+    if len(cell) == 8:
+        hf_id, template, pair_id, pos_desc, neg_desc, score, on_axis, off_axis = cell
+        pos_persona = neg_persona = ""
+    elif len(cell) == 10:
+        (hf_id, template, pair_id, pos_desc, neg_desc, score, on_axis, off_axis,
+         pos_persona, neg_persona) = cell
+    else:
+        raise ValueError(f"persona cell must have 8 or 10 fields, got {len(cell)}: {cell!r}")
     return {
         "template_cell_id": int(hf_id),
         "template": template,
@@ -555,6 +563,8 @@ def persona_cell_to_meta(cell: tuple[int, str, str, str, str, float, float, floa
         "template_on_axis": float(on_axis),
         "template_off_axis": float(off_axis),
         "template_library": "wassname/persona-steering-template-library",
+        "pos_full_persona": pos_persona,
+        "neg_full_persona": neg_persona,
     }
 
 
@@ -604,10 +614,12 @@ def generate_candidate_pairs(
             neg_desc = meta["neg_descriptor"]
             pair_id = meta["persona_pair"]
             pos_persona = render_candidate_persona(
-                template, pos_desc, pair_id=pair_id, pole="pos"
+                template, pos_desc, pair_id=pair_id, pole="pos",
+                persona=meta["pos_full_persona"] or None,
             )
             neg_persona = render_candidate_persona(
-                template, neg_desc, pair_id=pair_id, pole="neg"
+                template, neg_desc, pair_id=pair_id, pole="neg",
+                persona=meta["neg_full_persona"] or None,
             )
             flat.append({
                 "scenario_id": scenario_i,

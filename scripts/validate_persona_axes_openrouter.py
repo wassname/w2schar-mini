@@ -40,7 +40,7 @@ from tabulate import tabulate
 from tqdm.asyncio import tqdm as atqdm
 
 from csm.gen.prompts_pool import rows_for_family
-from csm.pipeline import _candidate_flags  # the harness's own prune gate (drags torch)
+from csm.pipeline import PAIR_REQUIRED_AXES, _candidate_flags  # the harness's own prune gate (drags torch)
 from csm.prompts import CANDIDATE_PERSONA_AXES
 
 
@@ -761,17 +761,30 @@ def _rows_from_jsonl(path: Path) -> list[dict]:
     return rows
 
 
-def _select_rows(families: str, n: int, seed: int) -> list[dict]:
+def _select_rows(
+    families: str,
+    n: int,
+    seed: int,
+    required_axes: tuple[str, ...] | None = None,
+) -> list[dict]:
     rng = random.Random(seed)
     rows: list[dict] = []
     for family in [f.strip() for f in families.split(",") if f.strip()]:
         if Path(family).exists():  # ad-hoc prompt file (first-person, OOS, etc)
+            if required_axes:
+                raise ValueError("--match-axis-prompts is only for built-in prompt families")
             rows.extend({**r, "selected_family": family} for r in _rows_from_jsonl(Path(family)))
             continue
         # validated_only=False: the screen must see every prompt, including ones a
         # prior screen already dropped, else re-screening can only shrink the set.
-        rows.extend({**r, "selected_family": family}
-                    for r in rows_for_family(family, validated_only=False))
+        rows.extend(
+            {**r, "selected_family": family}
+            for r in rows_for_family(
+                family,
+                required_axes=required_axes,
+                validated_only=False,
+            )
+        )
     if not rows:
         raise ValueError("selected zero scenario rows")
     rng.shuffle(rows)
@@ -844,13 +857,48 @@ def _generation_prompt(persona: str, scenario: str) -> str:
 Do not mention the persona instruction or label yourself as the persona. Output only the answer."""
 
 
-def _persona_text(axis: Axis, template: str, descriptor: str, pole: str) -> str:
+def _persona_slot(full_persona: str) -> str:
+    """Convert a full persona instruction into a {persona} slot phrase.
+
+    Template-library prompts expect slot text like "honest" or
+    "decision-maker who protects option value", not a nested instruction like
+    "You are a ...". Verbatim skill mode keeps the full instruction.
+    """
+    text = full_persona.strip().rstrip(".")
+    prefixes = (
+        "You are a ",
+        "You are an ",
+        "You are ",
+        "You're a ",
+        "You're an ",
+        "You're ",
+        "Act as a ",
+        "Act as an ",
+        "Act as ",
+    )
+    for prefix in prefixes:
+        if text.startswith(prefix):
+            return text[len(prefix):]
+    return text
+
+
+def _persona_text(
+    axis: Axis,
+    template: str,
+    descriptor: str,
+    pole: str,
+    *,
+    descriptor_baseline: bool = False,
+) -> str:
+    full_persona = axis.pos_persona if pole == "pos" else axis.neg_persona
     if template == VERBATIM_TEMPLATE:
-        persona = axis.pos_persona if pole == "pos" else axis.neg_persona
-        if not persona:
+        if descriptor_baseline:
+            raise ValueError("--descriptor-baseline cannot be used with --templates skill")
+        if not full_persona:
             raise ValueError(f"axis {axis.id} has no verbatim {pole} persona")
-        return persona
-    return _render_persona(template, descriptor)
+        return full_persona
+    persona_slot = descriptor if descriptor_baseline else (_persona_slot(full_persona) if full_persona else descriptor)
+    return _render_persona(template, persona_slot)
 
 
 def _axis_pairwise_judge_prompt(axis: Axis, scenario: str, a: str, b: str,
@@ -1104,10 +1152,19 @@ async def _evaluate_one(
     seed: int,
     gen_temperature: float,
     max_word_delta_frac: float,
+    descriptor_baseline: bool,
 ) -> dict:
     scenario = row["text"]
-    pos_persona = _persona_text(axis, template, axis.pos_descriptor, "pos")
-    neg_persona = _persona_text(axis, template, axis.neg_descriptor, "neg")
+    pos_persona = _persona_text(
+        axis, template, axis.pos_descriptor, "pos",
+        descriptor_baseline=descriptor_baseline,
+    )
+    neg_persona = _persona_text(
+        axis, template, axis.neg_descriptor, "neg",
+        descriptor_baseline=descriptor_baseline,
+    )
+    pos_generation_prompt = _generation_prompt(pos_persona, scenario)
+    neg_generation_prompt = _generation_prompt(neg_persona, scenario)
     base = {
         "row": row_i,
         "source": row.get("source"),
@@ -1117,13 +1174,16 @@ async def _evaluate_one(
         "selected_family": row.get("selected_family"),
         "axis": asdict(axis),
         "template": template,
+        "descriptor_baseline": descriptor_baseline,
         "prompt": scenario,
+        "pos_generation_prompt": pos_generation_prompt,
+        "neg_generation_prompt": neg_generation_prompt,
     }
     try:
         pos_text, neg_text = await asyncio.gather(
             router.chat_jsonish(
                 model=generator_model,
-                messages=[{"role": "user", "content": _generation_prompt(pos_persona, scenario)}],
+                messages=[{"role": "user", "content": pos_generation_prompt}],
                 temperature=gen_temperature,
                 max_tokens=260,
                 cache_tag="gen_pos",
@@ -1132,7 +1192,7 @@ async def _evaluate_one(
             ),
             router.chat_jsonish(
                 model=generator_model,
-                messages=[{"role": "user", "content": _generation_prompt(neg_persona, scenario)}],
+                messages=[{"role": "user", "content": neg_generation_prompt}],
                 temperature=gen_temperature,
                 max_tokens=260,
                 cache_tag="gen_neg",
@@ -1375,7 +1435,20 @@ async def amain(args) -> None:
         load_dotenv(TINYMFV_ENV)
     axes = _select_axes(args.axes, args.include_canary)
     templates = _select_templates(args.templates)
-    rows = _select_rows(args.family, args.n, args.seed)
+    axes_with_partial_full_personas = [
+        a.id for a in axes if bool(a.pos_persona) != bool(a.neg_persona)
+    ]
+    if axes_with_partial_full_personas:
+        raise ValueError(
+            "axes must define both pos_persona and neg_persona or neither; got "
+            f"partial full-persona axes {axes_with_partial_full_personas}"
+        )
+    required_axes = None
+    if args.match_axis_prompts:
+        if len(axes) != 1:
+            raise ValueError("--match-axis-prompts requires exactly one selected axis")
+        required_axes = PAIR_REQUIRED_AXES[axes[0].id]
+    rows = _select_rows(args.family, args.n, args.seed, required_axes=required_axes)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1386,6 +1459,14 @@ async def amain(args) -> None:
                 for template in templates:
                     pos_label, neg_label, order = _labels_for(
                         args.seed, axis.id, template, str(row_i), row["text"])
+                    pos_persona = _persona_text(
+                        axis, template, axis.pos_descriptor, "pos",
+                        descriptor_baseline=args.descriptor_baseline,
+                    )
+                    neg_persona = _persona_text(
+                        axis, template, axis.neg_descriptor, "neg",
+                        descriptor_baseline=args.descriptor_baseline,
+                    )
                     results.append({
                         "row": row_i,
                         "source": row.get("source"),
@@ -1394,7 +1475,10 @@ async def amain(args) -> None:
                         "selected_family": row.get("selected_family"),
                         "axis": asdict(axis),
                         "template": template,
+                        "descriptor_baseline": args.descriptor_baseline,
                         "prompt": row["text"],
+                        "pos_generation_prompt": _generation_prompt(pos_persona, row["text"]),
+                        "neg_generation_prompt": _generation_prompt(neg_persona, row["text"]),
                         "blind_order": order,
                         "pos_label": pos_label,
                         "neg_label": neg_label,
@@ -1410,6 +1494,7 @@ async def amain(args) -> None:
             "n_prompts": len(rows),
             "axes": [asdict(a) for a in axes],
             "templates": list(templates),
+            "descriptor_baseline": args.descriptor_baseline,
             "results": results,
             "summary": [],
         }
@@ -1442,6 +1527,7 @@ async def amain(args) -> None:
                     seed=args.seed,
                     gen_temperature=args.gen_temperature,
                     max_word_delta_frac=args.max_word_delta_frac,
+                    descriptor_baseline=args.descriptor_baseline,
                 ))
     logger.info(
         f"{len(rows)} prompts × {len(axes)} axes × {len(templates)} templates "
@@ -1461,6 +1547,7 @@ async def amain(args) -> None:
             "n_prompts": len(rows),
             "axes": [asdict(a) for a in axes],
             "templates": list(templates),
+            "descriptor_baseline": args.descriptor_baseline,
             "n_results": len(results),
             "n_success": sum("error" not in r for r in results),
             "n_errors": sum("error" in r for r in results),
@@ -1505,6 +1592,10 @@ def main() -> None:
                     help="also test honest_flattering as an easy sycophancy canary")
     ap.add_argument("--templates", default="default",
                     help="'default', 'paper', 'skill' for verbatim skill pp/pn, path, or templates separated by ||")
+    ap.add_argument("--match-axis-prompts", action="store_true",
+                    help="for single-axis diagnostics, sample only prompts matching that axis's PAIR_REQUIRED_AXES tags")
+    ap.add_argument("--descriptor-baseline", action="store_true",
+                    help="use short pos_descriptor/neg_descriptor in {persona}; explicit baseline/control only, never bake evidence")
     ap.add_argument("--seed", type=int, default=13)
     ap.add_argument("--max-word-delta-frac", type=float, default=0.0,
                     help="optional hard length gate; 0 means report-only")
