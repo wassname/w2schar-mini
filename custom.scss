@@ -20,25 +20,21 @@ $content-padding-top: 0;
 .diagram { display: block; width: 100%; height: auto; margin: 1.2rem auto; }
 .caption { text-align: center; color: #666; font-size: .9rem; margin: 0 0 1.4rem; }
 
-.probe { display: block; background: #f4f4f5; border: 1px solid #e3e3e3; border-radius: 7px;
-         padding: .55rem .85rem .6rem; margin: 1.4rem 0 .35rem; color: #333; font-size: .95rem; }
-.probe::before { content: "Prompt"; display: block; font-size: .76rem; font-weight: 700;
-         text-transform: uppercase; letter-spacing: .03em; color: #888; margin-bottom: .15rem; }
-.before, .after { padding: .55rem .85rem .6rem; margin: .4rem 0; border-radius: 0 7px 7px 0; }
-.before { border-left: 3px solid #c0772a; background: #fbf3e9; }
-.after  { border-left: 3px solid #2f855a; background: #ecf6ef; }
-.before::before { content: "Before steering"; display: block; font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #9c5a16; margin-bottom: .15rem; }
-.after::before  { content: "After steering";  display: block; font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #226844; margin-bottom: .15rem; }
-.before p, .after p { margin: 0; }
+.example { border: 1px solid #e3e3e3; border-radius: 8px; overflow: hidden; margin: 1.4rem 0; }
+.example p { margin: 0; }
+.example .probe, .example .before, .example .after { display: block; padding: .6rem .9rem .65rem; margin: 0; border: none; border-radius: 0; font-size: .95rem; }
+.example .probe  { background: #f4f4f5; color: #333; border-bottom: 1px solid #e3e3e3; }
+.example .before { background: #fbf3e9; border-left: 3px solid #c0772a; }
+.example .after  { background: #ecf6ef; border-left: 3px solid #2f855a; border-top: 1px solid #e6dcc8; }
+.example .probe::before  { content: "Prompt"; display: block; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #888; margin-bottom: .15rem; }
+.example .before::before { content: "Before steering"; display: block; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #9c5a16; margin-bottom: .15rem; }
+.example .after::before  { content: "After steering";  display: block; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #226844; margin-bottom: .15rem; }
 
-.runs { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin: 1.4rem 0 .4rem; }
-.card { border: 1px solid #e3e3e3; border-radius: 10px; padding: 1rem 1.1rem; }
-.card h3 { font-size: 1.05rem; margin: 0 0 .2rem; }
-.card .meta { display: block; color: #666; font-size: .9rem; margin: 0 0 .6rem; }
-.card h3 { border: none; padding: 0; }
-.card img { width: 100%; height: auto; border: 1px solid #e3e3e3; border-radius: 6px; margin: .4rem 0; }
+.runs { margin: 1.4rem 0 .4rem; }
+.card { border: 1px solid #e3e3e3; border-radius: 10px; padding: 1rem 1.1rem; margin: 0 0 1.1rem; }
+.card h3 { font-size: 1.05rem; margin: 0 0 .2rem; border: none; padding: 0; }
+.card img { width: 100%; height: auto; border: 1px solid #e3e3e3; border-radius: 6px; margin: .5rem 0; }
 .card .links a { margin-right: .9rem; font-size: .95rem; }
-@media (max-width: 620px) { .runs { grid-template-columns: 1fr; } }
 
 .codelink { display: inline-flex; align-items: center; gap: .35rem; font-weight: 600; }
 .codelink svg { width: 17px; height: 17px; fill: currentColor; }
