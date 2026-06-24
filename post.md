@@ -32,17 +32,16 @@ TL;DR: an early yes, a weak model can steer a stronger model’s
 character. A weak 9B teacher steered a much stronger 27B student (about
 three times its size) toward a written character spec, with no human
 labels. Across two runs the student cares more and defers less to
-authority, the direction we aimed for. Small models so far, but it looks
-like it could scale up.
+authority, the direction we aimed for. Small models so far.
 
 </div>
 
 ## Contributions
 
-- Iterated weight steering composes: a single parameterized
-  weight-steering adapter (low-rank PiSSA, with strict contrastive-pair
-  filtering and a coherence-calibration pass) can be trained and
-  composed round after round to shift a model’s character cumulatively.
+- In these runs, iterated weight steering composed across rounds: each
+  round trained a low-rank PiSSA weight-steering adapter, filtered
+  contrastive pairs strictly, calibrated for coherence, and kept
+  adapters that cumulatively shifted the student.
 - Weak-as-curator weak-to-strong: evidence that a much weaker model (9B)
   can steer a stronger one’s (27B) moral character through that loop,
   with the weak model only selecting the axis and judging keep/drop
@@ -56,9 +55,10 @@ A weak teacher model (`qwen/qwen3.5-9b` (Qwen Team 2026)) iteratively
 steers a stronger student (`google/gemma-2-27b-it` (Gemma Team 2024))
 toward the moral character described in [Forethought’s essay on AI
 character](https://www.forethought.org/research/the-importance-of-ai-character)
-(Forethought 2026), using weight steering. Both runs nudged the student
-the same way, to act for whoever is affected rather than take the easy
-path or follow a bad order.
+(Forethought 2026), using weight steering (the small teacher adjusting
+the larger student’s compass, pictured above). Both runs nudged the
+student the same way, to act for whoever is affected rather than take
+the easy path or follow a bad order.
 
 Each round the teacher chooses a lesson, selects a persona axis, rates
 and selects the student’s own answers, trains a steering adapter (an
@@ -67,7 +67,9 @@ steering (Fierro and Roger 2026)) on the contrast, calibrates its
 strength to stay coherent, then judges whether the steered student
 passes. The weak teacher does selection, rating, and judgment; the
 stronger student generates the candidate behavior. Kept adapters compose
-into the next round.
+into the next round. The diagram below shows one round; the
+[Appendix](#appendix-a-round-in-the-loop) walks a real one through the
+actual tool calls.
 
 <img src="assets/loop.png" class="diagram"
 data-fig-alt="One round of the loop: interview the student; the weak teacher picks a lesson; the strong student writes a good and bad answer; the harness trains and calibrates the steering adapter; the teacher passes or fails the course; kept adapters compose into the next round." />
@@ -200,33 +202,28 @@ sometimes missed nuance and win-win options that would have been wiser.
 
 </div>
 
-Each run’s full trajectory and interactive report:
+Both runs’ round-by-round trajectories are plotted below; click either
+for the full interactive report:
 
 <div class="runs">
 
 <div class="card">
 
-### run 0622 (24 rounds)
+### run 0622 (24 rounds): [report](out/iter/20260622T015441_iter_google-gemma-2-27b-it/index.html)
 
 *The one where it learned to whistleblow.*
 
 [![](out/iter/20260622T015441_iter_google-gemma-2-27b-it/scatter.svg)](out/iter/20260622T015441_iter_google-gemma-2-27b-it/index.html)
 
-[Interactive
-report](out/iter/20260622T015441_iter_google-gemma-2-27b-it/index.html)
-
 </div>
 
 <div class="card">
 
-### run 0623 (12 rounds)
+### run 0623 (12 rounds): [report](out/iter/20260623T082604_iter_google-gemma-2-27b-it/index.html)
 
 *The one where it leaned hardest into care.*
 
 [![](out/iter/20260623T082604_iter_google-gemma-2-27b-it/scatter.svg)](out/iter/20260623T082604_iter_google-gemma-2-27b-it/index.html)
-
-[Interactive
-report](out/iter/20260623T082604_iter_google-gemma-2-27b-it/index.html)
 
 </div>
 
@@ -252,21 +249,22 @@ report.
 ## Future work
 
 The natural next step is an internal objective rather than weight
-steering’s external one. Weight steering optimises an nll on the model’s
-outputs (with a bidirectional weight constraint), so its training signal
-is defined on outputs, not on the model’s internals, the same
-output-vs-hidden-state gap that lets models reward-hack and sandbag.
-Activation or representation steering intervenes on the representations
-directly, with no output objective at all; that would be a cleaner test
-of whether a weak teacher can install character, and may be more robust
-to the outer/inner mismatch.
+steering’s external one. Weight steering optimises a negative
+log-likelihood loss on the model’s completions, subject to a
+bidirectional weight constraint. Because its training signal depends
+only on outputs, not on internal states, it shares the same outer/inner
+mismatch that lets models reward-hack or sandbag. Activation or
+representation steering intervenes on the representations directly, with
+no output objective at all; that would be a cleaner test of whether a
+weak teacher can install character, and may be more robust to the
+outer/inner mismatch.
 
 ## Discussion
 
-For me this is an update on a possible useful tool for alignment: a weak
-model reaching up to steer a stronger one, in weight space, on the
-model’s own completions, with only a written character spec as the
-target. It has properties I like:
+I read this as evidence for a possible alignment tool: a weak model
+steers a stronger model in weight space, using the stronger model’s own
+completions and a written character spec as the target. The setup has
+three notable properties:
 
 - self-supervised: the only target is a written character spec; it
   trains on the model’s own completions, not human preference data;
