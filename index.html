@@ -2222,8 +2222,15 @@ vertical-align: -.125em;
 <p>Illustration <strong>following</strong> <a href="https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview-of-technical-ai-alignment-proposals">this series</a>.</p>
 </div>
 <div class="tldr">
-<p>TL;DR: an early yes. A weak 9B teacher steered a much stronger 27B student (about three times its size) toward a written character spec, with no labels. Across two runs the student cares more and defers less to authority, the direction we aimed for. Small models so far, but it looks like it could scale up.</p>
+<p>TL;DR: an early yes, a weak model can steer a stronger model’s character. A weak 9B teacher steered a much stronger 27B student (about three times its size) toward a written character spec, with no labels. Across two runs the student cares more and defers less to authority, the direction we aimed for. Small models so far, but it looks like it could scale up.</p>
 </div>
+<section id="contributions" class="level2">
+<h2 class="anchored" data-anchor-id="contributions">Contributions</h2>
+<ul>
+<li>Iterated weight steering composes: a single parameterized weight-steering adapter (low-rank PiSSA, with strict contrastive-pair filtering and a coherence-calibration pass) can be trained and composed round after round to shift a model’s character cumulatively.</li>
+<li>Weak-as-curator weak-to-strong: evidence that a much weaker model (9B) can steer a stronger one’s (27B) moral character through that loop, with the weak model only selecting the axis and judging keep/drop while the strong student generates the contrastive poles, distinct from prior weak-to-strong steering, which extracts the steering vector from the weak model.</li>
+</ul>
+</section>
 <section id="method" class="level2">
 <h2 class="anchored" data-anchor-id="method">Method</h2>
 <p>A weak teacher model (<code>qwen/qwen3.5-9b</code> <span class="citation" data-cites="qwen35omni">(<a href="#ref-qwen35omni" role="doc-biblioref">Qwen Team 2026</a>)</span>) iteratively steers a stronger student (<code>google/gemma-2-27b-it</code> <span class="citation" data-cites="gemma2">(<a href="#ref-gemma2" role="doc-biblioref">Gemma Team 2024</a>)</span>) toward the moral character described in <a href="https://www.forethought.org/research/the-importance-of-ai-character">Forethought’s essay on AI character</a> <span class="citation" data-cites="forethought_character">(<a href="#ref-forethought_character" role="doc-biblioref">Forethought 2026</a>)</span>, using weight steering.</p>

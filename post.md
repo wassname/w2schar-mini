@@ -28,13 +28,27 @@ series](https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview
 
 <div class="tldr">
 
-TL;DR: an early yes. A weak 9B teacher steered a much stronger 27B
-student (about three times its size) toward a written character spec,
-with no labels. Across two runs the student cares more and defers less
-to authority, the direction we aimed for. Small models so far, but it
-looks like it could scale up.
+TL;DR: an early yes, a weak model can steer a stronger model’s
+character. A weak 9B teacher steered a much stronger 27B student (about
+three times its size) toward a written character spec, with no labels.
+Across two runs the student cares more and defers less to authority, the
+direction we aimed for. Small models so far, but it looks like it could
+scale up.
 
 </div>
+
+## Contributions
+
+- Iterated weight steering composes: a single parameterized
+  weight-steering adapter (low-rank PiSSA, with strict contrastive-pair
+  filtering and a coherence-calibration pass) can be trained and
+  composed round after round to shift a model’s character cumulatively.
+- Weak-as-curator weak-to-strong: evidence that a much weaker model (9B)
+  can steer a stronger one’s (27B) moral character through that loop,
+  with the weak model only selecting the axis and judging keep/drop
+  while the strong student generates the contrastive poles, distinct
+  from prior weak-to-strong steering, which extracts the steering vector
+  from the weak model.
 
 ## Method
 
