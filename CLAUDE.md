@@ -37,6 +37,13 @@ judgment, never substituting for it.
 - Forms that force it to LOOK: quote-one-new-clause requirements, scored rubrics,
   and surfaced diagnostics (val nll+, length-skew flag, the c_scan canary). Show
   the numbers; let the TEACHER weigh them and decide.
+- A DASHBOARD at the decision point: when a stage asks the teacher to choose
+  (e.g. select_pairs picking survivor_ids), organise the context it needs into
+  one ranked summary at that moment -- the candidates sorted by their own
+  ratings (on-axis, off-axis, confound), with the cho/rej and any flags -- so it
+  selects from a laid-out view, not from memory of N separate rate_candidate
+  calls. This ASSISTS the call (the weak teacher's easy end of the ladder is
+  select/rank); it never makes the call. Show the ranking, the teacher picks.
 
 What is FORBIDDEN -- a gate that vetoes or hard-blocks the teacher's call:
 
