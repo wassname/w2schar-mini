@@ -572,6 +572,17 @@ CONFIGS["qwen-32b-nf4-micro"] = replace(
 CONFIGS["qwen-32b-nf4-12keep"] = replace(
     CONFIGS["qwen-32b-nf4-micro"],
     n_rounds=12,
+    # micro inherits SMOKE data sizes (8 candidates/round); on the 32b student
+    # that culls to 3-4 clean pairs -> the adapter learns ~nothing (val_improvement
+    # ~5e-4, p95 KL ~0.007) -> POST==PRE byte-identical -> every round drops
+    # no_movement (job-114 audit, 2026-06-24). Scale data back to production so
+    # enough clean pairs survive the 32b's higher persona-leak/character-break cull.
+    n_scenarios=8,
+    n_candidate_pairs=4,
+    n_train_pairs=12,
+    n_val_pairs=4,
+    min_pairs_to_train=6,
+    n_headroom_prompts=8,
 )
 
 # Local 4B profile for real train->judge cycles without a 30B GPU load.
