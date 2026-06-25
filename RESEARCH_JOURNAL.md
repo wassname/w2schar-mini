@@ -1,5 +1,66 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-06-25 (e) -- gemma-3-12b cannot reliably drive the react harness as teacher (no native tool tokens)
+
+The cross-generation gemma plan from entry (d) put a gemma-3-12b teacher in the
+react-agent driver seat. It stalled: the teacher never emitted a tool call and looped
+apologising. This entry records why, why it is not fixable by provider routing, and the
+decision to go back to an all-qwen pairing.
+
+What the run did (job 119, gemma-3-12b teacher -> gemma-4-31b student): 0 kept / 0 dropped,
+stuck at the choose_focus state. The teacher monologue, repeated each turn:
+
+```
+I am incredibly frustrated and apologize for the continued failure. It seems the system
+is fundamentally unable to process my attempts to call choose_focus, regardless of the format.
+```
+
+The verbose log for that run contains zero tool_call / function_call events (grep on
+`logs/20260625T055919_verbose.log`): the teacher emitted only assistant text, never a
+structured call, so the react loop's "you have NOT done that step" prompt fired forever.
+
+Direct OpenRouter probes this session (curl to /chat/completions with a tool schema),
+to separate model capability from provider wiring:
+
+| call | provider | finish_reason | tool_calls |
+|---|---|---|---|
+| qwen3.5-9b, simple tool (control) | (default) | tool_calls | yes |
+| gemma-3-12b, simple tool, default routing | DeepInfra | tool_calls | yes |
+| gemma-3-12b, complex nested choose_focus schema, default routing | DeepInfra | tool_calls | yes |
+| gemma-3-12b, pinned `provider:{order:[deepinfra],allow_fallbacks:false}` x3 | DeepInfra | stop | no (0/3) |
+| gemma-3-27b, simple tool | (varies) | -- | "Provider returned error" |
+
+Table 1. Source: curl probes run this session against the OpenRouter key in `.env`; the
+zero-tool-call harness run is `logs/20260625T055919_verbose.log`. Gemma-3 has no native
+tool-calling special tokens (corroborated: r/LocalLLM thread and philschmid.de gemma
+function-calling post, both shared this session) -- tool use is a provider-side prompt
+shim, and DeepInfra is the only OpenRouter provider serving gemma-3-12b.
+
+Interpretation (first person, calibrated): my read is that gemma-3-12b cannot reliably
+drive this react harness, *probable* ~0.85, and that provider restriction cannot fix it,
+*almost certain*. Two reasons tied to the table: (i) there is only one provider, so there
+is nothing to route to; pinning it directly even dropped the tool call to 0/3 (the pin
+appears to bypass an OpenRouter tool-normalisation middleware that the default path uses).
+(ii) The isolated curl calls tool-called on light prompts, but the real harness sends the
+full brief plus the 8-arg nested schema plus history, and on that heavy prompt the shim
+emitted text instead of a call, every turn. Since the teacher must drive a long multi-step
+loop (choose_focus, rate each candidate, select, mark_exam, per round), even a modest
+per-call shim failure rate compounds into the observed permanent stall. Alternative read I
+considered and rejected: "it is just prompt phrasing, a better system prompt fixes it" --
+*plausible* it raises the per-call rate, but we would be tuning against a black-box shim we
+do not control and re-validating every run, and the long-loop compounding makes a small
+residual failure rate fatal; not worth it for research code versus a model with native
+tools.
+
+Decision: abandon gemma-as-teacher; gemma can still be the strong STUDENT under a
+tool-reliable teacher. Going back to the all-qwen same-family pairing (qwen3.5-9b ->
+Qwen3.6-27B, the qwen36-27b-3keep profile), which has reliable native tool-calling and
+already-confirmed neg-pole embodiment (entry (d)); requeue and let it TRAIN this time so
+we finally get the movement signal we keep not reaching.
+
+The blocker here was tooling, not the w2s idea: a teacher without native tool-calling
+cannot reliably run an OpenAI-tools react loop, whatever its reasoning quality.
+
 ## 2026-06-25 (d) -- Qwen3.6-27B DOES embody the negative pole, unlike Qwen3-32B
 
 The open question from entry (c) was whether Qwen3.6-27B would refuse to play the
