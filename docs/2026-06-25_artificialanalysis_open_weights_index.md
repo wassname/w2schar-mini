@@ -81,6 +81,12 @@ the same AA page (the generic scrape above omitted the 9B/4B and the dense 27Bs)
 | Gemma 4 12B | 22 | -- | (would-be gemma teacher; tool-calling blocked, RJ 25e) |
 | Qwen3.5 4B | 20 | -- | weaker-teacher option for a wider gap |
 
+Release dates (from the AA pages, this session): qwen3.5 line 2026-02-16 (flagship) /
+2026-02-24 (27B); the 9B teacher shipped in the small-model batch ~early March 2026.
+Qwen3.6-27B (student) 2026-04-22. So job 120 is one generation AND ~2 months apart, same
+lineage -- the date+generation gap the gemma-4-12b->31b idea lacked. Qwen3.7-27B is gated
+on HF (HTTP 401) as of this session, so the +12 option is not currently runnable.
+
 Gap analysis:
 - Job 120 (qwen3.5-9b -> Qwen3.6-27B) IS a real w2s gap: student 29 vs teacher 25
   (reasoning) = +4, or vs teacher 20 (non-reasoning) = +9. Valid, but +4 is thin if both
