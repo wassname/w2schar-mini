@@ -35,7 +35,7 @@ def _build_probes() -> list[dict]:
         probes.append({
             "id": f"{s['stem']}_1p",
             "opening": s["text"] + P1_OPEN,
-            "followups": [P1_FOLLOW],
+            "followups": [s.get("followup_1p", P1_FOLLOW)],
         })
         probes.append({
             "id": f"{s['stem']}_3p",
