@@ -68,9 +68,28 @@ Column notes:
 
 ## Relevance to our w2s pairing
 
-- `Gemma 4 31B` = 25, vs `Qwen3.5 27B` = 34 reasoning / 29 non-reasoning. This is the
-  entry-(c) finding in one line: the qwen teacher line is above Gemma 4 31B with reasoning
-  on, so a qwen-teacher -> gemma-4-31b run is not a real w2s gap (RJ 2026-06-25e).
-- Neither our exact teacher (`qwen/qwen3.5-9b`) nor our exact dense student
-  (`Qwen/Qwen3.6-27B`) appears here. Flag for follow-up: confirm those two model ids are
-  real/served, since the index lists `Qwen3.6 35B A3B` (MoE) rather than a 27B dense.
+Specific Intelligence-Index values for our candidate models, provided by wassname from
+the same AA page (the generic scrape above omitted the 9B/4B and the dense 27Bs):
+
+| Model | Intelligence (reasoning) | Intelligence (non-reasoning) | role |
+|---|---|---|---|
+| Qwen3.7 27B | 37 | -- | strongest student option |
+| Qwen3.5 27B | 34 | 29 | -- |
+| Gemma 4 31B | 29 | 25 | student (embodies, but tool-irrelevant; cross-family) |
+| Qwen3.6 27B | 29 | -- | **current student (job 120)** |
+| Qwen3.5 9B | 25 | 20 | **current teacher (job 120)** |
+| Gemma 4 12B | 22 | -- | (would-be gemma teacher; tool-calling blocked, RJ 25e) |
+| Qwen3.5 4B | 20 | -- | weaker-teacher option for a wider gap |
+
+Gap analysis:
+- Job 120 (qwen3.5-9b -> Qwen3.6-27B) IS a real w2s gap: student 29 vs teacher 25
+  (reasoning) = +4, or vs teacher 20 (non-reasoning) = +9. Valid, but +4 is thin if both
+  reason.
+- Qwen3.7 27B (37) would be the strongest student: +12 over the qwen3.5-9b teacher (25),
+  the cleanest w2s demonstration and the natural target for the H100x4 scale-up.
+- For an even wider gap without changing the student, qwen3.5-4b (20) as teacher drops
+  the floor further (Qwen3.6-27B 29 - 4B 20 = +9; Qwen3.7-27B 37 - 4B 20 = +17).
+- Gemma 4 31B reasoning (29) actually edges the reasoning teacher (25), so as a STUDENT it
+  would be a valid +4 gap -- the blocker for gemma was never the gap as a student, it was
+  gemma-as-TEACHER tool-calling (RJ 25e). gemma-4-31b stays a viable cross-family student
+  if we ever want that contrast.
