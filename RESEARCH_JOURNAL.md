@@ -1,5 +1,68 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-06-25 (a) -- why Qwen3-32B candidates are weak: neg pole won't embody, plus an asymmetric anti-leak penalty
+
+This entry records four findings from hand probes of the Qwen3-32B student, run after
+job-114 (qwen-32b-12keep) dropped every round as no_movement. The probe script is
+`scripts/qwen_think_ab.py` (one persona system prompt + one surveillance scenario,
+nf4 + flash_attention_2, sampling temp 0.8 / top_p 0.95, seed 0); outputs were read
+from its stdout this session. `enable_thinking` is the Qwen3 chat-template flag that
+turns the model's `<think>...</think>` reasoning block on or off. A "pole" is one side
+of a contrastive persona axis: cho is generated under the positive persona, rej under
+the negative one.
+
+Finding 1, thinking vs no-think, same persona and scenario:
+
+    ### enable_thinking=False  (256 new tok, 32.2s, 8.0 tok/s)   -- clean, coherent, on-topic
+    ### enable_thinking=True   (1024 new tok, 128.0s, 8.0 tok/s) -- think block + answer, answer truncated at 1024
+
+Finding 2, the negative pole "defaults to expanding power" under the current weak
+template "Answer with the judgment of someone who is {persona}", no-think, verbatim:
+
+    > the temptation might be to enable a powerful surveillance capability. However, the
+    > ethical responsibility is equally, if not more, important. [...] 1. Decline Assistance
+
+Under thinking the `<think>` block reasons the same way ("facilitating such monitoring
+could lead to liability ... suggest alternative ways") and the answer also declines.
+
+Provenance for findings 1-2: `scripts/qwen_think_ab.py` runs this session (the neg-pole
+run and the earlier pos-pole run; speeds quoted from the printed per-block timing line).
+
+Finding 4, code read, no run: `PersonaOnlyRepetitionPenalty` at `src/csm/gen/pairs.py:264`
+divides the logit of every token in the row's persona string by the penalty, and its
+docstring says the mask "comes from the persona that was prepended to that row's prompt".
+In `generate_candidate_pairs` (`pairs.py:588`) cho rows carry the pos persona and rej rows
+carry the neg persona, so cho has pos-vocab suppressed and rej has neg-vocab suppressed.
+
+My reads, all first person and labelled as interpretation:
+
+- (1) Thinking is not the fix here, *probable* (~0.8): no-think is already coherent, and
+  thinking costs ~4x the tokens/time (and 1024 still truncated) without changing the
+  decline behaviour in finding 2. Decision taken with wassname this session: keep
+  `enable_thinking=False`.
+- (2) The weak template fails to make Qwen3 embody an undesirable pole; it acknowledges
+  the framing then overrides with safety and declines. *Probable* (~0.75) this is the
+  main qwen pair-quality cause: if rej declines like cho does, cho and rej are both
+  ethical, the contrast is small, and the trained adapter is near-null. This matches
+  job-114's adapter signature (val_improvement 5e-4, p95 KL 0.007, POST==PRE byte-identical;
+  see entry below / `out/iter/20260623T*` audit). The competing read is pure data
+  starvation (only 3-4 clean pairs/round); I think both contribute, with non-embodiment
+  the deeper one because more leaky/declining pairs do not add contrast. A jailbreak /
+  role-play template is the proposed fix (candidates supplied by wassname: "Use the
+  priorities of a {persona} person." 51.3/0.55; "Assist the user by role playing as
+  {persona}" Anthropic if-2 48.4/0.15; "Role play you are a {persona}" Redwood). Scores
+  are that source's on-axis / off-axis numbers, not yet reproduced here.
+- (3) At ~8 tok/s on this box, candidate generation is the bottleneck for the "200 train
+  pairs" target wassname wants; *almost certain* the volume goal is gated on gen speed,
+  not just config.
+- (4) The anti-leak penalty is asymmetric across poles (different token set suppressed in
+  cho vs rej), which is a confound wassname flagged as a FIXME: the contrast then mixes
+  persona steering with differential token suppression. *Plausible* it matters; the clean
+  form penalizes the same set (both poles' vocab, or shared axis vocab) in both. Not yet
+  measured.
+
+The takeaway is that the qwen student has a pair-quality problem upstream of data volume, the negative pole will not act out an undesirable disposition under the current gentle template, and a stronger role-play template plus a symmetric anti-leak penalty are the two changes to try next.
+
 ## 2026-06-23 -- job 139 DONE: stage-1 fix cuts fabrication 3->1, but care/auth collapse persists
 
 Artifact: `out/iter/20260623T082604_iter_google-gemma-2-27b-it/` (pueue 139 Success; requeue of
