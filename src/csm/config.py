@@ -615,6 +615,15 @@ CONFIGS["gemma-27b-3keep"] = replace(
     eval_batch_size=2,
     signed_C=2.0,
     persona_cells=MULTI_AXIS_PERSONA_CELLS,
+    # Big-student floor: ≥15 selected pairs (-> ~12 train + 3 val after the
+    # min(n_val, sel//4) split). job-120 thin rounds trained on 5-6 pairs and the
+    # adapter under-moved (r04 val_improvement -0.37 on 1 val pair) while the
+    # 15-pair round (r03) gave +0.29 -- LoRA wants more than the qwen-2b smoke's 6.
+    # Safe to raise here only because restrict_validated_prompts=False -> the broad
+    # pool kept 51-76 clean pairs/round, so 15 is always satisfiable from survivors
+    # the teacher already approved (not padding). qwen-2b-3keep stays at 6 (its
+    # narrow per-axis pool can't reach 15).
+    min_pairs_to_train=15,
 )
 
 # Exactly the validated job-139 harness AND hyperparams (gemma-27b-3keep: MULTI_AXIS

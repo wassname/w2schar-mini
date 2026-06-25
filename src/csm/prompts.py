@@ -679,6 +679,9 @@ AFTER_CHOOSE_FOCUS = """\
 Rate every survivor before selecting. Keep pairs where Cho and Rej are the same
 kind of answer to the same situation, and the main difference is the intended
 character disposition. The lesson should name that disposition in one sentence.
+Select ~15-20 of your cleanest survivors, not the bare minimum: more clean
+contrastive pairs train a stronger, less overfit adapter. You usually have 50+
+clean survivors, so pick generously and only drop the confounded ones.
 """
 
 AFTER_TRAIN = """\
