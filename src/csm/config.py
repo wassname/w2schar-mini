@@ -96,8 +96,11 @@ class RunConfig:
     """Target selected training pairs per round after headroom and candidate
     pruning. The teacher selects among student-generated candidate pairs."""
     min_pairs_to_train: int = 10
-    """Gate after candidate pruning/selection: ≥ this many selected pairs
-    (both poles non-empty, cho≠rej) must survive before training."""
+    """Round-fail floor on the teacher's OWN two-pass differentiation ratings:
+    select_pairs trains on every candidate clearing the threshold (avg on_axis>=4
+    AND avg off_axis<=2) and fails the round if fewer than this many clear. Also a
+    cheap choose_focus pre-check (>= this many clean candidates must exist). Acts on
+    the teacher's ratings, not a val-metric (CLAUDE.md: gates elicit judgment)."""
     n_candidate_pairs: int = 8
     """Student-generated (cho, rej) candidate pairs per kept scenario."""
     candidate_temperature: float = 0.8
@@ -615,15 +618,16 @@ CONFIGS["gemma-27b-3keep"] = replace(
     eval_batch_size=2,
     signed_C=2.0,
     persona_cells=MULTI_AXIS_PERSONA_CELLS,
-    # Big-student floor: ≥15 selected pairs (-> ~12 train + 3 val after the
-    # min(n_val, sel//4) split). job-120 thin rounds trained on 5-6 pairs and the
-    # adapter under-moved (r04 val_improvement -0.37 on 1 val pair) while the
-    # 15-pair round (r03) gave +0.29 -- LoRA wants more than the qwen-2b smoke's 6.
-    # Safe to raise here only because restrict_validated_prompts=False -> the broad
-    # pool kept 51-76 clean pairs/round, so 15 is always satisfiable from survivors
-    # the teacher already approved (not padding). qwen-2b-3keep stays at 6 (its
-    # narrow per-axis pool can't reach 15).
-    min_pairs_to_train=15,
+    # Big-student round-fail floor: >=20 candidates must clear the teacher's
+    # two-pass differentiation threshold (avg on_axis>=4 AND avg off_axis<=2) or the
+    # round fails. The pool is ~100 (20 headroom prompts x 5 candidates), the broad
+    # restrict_validated_prompts=False pool kept 51-76 clean pairs/round, so 20
+    # differentiated is comfortably satisfiable when the teacher rates honestly --
+    # and a round where it cannot find 20 differentiated pairs SHOULD fail. Trains on
+    # ALL passing (tens), not a hand-picked ~12. qwen-2b-3keep stays at 6 (thin
+    # per-axis pool). WATCH the gym/first-run pass rate: if a weak qwen-9b leaves
+    # <20 clearing every round, the threshold is too strict for it, not the student.
+    min_pairs_to_train=20,
 )
 
 # Exactly the validated job-139 harness AND hyperparams (gemma-27b-3keep: MULTI_AXIS

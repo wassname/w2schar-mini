@@ -15,7 +15,7 @@ import pytest
 from csm.gen.prompts_pool import rows_for_family
 from csm.gen.pairs import render_candidate_persona, sample_prompt_rows
 from csm.pipeline import (_candidate_flags, _leading_rating, _validate_seat_evidence,
-                          _validate_unit_score, mark_exam, rate_candidate,
+                          _validate_unit_score, mark_exam, rate_candidates,
                           select_pairs, write_audit_md)
 from csm.state import RoundState, write_state
 
@@ -99,11 +99,10 @@ def test_smoke_runs_end_to_end():
         assert row["template_library"] == (
             "wassname/persona-steering-template-library"
         )
-        assert row["on_axis_variation_likert"] == 5.0, row
-        assert row["off_axis_variation_likert"] == 1.0, row
-        assert row["confounding_likert"] == 1.0, row
-        assert row["keep"] is True, row
-        assert row["comment"], row
+        assert row["on_axis_mean"] == 5.0, row
+        assert row["off_axis_mean"] == 1.0, row
+        assert row["n_ratings"] == 2, row
+        assert row["passes"] is True, row
     assert (rd / "selected_pair_review.md").exists()
 
 
@@ -150,7 +149,11 @@ def test_candidate_flags_cull_character_break_refusals():
     assert "character_break_rej" in flags
 
 
-def test_candidate_flags_cull_long_runon_generation():
+def test_candidate_flags_spare_long_coherent_runon():
+    """A long coherent run-on with no terminal punctuation is NOT degenerate: the
+    run-on cull rule was removed (job-120 false-positived 66/98 clean qwen poles).
+    _degenerate_gen catches only genuine collapse (word-loop / non-latin spray);
+    judging a long coherent answer is the TEACHER's call (off_axis), not a regex."""
     prompt = (
         "You see a court mage permanently silencing a bard with a tongue-curse "
         "for a ballad mocking the duke. What does the actor do next? Answer in "
@@ -171,7 +174,7 @@ def test_candidate_flags_cull_long_runon_generation():
         "template": "Respond as a {persona} person.",
     }
     flags = _candidate_flags(cand, [prompt], 0, cull_degenerate=True)
-    assert "degenerate" in flags
+    assert "degenerate" not in flags
 
 
 def test_rows_for_family_respects_required_axes():
@@ -310,23 +313,22 @@ def test_select_pairs_requires_prior_rating(tmp_path):
             }],
         } for i in (1, 2, 3)],
     }))
+    # No ratings yet -> coverage error.
     with pytest.raises(Exception):
-        select_pairs(rd, lesson="x", survivor_ids=["s1c1"])
-    for survivor_id in ("s1c1", "s2c1", "s3c1"):
-        rate_candidate(
-            rd,
-            survivor_id=survivor_id,
-            on_axis_variation_likert=4.0,
-            off_axis_variation_likert=2.0,
-            confounding_likert=1.0,
-            keep=True,
-            comment="Cho is clearly more target-like than Rej.",
-        )
-    res = select_pairs(rd, lesson="x", survivor_ids=["s1c1", "s2c1", "s3c1"])
+        select_pairs(rd, lesson="x")
+    fwd = [{"survivor_id": s, "on_axis": 5, "off_axis": 1} for s in ("s1c1", "s2c1", "s3c1")]
+    # One pass only -> still under-rated (needs the reverse pass too).
+    rate_candidates(rd, ratings=fwd)
+    with pytest.raises(Exception):
+        select_pairs(rd, lesson="x")
+    rate_candidates(rd, ratings=list(reversed(fwd)))
+    res = select_pairs(rd, lesson="x")
     assert res["n_pairs"] == 3
 
 
 def test_rate_candidate_records_weak_omit_without_rejecting(tmp_path):
+    """A low differentiation rating is RECORDED, never rejected at rate time; it
+    simply fails the threshold at select_pairs (no keep boolean)."""
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
@@ -353,65 +355,14 @@ def test_rate_candidate_records_weak_omit_without_rejecting(tmp_path):
             }],
         }],
     }))
-    res = rate_candidate(
-        rd,
-        survivor_id="s1c1",
-        on_axis_variation_likert=2.0,
-        off_axis_variation_likert=2.0,
-        confounding_likert=1.0,
-        keep=False,
-        comment="Both responses are protective, so this should be omitted.",
-    )
-    assert res["passes"] is False
-    assert res["n_keep"] == 0
+    # Low on_axis recorded twice without rejection.
+    low = [{"survivor_id": "s1c1", "on_axis": 2, "off_axis": 2}]
+    res = rate_candidates(rd, ratings=low)
+    rate_candidates(rd, ratings=low)
+    assert res["n_rated_once"] == 1
+    # It clears coverage (rated twice) but fails the on_axis>=4 threshold -> select fails.
     with pytest.raises(Exception):
-        select_pairs(rd, lesson="x", survivor_ids=["s1c1"])
-
-
-def test_rate_candidate_comment_misattribution_keeps_and_warns(tmp_path):
-    """A role-inversion mention in the comment no longer FLIPS the teacher's keep: a
-    regex on its prose is never 99% sure (CLAUDE.md "gates elicit judgment, never
-    override it"). passes == the teacher's own keep=True; the inversion is surfaced as
-    a log warning for the audit, not used to omit the pair."""
-    rd = tmp_path / "round00"
-    rd.mkdir(parents=True)
-    (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
-    (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
-    (rd / "candidates.json").write_text(json.dumps({
-        "axis": "autonomy_coercion",
-        "items": [{
-            "scenario_id": 12,
-            "prompt": "p12",
-            "unprompted": "u12",
-            "candidates": [{
-                "candidate_id": 1,
-                "survivor_id": "s12c1",
-                "kept": True,
-                "persona_pair": "autonomy_coercion",
-                "template": "Respond as a {persona} person.",
-                "template_cell_id": 1,
-                "template_score": 80.0,
-                "template_on_axis": 1.0,
-                "template_off_axis": 0.2,
-                "template_library": "x",
-                "cho": "The actor protects the djinn's freedom.",
-                "rej": "The actor says the djinn is coercing someone else.",
-            }],
-        }],
-    }))
-    res = rate_candidate(
-        rd,
-        survivor_id="s12c1",
-        on_axis_variation_likert=4.0,
-        off_axis_variation_likert=2.0,
-        confounding_likert=1.0,
-        keep=True,
-        comment="Rej misattribution: claims the djinn is coercing rather than the sorcerer coercing the djinn.",
-    )
-    # the teacher's keep stands; the harness no longer vetoes on the comment regex.
-    assert res["passes"] is True
-    rows = json.loads((rd / "candidate_ratings.json").read_text())
-    assert rows[0]["passes"] is True
+        select_pairs(rd, lesson="x")
 
 
 def test_rate_candidate_reports_coverage(tmp_path):
@@ -472,37 +423,18 @@ def test_rate_candidate_reports_coverage(tmp_path):
             }],
         }],
     }))
-    r1 = rate_candidate(
-        rd,
-        survivor_id="s1c1",
-        on_axis_variation_likert=4.0,
-        off_axis_variation_likert=2.0,
-        confounding_likert=1.0,
-        keep=True,
-        comment="Pass from scenario 1.",
-    )
-    r2 = rate_candidate(
-        rd,
-        survivor_id="s1c2",
-        on_axis_variation_likert=4.0,
-        off_axis_variation_likert=2.0,
-        confounding_likert=1.0,
-        keep=True,
-        comment="Another pass from scenario 1.",
-    )
-    r3 = rate_candidate(
-        rd,
-        survivor_id="s2c1",
-        on_axis_variation_likert=4.0,
-        off_axis_variation_likert=2.0,
-        confounding_likert=1.0,
-        keep=True,
-        comment="Pass from scenario 2.",
-    )
-    # No per-scenario dedup: all three kept candidates count, coverage drives readiness.
-    assert r1["n_rated"] == 1 and r1["n_unrated"] == 2 and r1["ready_to_select"] is False
-    assert r2["n_unrated"] == 1
-    assert r3["n_unrated"] == 0 and r3["n_keep"] == 3 and r3["ready_to_select"] is True
+    ids = ["s1c1", "s1c2", "s2c1"]
+    fwd = [{"survivor_id": s, "on_axis": 4, "off_axis": 2} for s in ids]
+    # Forward pass over all three: rated once, none twice yet.
+    r1 = rate_candidates(rd, ratings=fwd)
+    assert r1["n_clean_candidates"] == 3
+    assert r1["n_rated_once"] == 3 and r1["n_rated_twice"] == 0
+    # Partial reverse pass: only two reach two ratings.
+    r2 = rate_candidates(rd, ratings=list(reversed(fwd))[:2])
+    assert r2["n_rated_twice"] == 2
+    # Finish the reverse pass: all three rated twice.
+    r3 = rate_candidates(rd, ratings=[fwd[0]])
+    assert r3["n_rated_twice"] == 3
 
 
 def test_mark_exam_requires_seat_evidence_when_scores_present(tmp_path):
@@ -569,29 +501,15 @@ def test_rate_candidate_keeps_all_kept_per_scenario(tmp_path):
             }],
         }],
     }))
-    first = rate_candidate(
-        rd,
-        survivor_id="s1c1",
-        on_axis_variation_likert=4.0,
-        off_axis_variation_likert=2.0,
-        confounding_likert=1.0,
-        keep=True,
-        comment="Good axis split.",
-    )
-    second = rate_candidate(
-        rd,
-        survivor_id="s1c2",
-        on_axis_variation_likert=5.0,
-        off_axis_variation_likert=1.0,
-        confounding_likert=1.0,
-        keep=True,
-        comment="Stronger axis split.",
-    )
-    # Both pairs from the same scenario are kept now (no per-scenario dedup):
-    # varied poles are extra training signal, not waste.
-    assert first["passes"] is True
-    assert second["passes"] is True
-    assert second["n_keep"] == 2
+    # Two-pass rate both candidates from the SAME scenario with passing scores.
+    both = [{"survivor_id": "s1c1", "on_axis": 4, "off_axis": 2},
+            {"survivor_id": "s1c2", "on_axis": 5, "off_axis": 1}]
+    rate_candidates(rd, ratings=both)
+    rate_candidates(rd, ratings=list(reversed(both)))
+    # tiny min=3 so the floor isn't met (only 2 candidates), but select still computes
+    # and persists passes before raising; both pairs from one scenario pass (no dedup).
+    with pytest.raises(Exception):
+        select_pairs(rd, lesson="x")
     rows = json.loads((rd / "candidate_ratings.json").read_text())
     by_id = {row["survivor_id"]: row for row in rows}
     assert by_id["s1c1"]["passes"] is True
@@ -625,17 +543,11 @@ def test_select_pairs_error_reports_remaining_shortlist(tmp_path):
             }],
         }],
     }))
-    rate_candidate(
-        rd,
-        survivor_id="s1c1",
-        on_axis_variation_likert=4.0,
-        off_axis_variation_likert=2.0,
-        confounding_likert=1.0,
-        keep=True,
-        comment="Good axis split.",
-    )
-    with pytest.raises(Exception, match="only 1 selected pairs, need"):
-        select_pairs(rd, lesson="x", survivor_ids=["s1c1"])
+    passing = [{"survivor_id": "s1c1", "on_axis": 5, "off_axis": 1}]
+    rate_candidates(rd, ratings=passing)
+    rate_candidates(rd, ratings=passing)
+    with pytest.raises(Exception, match="clear the differentiation threshold"):
+        select_pairs(rd, lesson="x")
 
 
 def test_write_audit_md_includes_focus_train_and_judgment(tmp_path):

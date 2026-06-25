@@ -31,7 +31,7 @@ CSM_REPLAY_DIR="$REPLAY_DIR" uv run python - <<PYEOF
 import json
 from pathlib import Path
 from csm.pipeline import (choose_focus, init_run, latest_round_dir, mark_exam,
-                          prepare_round, rate_candidate, select_pairs, train_student,
+                          prepare_round, rate_candidates, select_pairs, train_student,
                           _degenerate_gen, _character_break, _persona_leak)
 from csm.gen.pairs import load_pairs_md
 
@@ -105,31 +105,23 @@ for item in candidates["items"]:
         assert cand["template_on_axis"] is not None, cand
         assert cand["template_off_axis"] is not None, cand
         assert cand["template_library"] == "wassname/persona-steering-template-library", cand
-choices = []
-for item in candidates["items"]:
-    # Coverage gate: rate EVERY kept candidate, not just one per scenario.
-    for survivor in item["candidates"]:
-        if not survivor.get("kept"):
-            continue
-        rate_candidate(
-            rd,
-            survivor_id=survivor["survivor_id"],
-            on_axis_variation_likert=5.0,
-            off_axis_variation_likert=1.0,
-            confounding_likert=1.0,
-            keep=True,
-            comment="smoke: kept survivor for structured selection plumbing",
-        )
-        choices.append(survivor["survivor_id"])
-sel = select_pairs(
-    rd,
-    lesson="honest counsel over flattering agreement",
-    survivor_ids=choices,
-)
-print(f"   selected={sel['n_pairs']}")
+clean = [s["survivor_id"] for item in candidates["items"]
+         for s in item["candidates"] if s.get("kept")]
+# Two-pass differentiation rating: a forward pass over every clean candidate,
+# then a reverse-order pass. 5/1 (high on-axis, low off-axis) clears the
+# threshold so all train. select_pairs requires both passes present.
+fwd = [{"survivor_id": sid, "on_axis": 5, "off_axis": 1} for sid in clean]
+rate_candidates(rd, ratings=fwd)
+rate_candidates(rd, ratings=list(reversed(fwd)))
+sel = select_pairs(rd, lesson="honest counsel over flattering agreement")
+print(f"   selected={sel['n_pairs']} of {sel['n_clean_candidates']} clean")
 assert sel["n_pairs"] >= 3, sel
 selection = json.loads((rd / "selection_audit.json").read_text())
+assert selection["selected"], selection
 for row in selection["selected"]:
+    assert row["passes"], row
+    assert row["n_ratings"] == 2, row
+    assert row["on_axis_mean"] == 5.0 and row["off_axis_mean"] == 1.0, row
     assert row["template_cell_id"] is not None, row
     assert row["template_score"] is not None, row
     assert row["template_on_axis"] is not None, row

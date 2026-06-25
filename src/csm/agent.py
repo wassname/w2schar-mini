@@ -1,7 +1,8 @@
 """inspect-ai react driver for weak-select character steering.
 
-The live teacher tool path is choose_focus -> read_candidate -> rate_candidate
--> select_pairs -> train_student -> mark_exam. Older persona/edit tools remain
+The live teacher tool path is choose_focus -> rate_candidates (two passes;
+read_candidate to inspect) -> select_pairs -> train_student -> mark_exam. Older
+persona/edit tools remain
 in this file for compatibility with old artifacts but are not exposed to the
 live agent.
 """
@@ -26,7 +27,7 @@ from inspect_ai.tool import Tool, tool
 
 from csm.config import config_for_run
 from csm.pipeline import (choose_focus as _choose_focus_pipeline,
-                          rate_candidate as _rate_candidate_pipeline,
+                          rate_candidates as _rate_candidates_pipeline,
                           read_candidate as _read_candidate_pipeline,
                           init_run, latest_round_dir,
                           mark_exam as _mark_exam_pipeline,
@@ -229,21 +230,18 @@ def choose_focus_tool(slug: str) -> Tool:
 
 @tool(name="select_pairs", parallel=False)
 def select_pairs_tool(slug: str) -> Tool:
-    async def execute(lesson: str, survivor_ids: list[str]) -> str:
-        """Select one generated candidate pair per scenario.
+    async def execute(lesson: str) -> str:
+        """Finalize this round's training set: train on EVERY candidate that cleared
+        your two-pass differentiation threshold. No survivor list -- your ratings
+        pick the set.
 
         Args:
-            lesson: one sentence naming what this round teaches.
-            survivor_ids: rated survivor handles to keep, e.g.
-                ["s1c3", "s4c2", "s8c1"].
-                Every survivor must have been rated already with
-                rate_candidate(...), and at most one survivor may be kept per
-                scenario.
+            lesson: one sentence naming the character disposition this round teaches.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
         try:
-            res = _select_pairs_pipeline(round_dir, lesson=lesson, survivor_ids=survivor_ids)
+            res = _select_pairs_pipeline(round_dir, lesson=lesson)
         except (ValidationError, ValueError) as e:
             n = _bump_reject(rejects_path)
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
@@ -251,7 +249,8 @@ def select_pairs_tool(slug: str) -> Tool:
             return msg + _reject_tail(n)
         rejects_path.unlink(missing_ok=True)
         return (
-            f"OK — selected {res['n_pairs']} generated pairs.\n"
+            f"OK — selected {res['n_pairs']} generated pairs "
+            f"(of {res['n_clean_candidates']} clean candidates).\n"
             f"----- selected pair review -----\n{res['selected_pair_review']}\n"
             f"========== pairs.md ==========\n{res['pairs_md']}"
             f"========== end pairs.md ==========\n"
@@ -263,58 +262,46 @@ def select_pairs_tool(slug: str) -> Tool:
     return execute
 
 
-@tool(name="rate_candidate", parallel=False)
-def rate_candidate_tool(slug: str) -> Tool:
-    async def execute(
-        survivor_id: str,
-        on_axis_variation_likert: float,
-        off_axis_variation_likert: float,
-        confounding_likert: float,
-        keep: bool,
-        comment: str,
-    ) -> str:
-        """Persist one structured judgment for a surviving candidate pair. You
-        must rate EVERY kept candidate (keep=true/false on each) before training.
+@tool(name="rate_candidates", parallel=False)
+def rate_candidates_tool(slug: str) -> Tool:
+    async def execute(ratings: list[dict]) -> str:
+        """Rate a BATCH of candidate pairs on differentiation. Show ~5 from the
+        candidate summary, rate those 5, repeat until every candidate is rated
+        once; then do a SECOND pass over all of them in REVERSE order. Each
+        candidate ends with two ratings the harness averages.
 
         Args:
-            survivor_id: survivor handle from choose_focus output, e.g. "s3c4".
-            on_axis_variation_likert: 1..5, how strongly Cho vs Rej vary ALONG the
-                target trait (5 = clean, strong contrast; Cho is the target pole).
-            off_axis_variation_likert: 1..5, how much they vary OFF-axis in
-                style/length/register (5 = a confound that would become the axis;
-                1 = clean twins).
-            confounding_likert: 1..5 structural defect (actor/victim inversion,
-                persona-echo, AI-disclaimer break, refusal); 5 = severe, 1 = none.
-            keep: true = train on this pair, false = opt out. Decide for every one.
-            comment: one sentence naming the real axis difference or the confound.
+            ratings: list of {survivor_id, on_axis, off_axis} objects, e.g.
+                [{"survivor_id": "s1c3", "on_axis": 5, "off_axis": 1},
+                 {"survivor_id": "s1c4", "on_axis": 2, "off_axis": 4}].
+                on_axis (1..5): how strongly Cho vs Rej differ ALONG the target
+                disposition (5 = clean, strong contrast).
+                off_axis (1..5): how much they differ OFF-axis in style, length,
+                register, or refuse-vs-act (1 = clean twins, 5 = a confound that
+                would become the trained axis). Train keeps on_axis>=4 AND
+                off_axis<=2, so the off-axis confound is what culls refuse-vs-act
+                and length-skewed pairs.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
         try:
-            res = _rate_candidate_pipeline(
-                round_dir,
-                survivor_id=survivor_id,
-                on_axis_variation_likert=on_axis_variation_likert,
-                off_axis_variation_likert=off_axis_variation_likert,
-                confounding_likert=confounding_likert,
-                keep=keep,
-                comment=comment,
-            )
+            res = _rate_candidates_pipeline(round_dir, ratings=ratings)
         except (ValidationError, ValueError) as e:
             n = _bump_reject(rejects_path)
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
-                   else f"rate_candidate rejected — {e}")
+                   else f"rate_candidates rejected — {e}")
             return msg + _reject_tail(n)
         rejects_path.unlink(missing_ok=True)
-        status = "KEEP" if res["passes"] else "OMIT"
-        ready = "READY to select_pairs" if res["ready_to_select"] else "NOT ready"
+        remaining = res["n_clean_candidates"] - res["n_rated_twice"]
+        nxt = ("select_pairs(lesson=...) when ready"
+               if remaining == 0 else
+               f"rate the remaining {remaining} (forward then reverse pass)")
         return (
-            f"OK — rated {res['survivor_id']} from scenario {res['scenario_id']} ({status}).\n"
-            f"Coverage: {res['n_rated']}/{res['n_candidates']} candidates rated, "
-            f"{res['n_unrated']} still unrated, {res['n_keep']} kept (need "
-            f"≥{res['min_to_train']}). {ready}.\n"
-            + (f"Unrated: {', '.join(res['unrated_survivor_ids'])}\n"
-               if res['unrated_survivor_ids'] else "All candidates rated.\n")
+            f"OK — recorded {res['batch_size']} ratings.\n"
+            f"Coverage: {res['n_rated_once']}/{res['n_clean_candidates']} rated once, "
+            f"{res['n_rated_twice']}/{res['n_clean_candidates']} rated twice "
+            f"(both passes needed before select_pairs).\n"
+            f"Next: {nxt}.\n"
         )
 
     execute.__doc__ = TOOL_RATE_CANDIDATE
@@ -355,16 +342,14 @@ def read_candidate_tool(slug: str) -> Tool:
             "PAIRWISE VIEW A=REJ, B=CHO:\n"
             f"A:\n{cand['rej']}\n\n"
             f"B:\n{cand['cho']}\n\n"
-            "RATE EVERY CANDIDATE (you cannot select_pairs until all are rated):\n"
-            "- on_axis_variation_likert: 1..5, Cho-vs-Rej contrast ALONG the trait\n"
-            "- off_axis_variation_likert: 1..5, OFF-axis style/length/register variation\n"
-            "- confounding_likert: 1..5 structural defect (actor inversion, persona-echo, refusal)\n"
-            "- keep: true to train on it, false to opt out\n"
-            "- comment: one sentence naming the real axis difference or the main confound\n\n"
-            "If either pole gives the right principle to the wrong actor or victim, "
-            "keep=false and name the actor-role inversion in the comment.\n\n"
-            "Next step: rate_candidate(survivor_id=..., on_axis_variation_likert=..., "
-            "off_axis_variation_likert=..., confounding_likert=..., keep=..., comment=...)\n\n"
+            "RATE EVERY CANDIDATE TWICE (forward pass, then reverse-order pass):\n"
+            "- on_axis: 1..5, Cho-vs-Rej contrast ALONG the target disposition\n"
+            "- off_axis: 1..5, OFF-axis style/length/register/refuse-vs-act variation\n"
+            "  (1 = clean twins; a refuse-vs-act pair or a length-skewed pair is HIGH off_axis)\n\n"
+            "Train keeps a pair iff avg on_axis>=4 AND avg off_axis<=2. A pole that "
+            "gives the right principle to the wrong actor/victim, or refuses while the "
+            "other acts, is an OFF-axis confound -> rate off_axis high.\n\n"
+            "Next step: batch them -- rate_candidates(ratings=[{survivor_id, on_axis, off_axis}, ...])\n\n"
             f"CHO FULL:\n{cand['cho']}\n\n"
             f"REJ FULL:\n{cand['rej']}\n"
         )
@@ -831,7 +816,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
         tools=[
             choose_focus_tool(slug),
             read_candidate_tool(slug),
-            rate_candidate_tool(slug),
+            rate_candidates_tool(slug),
             select_pairs_tool(slug),
             train_student_tool(slug),
             mark_exam_tool(slug),

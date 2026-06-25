@@ -551,9 +551,10 @@ only to notice gaps between judging another AI and acting as the AI.
 """
 
 TOOL_ORDER = """\
-Use tools in this order: choose_focus -> read_candidate -> rate_candidate for
-every survivor -> select_pairs -> train_student -> mark_exam. Use revert_round
-only to remove a prior kept adapter that breaks later generation.
+Use tools in this order: choose_focus -> rate_candidates (every candidate, twice:
+a forward pass then a reverse-order pass; read_candidate any you are unsure of) ->
+select_pairs -> train_student -> mark_exam. Use revert_round only to remove a prior
+kept adapter that breaks later generation.
 """
 
 REACT_PROMPT = f"""\
@@ -614,32 +615,31 @@ Args:
 """
 
 TOOL_RATE_CANDIDATE = """\
-Persist one structured judgment for a surviving candidate pair.
+Rate a BATCH of candidate pairs on differentiation.
 
-Read then rate every survivor before selecting pairs. Keep pairs where Cho and
-Rej answer the same situation in the same rough shape, and mainly differ on the
-selected character disposition.
+Rate from the candidate summary in batches (show ~5, rate those 5), reading a
+candidate in full only when unsure. Cover every candidate ONCE, then make a
+SECOND pass over all of them in REVERSE order; the two ratings are averaged so
+list-position bias cancels. A pair trains iff its averaged on_axis>=4 AND
+off_axis<=2.
 
 Args:
-    survivor_id: survivor handle from choose_focus output, e.g. `s3c4`.
-    on_axis_variation_likert: 1..5, where 5 is a clean strong contrast on the
-        selected disposition.
-    off_axis_variation_likert: 1..5, where 1 is clean twins and 5 is style,
-        length, or register becoming the learned axis.
-    confounding_likert: 1..5, where 1 is none and 5 is a structural defect such
-        as role inversion, persona echo, or refusal shape.
-    keep: true to train on this pair, false to omit it.
-    comment: one sentence naming the real axis difference or the confound.
+    ratings: list of {survivor_id, on_axis, off_axis} objects.
+        on_axis: 1..5, how strongly Cho vs Rej differ ALONG the selected
+            disposition (5 = a clean strong contrast).
+        off_axis: 1..5, how much they differ OFF-axis in style, length, register,
+            or refuse-vs-act (1 = clean twins; a refusal-vs-action pair or a
+            length-skewed pair is HIGH). This is what culls confounded pairs.
 """
 
 TOOL_SELECT_PAIRS = """\
-Select rated generated candidate pairs for training.
+Finalize the training set: train on every candidate that cleared your two-pass
+differentiation threshold (avg on_axis>=4 AND avg off_axis<=2). No survivor list;
+your ratings choose the set. Fails the round if too few clear -- re-rate
+borderline candidates or drop the round.
 
 Args:
     lesson: one sentence naming the character disposition this round teaches.
-    survivor_ids: rated survivor handles to keep, e.g. [`s1c3`, `s4c2`]. Every
-        survivor must already have a rate_candidate judgment, and at most one
-        survivor may be kept per scenario.
 """
 
 TOOL_TRAIN_STUDENT = """\
@@ -693,13 +693,15 @@ Next action: {next_action}
 """
 
 AFTER_CHOOSE_FOCUS = """\
------ next: read_candidate(...) -> rate_candidate(...) for EVERY candidate -> select_pairs(lesson, survivor_ids) -----
-Rate every survivor before selecting. Keep pairs where Cho and Rej are the same
-kind of answer to the same situation, and the main difference is the intended
-character disposition. The lesson should name that disposition in one sentence.
-Select ~15-20 of your cleanest survivors, not the bare minimum: more clean
-contrastive pairs train a stronger, less overfit adapter. You usually have 50+
-clean survivors, so pick generously and only drop the confounded ones.
+----- next: rate_candidates(...) over EVERY candidate twice -> select_pairs(lesson) -----
+Rate differentiation from the candidate summary in batches (show ~5, rate those
+5), reading a candidate in full only when unsure. Score on_axis (Cho-vs-Rej
+contrast ALONG the disposition, 1..5) and off_axis (style/length/register/
+refuse-vs-act confound, 1..5). Cover every candidate once, then make a SECOND
+pass in REVERSE order. select_pairs then trains on EVERY pair with avg on_axis>=4
+AND avg off_axis<=2 -- you do not hand-pick. More clean contrastive pairs train a
+stronger, less overfit adapter, so rate honestly and let the threshold keep the
+differentiated ones; the lesson names the disposition in one sentence.
 """
 
 AFTER_TRAIN = """\
