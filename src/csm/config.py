@@ -637,6 +637,21 @@ CONFIGS["qwen36-27b-3keep"] = replace(
     model="Qwen/Qwen3.6-27B",
 )
 
+# Cross-generation gemma w2s: a weak gemma-3-12b teacher steers the strong gemma-4-31b
+# student. Same validated job-139 harness as gemma-27b-3keep, only model+teacher swapped.
+# Why this pairing: gemma EMBODIES the negative pole (the qwen failure mode, RJ 2026-06-25a),
+# and gemma-4-31b clearly beats gemma-3-12b (one generation + 31b vs 12b), so the strength
+# gap is real. It is still same-family (gemma->gemma), so the cross-family w2s-generalization
+# confound remains; we trade that for working embodiment plus a clean gap. gemma-3-12b is the
+# ~9b-class teacher (Gemma 3 has no 9b -- lineup is 1b/4b/12b/27b) and supports function
+# calling, so it can drive the react harness; if 12b proves too weak for the tool loop,
+# raise the teacher to gemma-3-27b. Gemma student keeps eager attention (no FA2 env).
+CONFIGS["gemma4-31b-3keep"] = replace(
+    CONFIGS["gemma-27b-3keep"],
+    model="google/gemma-4-31B-it",
+    teacher="google/gemma-3-12b-it",
+)
+
 
 def config_by_model(model_id: str) -> RunConfig:
     """Fall back to a default RunConfig if `model_id` isn't in CONFIGS."""
