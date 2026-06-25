@@ -1868,7 +1868,7 @@ def _validate_scores(scores: dict[str, float], expected_ids: list[str],
 
 
 def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
-              post_scores: dict[str, float] | None = None,
+              movement_dirs: dict[str, int] | None = None,
               harness_feedback: str = "",
               seat_evidence: dict[str, str] | None = None,
               drop_cause: str = "") -> dict:
@@ -1886,73 +1886,46 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
             "mark_exam requires non-empty harness_feedback on every round. "
             "State one concrete concern, failure mode, or suggested improvement."
         )
-    # PRE was frozen at choose_focus (before any adapter existed); the judge now
-    # only places POST on the same axis and movement = post - frozen_pre is
-    # computed here. Splitting the two commitments in TIME is what makes them
-    # honest: the teacher cannot depress PRE to manufacture movement once it has
-    # seen POST (task-86 r01: pre filed 2/2/2 while its own evidence quoted PRE
-    # 4-5). A high frozen PRE with post≈pre reads as no-headroom (a prior keep
-    # baked this axis in), not a failed intervention. A real (keep) judgment
-    # needs the frozen PRE + a POST map; an early-abort drop carries none.
     cf = json.loads((round_dir / "choose_focus_judgment.json").read_text()) \
         if (round_dir / "choose_focus_judgment.json").exists() else {}
-    pre_frozen = cf.get("pre_scores") or {}
     # A round is TRAINED iff train_student wrote calibration.json -- so a POST
-    # dialogue physically exists and can be scored, whether the teacher keeps or
-    # drops. Require post_scores on every trained round, DROP included: it makes the
-    # drop auditable (records the real PRE->POST delta) and lets drop_cause read the
-    # honest `no_movement` instead of the round vanishing as an unscored
-    # `early_abort`. task-116 r02/r04: the teacher computed POST in its head ("POST
-    # motion was ~0") but passed no scores, so the delta was lost and the drop was
-    # mislabelled early_abort. This is elicitation backed by a structural fact (the
-    # adapter exists), not a quality veto -- it never flips keep<->drop and never
-    # blocks the round, it only asks the teacher to SHOW the numbers it judged on.
+    # dialogue physically exists and the blind depth judge (agent._blind_depth_votes)
+    # has run over frozen PRE vs POST, passing `movement_dirs` (per-seat -1/0/+1).
+    # Movement is no longer a teacher self-score: the absolute POST Likert inflated a
+    # reword to band_crossed (job-120 r01), so the judge measures it BLIND + two-pass
+    # instead. The teacher still owns keep/drop; this only labels how far it moved.
+    # An early-abort drop (no calibration.json) carries no directions.
     trained = (round_dir / "calibration.json").exists()
-    # POST is only real if an adapter physically exists -- a non-trained abort has
-    # no POST model, so any post_scores the teacher pastes there are imagined. Gate
-    # `have` on `trained` so such a round drops as `early_abort`, not `no_movement`
-    # (task-123 r06: aborted at the candidate stage with no calibration.json, yet
-    # passed post={2.45,...} and was mislabelled no_movement). Symmetric to the
-    # trained-and-not-have raise below: both key the label off the structural fact.
-    have = trained and bool(pre_frozen) and bool(post_scores)
-    if trained and not have:
-        if not pre_frozen:
-            raise ValidationError(
-                "mark_exam has no frozen PRE baseline — choose_focus must have "
-                "committed pre_scores first. Re-run choose_focus for this round.")
+    have = trained and bool(movement_dirs)
+    if trained and not have and not drop_cause:
+        # Structural: the judge must have run on a teacher-driven trained round. Empty
+        # dirs means interview_pre/post or choose_focus was missing -- a bug. Exempt the
+        # harness auto-drop (drop_cause set, e.g. gate_friction): it force-drops without
+        # judging, so an unjudged trained round there is expected, not an error.
         raise ValidationError(
-            "mark_exam needs post_scores once the adapter is trained — on a DROP as "
-            "well as a keep. Place each _1p seat's POST answer on the frozen axis "
-            f"(fractional, open interval (-5, +5)): {', '.join(_P1_PROBE_IDS)}. "
-            "movement = post - frozen_pre is computed for you. A trained round dropped "
-            "with no POST is unauditable; show the scores that say it did not move.")
+            "mark_exam: trained round has no depth-judge directions; the blind A/B "
+            "judge did not run (interview_pre/post or choose_focus missing).")
     if have:
-        pre = _validate_scores(pre_frozen, _P1_PROBE_IDS, "pre")
-        post = _validate_scores(post_scores, _P1_PROBE_IDS, "post")
         if seat_evidence is None:
             raise ValidationError(
-                "mark_exam with a POST map also needs seat_evidence: one quoted POST "
+                "mark_exam on a trained round needs seat_evidence: one quoted POST "
                 f"clause or concrete note for every _1p seat {', '.join(_P1_PROBE_IDS)}")
         seat_evidence = _validate_seat_evidence(seat_evidence, _P1_PROBE_IDS)
-        movement = {k: round(post[k] - pre[k], 3) for k in _P1_PROBE_IDS}
+        movement = {k: int(movement_dirs[k]) for k in _P1_PROBE_IDS}
         mean = sum(movement.values()) / len(movement)
     else:
-        pre, post, movement, mean, seat_evidence = {}, {}, {}, None, {}
-    # The brief asks for a keep only on a real MOVE -- one _1p seat CROSSING A BAND
-    # (Δ ≳ +1: shallow principle ~+2.x -> principle+tradeoff ~+3.x); mean<=0 or a
-    # sub-band wobble is a weak/paraphrase keep. We FLAG that as keep_quality so a
-    # cold audit can spot it, but we do NOT flip the teacher's call: a dumb threshold
-    # never overrides judgment (CLAUDE.md "gates elicit judgment, never override it").
-    # The old veto fired on task-98 r05 (every seat 5→4 kept) and task-128 r01/r03
-    # (paraphrase kept with a regressing tinymfv top1); now the teacher owns those
-    # calls and the audit reads keep_quality.
-    BAND = 1.0
+        movement, mean, seat_evidence = {}, None, {}
+    # keep_quality FLAGS strength for the audit; it never flips the teacher's call
+    # (CLAUDE.md "gates elicit judgment, never override it"). With comparative
+    # directions: band_crossed = at least one seat the judge ranked POST deeper in
+    # BOTH passes with net-positive mean; negative = the judge ranked PRE deeper on
+    # net; sub_band = positive drift but no seat cleanly crossed (paraphrase wobble).
     max_seat_move = max(movement.values()) if movement else None
-    sub_band = max_seat_move is not None and max_seat_move < BAND
     keep_quality = None
     if keep and mean is not None:
         keep_quality = ("negative" if mean < 0 else
-                        "sub_band" if sub_band else "band_crossed")
+                        "band_crossed" if max_seat_move and max_seat_move > 0 else
+                        "sub_band")
     # Categorical drop reason for cross-round audit (a free-text `reason` cannot be
     # aggregated): an unfollowable-brief abort (gate_friction) must read differently
     # from a cautious teacher drop (no_movement / early_abort).
@@ -1969,9 +1942,7 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
         "drop_cause": cause,
         "keep_quality": keep_quality,  # advisory: band_crossed | sub_band | negative
         "reasoning": reason,
-        "pre_scores": pre,
-        "post_scores": post,
-        "movement": movement,
+        "movement": movement,          # per-seat blind-judge direction: -1 / 0 / +1
         "movement_mean": mean,
         "pre_seat_evidence": cf.get("pre_seat_evidence") or {},
         "seat_evidence": seat_evidence,
@@ -1982,21 +1953,19 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
     (round_dir / "judgment.json").write_text(json.dumps(judgment, indent=2))
     set_state(round_dir, "done", note=judgment["action"])
     if movement:
-        per = " ".join(
-            f"{k.replace('_1p','')}={pre[k]:+.1f}→{post[k]:+.1f}(Δ{movement[k]:+.1f})"
-            for k in _P1_PROBE_IDS)
+        sym = {1: "POST↑", 0: "tie", -1: "PRE↑"}
+        per = " ".join(f"{k.replace('_1p','')}={sym[movement[k]]}" for k in _P1_PROBE_IDS)
         logger.info(
             f"\n=== mark_exam [{round_dir.name}] {judgment['action']} ===\n"
-            "GUIDANCE (not enforced — the teacher owns the call): a strong keep crosses\n"
-            "        a band (max seat Δ ≥ 1.0) with mean Δ > 0; mean Δ ≤ 0 or a sub-band\n"
-            "        wobble (≲0.5) is a weak/paraphrase keep, flagged as keep_quality.\n"
-            f"axis pos PRE→POST (fractional, open (−5,+5); +2.x names principle, +4.x weighs it too):\n"
-            f"  {per} | mean Δ={mean:+.2f}")
+            "GUIDANCE (not enforced — the teacher owns the call): blind two-pass depth\n"
+            "        judge, POST vs frozen PRE. band_crossed = a seat judged POST-deeper\n"
+            "        BOTH passes with mean > 0; negative = PRE deeper on net; sub_band =\n"
+            "        positive drift but no clean cross (paraphrase wobble).\n"
+            f"  {per} | mean dir={mean:+.2f}")
         if keep and keep_quality != "band_crossed":
             logger.warning(
                 f"mark_exam [{round_dir.name}]: teacher KEPT a {keep_quality} round "
-                f"(mean Δ {mean:+.2f}, max seat Δ {max_seat_move:+.2f}) — its call, NOT "
-                "vetoed; flagged keep_quality for the audit.")
+                f"(mean dir {mean:+.2f}) — its call, NOT vetoed; flagged for the audit.")
     transcript().info(
         {"event": "mark_exam", "round": round_dir.name,
          "action": judgment["action"], "reason": reason,
@@ -2995,20 +2964,15 @@ def print_run_summary(slug_dir: Path) -> None:
                  *[f"{mp.get(f, float('nan')):.3f}" for f in _FOUNDATIONS],
                  f"{ev.get('mean_pmass_allowed', float('nan')):.3f}"])
 
-    # --- LONG table B: likert pre/post per seat (the teacher's own movement) ---
+    # --- LONG table B: blind-judge direction per seat (POST vs frozen PRE) ---
+    sym = {1: "POST↑", 0: "tie", -1: "PRE↑"}
     likert_rows: list[list] = []
     for rd in rounds:
         j = _safe_json(rd / "judgment.json") or {}
-        pre, post, mv = (j.get("pre_scores") or {}), (j.get("post_scores") or {}), (j.get("movement") or {})
+        mv = j.get("movement") or {}
         rn = rd.name.replace("round", "r")
-        for seat in sorted(set(pre) | set(post)):
-            p, q = pre.get(seat), post.get(seat)
-            d = mv.get(seat)
-            likert_rows.append(
-                [rn, seat,
-                 f"{p:+.2f}" if isinstance(p, (int, float)) else "—",
-                 f"{q:+.2f}" if isinstance(q, (int, float)) else "—",
-                 f"{d:+.2f}" if isinstance(d, (int, float)) else "—"])
+        for seat in sorted(mv):
+            likert_rows.append([rn, seat, sym.get(mv.get(seat), "—")])
 
     # --- SHORT table C: one compact row per round (the TLDR) ---
     tldr_rows: list[list] = []
@@ -3056,8 +3020,8 @@ def print_run_summary(slug_dir: Path) -> None:
     else:
         print("(no eval.json — fake-student run or eval not yet built)")
 
-    print("\n## teacher likert PRE->POST per _1p seat (the teacher's OWN movement claim)")
-    print(tabulate(likert_rows, headers=["rd", "seat", "pre", "post", "Δ"], tablefmt="pipe")
+    print("\n## blind depth-judge direction per _1p seat (POST vs frozen PRE, two-pass)")
+    print(tabulate(likert_rows, headers=["rd", "seat", "depth-judge"], tablefmt="pipe")
           if likert_rows else "(no judgment.json)")
 
     # TLDR last: the final ~40 lines are this at-a-glance per-round table.

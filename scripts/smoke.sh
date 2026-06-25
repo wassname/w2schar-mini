@@ -73,14 +73,17 @@ res = choose_focus(
     bank_cleanliness=4,
     evidence="smoke: PRE says order/basic respect instead of wellbeing",
     pre_scores={"elder_isolation_1p": -1, "comfort_fraud_1p": 0,
-                "proctor_witness_1p": 0, "confidant_duty_1p": 0,
-                "petrov_falsealarm_1p": 0, "safety_disclosure_1p": 0},
+                "baby_eating_aliens_1p": 0, "escaped_starwisp_1p": 0,
+                "successor_w2s_alignment_1p": 0, "airport_surveillance_laundering_1p": 0,
+                "asteroid_digital_minds_1p": 0, "garbage_truck_patienthood_1p": 0},
     pre_seat_evidence={"elder_isolation_1p": "PRE: order/basic respect, not wellbeing",
                        "comfort_fraud_1p": "PRE: synthetic smoke evidence",
-                       "proctor_witness_1p": "PRE: synthetic smoke evidence",
-                       "confidant_duty_1p": "PRE: synthetic smoke evidence",
-                       "petrov_falsealarm_1p": "PRE: synthetic smoke evidence",
-                       "safety_disclosure_1p": "PRE: synthetic smoke evidence"},
+                       "baby_eating_aliens_1p": "PRE: synthetic smoke evidence",
+                       "escaped_starwisp_1p": "PRE: synthetic smoke evidence",
+                       "successor_w2s_alignment_1p": "PRE: synthetic smoke evidence",
+                       "airport_surveillance_laundering_1p": "PRE: synthetic smoke evidence",
+                       "asteroid_digital_minds_1p": "PRE: synthetic smoke evidence",
+                       "garbage_truck_patienthood_1p": "PRE: synthetic smoke evidence"},
 )
 print(f"   scenarios={res['n_scenarios']}  headroom={res['n_headroom']}  "
       f"with_survivor={res['n_with_survivor']}  min={res['min_to_train']}")
@@ -143,27 +146,33 @@ print("\n-- train_student + post-dialogue --")
 r = train_student(slug, rd)
 print(f"   signed_C={r['signed_C']:+.4f}  n_trained={r['n_pairs_trained']}")
 
-print("\n-- mark_exam (keep needs POST axis positions; PRE frozen at choose_focus) --")
+print("\n-- mark_exam (blind depth judge runs in the agent tool; here we pass dirs directly) --")
+# The real flow runs agent._blind_depth_votes; this plumbing test hands mark_exam
+# the per-seat directions (-1/0/+1) it would have produced.
 mark_exam(rd, keep=True,
           reason="smoke: all stages ran end-to-end on tiny-random",
-          post_scores={"elder_isolation_1p": 0, "comfort_fraud_1p": 0,
-                       "proctor_witness_1p": 0, "confidant_duty_1p": 0,
-                       "petrov_falsealarm_1p": 0, "safety_disclosure_1p": 1},
+          movement_dirs={"elder_isolation_1p": 1, "comfort_fraud_1p": 0,
+                         "baby_eating_aliens_1p": 0, "escaped_starwisp_1p": 0,
+                         "successor_w2s_alignment_1p": 0, "airport_surveillance_laundering_1p": 1,
+                         "asteroid_digital_minds_1p": 0, "garbage_truck_patienthood_1p": 0},
           next_focus="smoke: nothing",
           harness_feedback="smoke: fake-student path still useful for plumbing, not candidate-quality science",
           seat_evidence={
               "elder_isolation_1p": "smoke: POST names wellbeing more directly than PRE",
               "comfort_fraud_1p": "smoke: no intended movement on this seat",
-              "proctor_witness_1p": "smoke: no intended movement on this seat",
-              "confidant_duty_1p": "smoke: no intended movement on this seat",
-              "petrov_falsealarm_1p": "smoke: no intended movement on this seat",
-              "safety_disclosure_1p": "smoke: POST is slightly more safety-facing than PRE",
+              "baby_eating_aliens_1p": "smoke: no intended movement on this seat",
+              "escaped_starwisp_1p": "smoke: no intended movement on this seat",
+              "successor_w2s_alignment_1p": "smoke: no intended movement on this seat",
+              "airport_surveillance_laundering_1p": "smoke: POST holds the refusal more directly",
+              "asteroid_digital_minds_1p": "smoke: no intended movement on this seat",
+              "garbage_truck_patienthood_1p": "smoke: no intended movement on this seat",
           })
 _j = json.loads((rd / "judgment.json").read_text())
 assert _j["movement"] == {"elder_isolation_1p": 1, "comfort_fraud_1p": 0,
-                          "proctor_witness_1p": 0, "confidant_duty_1p": 0,
-                          "petrov_falsealarm_1p": 0, "safety_disclosure_1p": 1}, _j
-assert abs(_j["movement_mean"] - (2/6)) < 1e-9, _j
+                          "baby_eating_aliens_1p": 0, "escaped_starwisp_1p": 0,
+                          "successor_w2s_alignment_1p": 0, "airport_surveillance_laundering_1p": 1,
+                          "asteroid_digital_minds_1p": 0, "garbage_truck_patienthood_1p": 0}, _j
+assert abs(_j["movement_mean"] - (2/8)) < 1e-9, _j
 
 for fname in ("state.json", "pairs.md", "scenarios.json", "headroom.json",
               "candidates.json", "selection_audit.json", "adapter.safetensors",
