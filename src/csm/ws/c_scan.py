@@ -435,6 +435,13 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     else:
         warn = "hit MAX_PROBES"
 
+    # TODO(job-120): baked c collapses as kept adapters compose (r00 c=1.33 ->
+    # r01 c=0.40). Each new adapter has less coherence headroom, so the walk-down
+    # forces an ever-weaker bake (r01 json broke 2->1->1->0, recovering only at
+    # 0.40, where kl_fwd on the canary is ~0.004 -- near-baseline). For a 12-keep
+    # goal this risks later "keeps" being cosmetic no-ops. WATCH signed_C across
+    # rounds; if it drops <0.2 with kl~0 the compose loop is out of headroom and
+    # the keep is not real steering. (Observe first; not a fix yet.)
     final = sign * c * backoff
     trace.append({"stage": "final", "c": final, "note": f"backoff x{backoff}"})
 
