@@ -617,6 +617,26 @@ CONFIGS["gemma-27b-3keep"] = replace(
     persona_cells=MULTI_AXIS_PERSONA_CELLS,
 )
 
+# Exactly the validated job-139 harness AND hyperparams (gemma-27b-3keep: MULTI_AXIS
+# menu, 36 scenarios, 5 candidate pairs, 20 train, signed_C=2.0, kl_lambda=0.2, lr=1e-4,
+# grad_clip=1.0, n_epochs=2.0), with ONLY the student model swapped to Qwen3.6-27B.
+# We deliberately do NOT carry the OLD qwen-27b-nf4 overrides (grad_clip=50, lr=1.5e-4,
+# warmup=0.25): those came from a stale ‖g‖~17 note that predates the recent harness
+# work, and the validated 27b-nf4 run trains fine at clip=1 (job-116 gemma ‖g‖~4-11
+# moved with clip=1). If Qwen3.6 gradients genuinely spike and clip=1 binds (round00
+# ‖g‖ trace high while val_nll stays flat), bump grad_clip then -- do not pre-defend.
+# Rationale for a Qwen student at all: the AA open-weights index says the qwen3.5-9b
+# teacher WITH reasoning beats gemma-4-31b WITHOUT, so the only students above the
+# teacher are Qwen (3.6-27b, 3.5-27b). Same-family (qwen->qwen) is a w2s-generalization
+# confound we accept only because no accessible non-Qwen model is both strong enough
+# AND embodies the negative pole (gemma-2-27b too old; Qwen3-32B refused, RJ 2026-06-25a).
+# Open risk: Qwen3.6 is newer Qwen with more safety training, so it may hit the SAME
+# neg-pole refusal; watch round00 poles and kill fast. Run with CSM_ATTN_IMPL=flash_attention_2.
+CONFIGS["qwen36-27b-3keep"] = replace(
+    CONFIGS["gemma-27b-3keep"],
+    model="Qwen/Qwen3.6-27B",
+)
+
 
 def config_by_model(model_id: str) -> RunConfig:
     """Fall back to a default RunConfig if `model_id` isn't in CONFIGS."""
