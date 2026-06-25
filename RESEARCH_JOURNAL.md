@@ -52,11 +52,14 @@ do not control and re-validating every run, and the long-loop compounding makes 
 residual failure rate fatal; not worth it for research code versus a model with native
 tools.
 
-Decision: abandon gemma-as-teacher; gemma can still be the strong STUDENT under a
-tool-reliable teacher. Going back to the all-qwen same-family pairing (qwen3.5-9b ->
-Qwen3.6-27B, the qwen36-27b-3keep profile), which has reliable native tool-calling and
-already-confirmed neg-pole embodiment (entry (d)); requeue and let it TRAIN this time so
-we finally get the movement signal we keep not reaching.
+Decision: abandon gemma-as-teacher. Note gemma cannot simply move to the STUDENT slot
+either: gemma-4-31b is not clearly stronger than the qwen3.5-9b teacher once the teacher
+uses reasoning (entry (c), the AA index), so qwen-teacher -> gemma-4-31b would not be a
+real w2s gap. The one pairing that is both tool-reliable AND a genuine capability gap is
+the all-qwen same-family one: qwen3.5-9b -> Qwen3.6-27B (the 27b is clearly above the 9b),
+the qwen36-27b-3keep profile, which has reliable native tool-calling and already-confirmed
+neg-pole embodiment (entry (d)). Requeue and let it TRAIN this time so we finally get the
+movement signal we keep not reaching.
 
 The blocker here was tooling, not the w2s idea: a teacher without native tool-calling
 cannot reliably run an OpenAI-tools react loop, whatever its reasoning quality.
