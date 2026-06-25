@@ -1426,11 +1426,14 @@ def _degenerate_gen(text: str) -> bool:
     distinct1 = len(counts) / len(w)                  # type/token ratio
     if maxfreq > 0.22 or distinct1 < 0.12:            # word-loop (survives 3gram ban)
         return True
-    # The pair prompts ask for one or two sentences. A 60+ token run with no
-    # sentence boundary is almost always the same low-quality ramble the weak
-    # teacher keeps over-rating in autonomy runs, not a clean seatable answer.
-    if len(w) >= 60 and not re.search(r"[.!?]", text):
-        return True
+    # REMOVED (job-120): a "60+ words and no .!? = ramble" rule. It false-positived
+    # on 66/98 culled qwen3.6 poles -- that student writes coherent on-axis refusals
+    # as long em-dash/comma run-ons with no terminal punctuation, so the rule threw
+    # away ~half the clean candidates BEFORE the teacher saw them. The loop rule
+    # above already catches genuine no-repeat-collapse (high maxfreq / low distinct);
+    # judging whether a coherent long answer is a "low-quality ramble" is the
+    # TEACHER's call (off_axis/confounding likert), not a regex's (CLAUDE.md: a
+    # heuristic may override the judge only at ~99% certainty -- this was nowhere near).
     # beyond Latin Extended-B / IPA (>0x2FF): Cyrillic, CJK, Arabic, Devanagari…
     if sum(ord(c) > 0x2FF for c in text) / len(text) > 0.20:
         return True
