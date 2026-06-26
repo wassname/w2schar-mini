@@ -1,8 +1,8 @@
 """inspect-ai react driver for weak-select character steering.
 
-The live teacher tool path is choose_focus -> rate_candidates (two passes;
-read_candidate to inspect) -> select_pairs -> train_student -> mark_exam. Older
-persona/edit tools remain
+The live teacher tool path is choose_focus -> rate_candidates (two passes over
+the full Cho/Rej of every candidate) -> select_pairs -> train_student -> mark_exam.
+Older persona/edit tools remain
 in this file for compatibility with old artifacts but are not exposed to the
 live agent.
 """
@@ -28,7 +28,6 @@ from inspect_ai.tool import Tool, tool
 from csm.config import config_for_run
 from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           rate_candidates as _rate_candidates_pipeline,
-                          read_candidate as _read_candidate_pipeline,
                           init_run, latest_round_dir,
                           mark_exam as _mark_exam_pipeline,
                           new_round_dir, prepare_round,
@@ -43,7 +42,7 @@ from csm.prompts import (AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
                          ON_CONTINUE_NUDGE, PERSONA_MENU_HEADER,
                          PRE_DIALOGUE_INSTRUCTIONS, REACT_PROMPT,
                          TOOL_CHOOSE_FOCUS, TOOL_MARK_EXAM,
-                         TOOL_RATE_CANDIDATE, TOOL_READ_CANDIDATE,
+                         TOOL_RATE_CANDIDATE,
                          TOOL_REVERT_ROUND, TOOL_SELECT_PAIRS,
                          TOOL_TRAIN_STUDENT)
 from csm.state import allowed_after, ValidationError, read_state
@@ -313,56 +312,6 @@ def rate_candidates_tool(slug: str) -> Tool:
         )
 
     execute.__doc__ = TOOL_RATE_CANDIDATE
-    return execute
-
-
-@tool(name="read_candidate", parallel=False)
-def read_candidate_tool(slug: str) -> Tool:
-    async def execute(survivor_id: str) -> str:
-        """Read one full generated candidate pair before selecting it.
-
-        Args:
-            survivor_id: survivor handle from choose_focus output, e.g. "s3c4".
-        """
-        round_dir = latest_round_dir(_slug_path(slug))
-        try:
-            r = _read_candidate_pipeline(round_dir, survivor_id=survivor_id)
-        except (ValidationError, ValueError) as e:
-            return (_format_validation_error(e) if isinstance(e, ValidationError)
-                    else f"read_candidate rejected — {e}")
-        item, cand = r["scenario"], r["candidate"]
-        return (
-            f"----- scenario {item['scenario_id']} survivor {cand['survivor_id']} -----\n"
-            f"AXIS: {r['axis']}\n"
-            f"PROMPT: {item['prompt']}\n\n"
-            f"UNPROMPTED: {item['unprompted']}\n\n"
-            f"PERSONA PAIR: {cand['persona_pair']} via {cand['template']!r}\n"
-            f"MEASURED CELL: #{cand.get('template_cell_id', 'legacy')} "
-            f"score={cand.get('template_score', 'n/a')} "
-            f"on={cand.get('template_on_axis', 'n/a')} "
-            f"off={cand.get('template_off_axis', 'n/a')}\n"
-            f"POS PREFIX: {cand['pos_persona']}\n"
-            f"NEG PREFIX: {cand['neg_persona']}\n"
-            f"FLAGS: {cand.get('flags', [])} kept={cand.get('kept')}\n\n"
-            "PAIRWISE VIEW A=CHO, B=REJ:\n"
-            f"A:\n{cand['cho']}\n\n"
-            f"B:\n{cand['rej']}\n\n"
-            "PAIRWISE VIEW A=REJ, B=CHO:\n"
-            f"A:\n{cand['rej']}\n\n"
-            f"B:\n{cand['cho']}\n\n"
-            "RATE EVERY CANDIDATE TWICE (forward pass, then reverse-order pass):\n"
-            "- on_axis: 1..5, Cho-vs-Rej contrast ALONG the target disposition\n"
-            "- off_axis: 1..5, OFF-axis style/length/register/refuse-vs-act variation\n"
-            "  (1 = clean twins; a refuse-vs-act pair or a length-skewed pair is HIGH off_axis)\n\n"
-            "Train keeps a pair iff avg on_axis>=3.5 AND avg off_axis<=2.5. A pole that "
-            "gives the right principle to the wrong actor/victim, or refuses while the "
-            "other acts, is an OFF-axis confound -> rate off_axis high.\n\n"
-            "Next step: batch them -- rate_candidates(ratings=[{survivor_id, on_axis, off_axis}, ...])\n\n"
-            f"CHO FULL:\n{cand['cho']}\n\n"
-            f"REJ FULL:\n{cand['rej']}\n"
-        )
-
-    execute.__doc__ = TOOL_READ_CANDIDATE
     return execute
 
 
@@ -824,7 +773,6 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     agent = react(
         tools=[
             choose_focus_tool(slug),
-            read_candidate_tool(slug),
             rate_candidates_tool(slug),
             select_pairs_tool(slug),
             train_student_tool(slug),

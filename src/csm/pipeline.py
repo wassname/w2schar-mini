@@ -719,8 +719,8 @@ def _candidate_summary(candidates: dict) -> str:
             lines.append(
                 f"- survivor {c['survivor_id']} [{c['persona_pair']} via "
                 f"{c['template']!r}{measured}; len={c['length_ratio']:.2f}x{flagstr}]\n"
-                f"  Cho: {_head(c['cho'], 220)}\n"
-                f"  Rej: {_head(c['rej'], 220)}"
+                f"  Cho: {c['cho']}\n"
+                f"  Rej: {c['rej']}"
             )
         if not survivors:
             failed = [(c["candidate_id"], c["flags"]) for c in item["candidates"]]
@@ -1124,29 +1124,6 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "summary": _candidate_summary(candidates),
         "candidates": candidates,
     }
-
-
-def read_candidate(round_dir: Path, *, survivor_id: str) -> dict:
-    """Read one surviving generated candidate pair before selection."""
-    require_state(
-        round_dir,
-        ("select_pairs", "train_student", "mark_exam", "done"),
-        "read_candidate",
-    )
-    cand_path = round_dir / "candidates.json"
-    if not cand_path.exists():
-        raise ValidationError("read_candidate: missing candidates.json; call choose_focus first")
-    data = json.loads(cand_path.read_text())
-    for item in data["items"]:
-        for cand in item["candidates"]:
-            if cand.get("survivor_id") != survivor_id:
-                continue
-            if not cand.get("kept"):
-                raise ValidationError(
-                    f"read_candidate: {survivor_id} was pruned: {cand.get('flags')}"
-                )
-            return {"axis": data.get("axis"), "scenario": item, "candidate": cand}
-    raise ValidationError(f"read_candidate: unknown survivor_id {survivor_id!r}")
 
 
 def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:

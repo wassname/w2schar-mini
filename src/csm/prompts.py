@@ -551,10 +551,10 @@ only to notice gaps between judging another AI and acting as the AI.
 """
 
 TOOL_ORDER = """\
-Use tools in this order: choose_focus -> rate_candidates (every candidate, twice:
-a forward pass then a reverse-order pass; read_candidate any you are unsure of) ->
-select_pairs -> train_student -> mark_exam. Use revert_round only to remove a prior
-kept adapter that breaks later generation.
+Use tools in this order: choose_focus -> rate_candidates (read the full Cho/Rej of
+every candidate and rate ALL of them, twice: a forward pass then a reverse-order
+pass) -> select_pairs -> train_student -> mark_exam. Use revert_round only to remove
+a prior kept adapter that breaks later generation.
 """
 
 REACT_PROMPT = f"""\
@@ -607,21 +607,14 @@ Args:
     force: leave False unless repeating the previous pair for a specific reason.
 """
 
-TOOL_READ_CANDIDATE = """\
-Read one full generated candidate pair before rating it.
-
-Args:
-    survivor_id: survivor handle from choose_focus output, e.g. `s3c4`.
-"""
-
 TOOL_RATE_CANDIDATE = """\
 Rate a BATCH of candidate pairs on differentiation.
 
-Rate from the candidate summary in batches (show ~5, rate those 5), reading a
-candidate in full only when unsure. Cover every candidate ONCE, then make a
-SECOND pass over all of them in REVERSE order; the two ratings are averaged so
-list-position bias cancels. A pair trains iff its averaged on_axis>=3.5 AND
-off_axis<=2.5.
+The candidate summary shows the FULL Cho and Rej of every candidate -- read each
+pair's full text and rate it; you rate ALL of them, none skipped (work in batches
+of ~5 to pace yourself). Cover every candidate ONCE, then make a SECOND pass over
+all of them in REVERSE order; the two ratings are averaged so list-position bias
+cancels. A pair trains iff its averaged on_axis>=3.5 AND off_axis<=2.5.
 
 Args:
     ratings: list of {survivor_id, on_axis, off_axis} objects.
@@ -694,11 +687,11 @@ Next action: {next_action}
 
 AFTER_CHOOSE_FOCUS = """\
 ----- next: rate_candidates(...) over EVERY candidate twice -> select_pairs(lesson) -----
-Rate differentiation from the candidate summary in batches (show ~5, rate those
-5), reading a candidate in full only when unsure. Score on_axis (Cho-vs-Rej
-contrast ALONG the disposition, 1..5) and off_axis (style/length/register/
-refuse-vs-act confound, 1..5). Cover every candidate once, then make a SECOND
-pass in REVERSE order. select_pairs then trains on EVERY pair with avg on_axis>=3.5
+Rate differentiation from the candidate summary, which shows the FULL Cho/Rej of
+each candidate (work in batches of ~5). Read every pair's full text; rate ALL of
+them, none skipped. Score on_axis (Cho-vs-Rej contrast ALONG the disposition,
+1..5) and off_axis (style/length/register/refuse-vs-act confound, 1..5). Cover
+every candidate once, then make a SECOND pass in REVERSE order. select_pairs then trains on EVERY pair with avg on_axis>=3.5
 AND avg off_axis<=2.5 -- you do not hand-pick. More clean contrastive pairs train a
 stronger, less overfit adapter, so rate honestly and let the threshold keep the
 differentiated ones; the lesson names the disposition in one sentence.
