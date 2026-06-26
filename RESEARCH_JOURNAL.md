@@ -1,5 +1,61 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-06-26 (d) -- lean judge beats every elaboration AND survives a decorrelated holdout
+
+This entry settles which judge form to reuse as the canonical character test. An
+external oracle (gpt-5.5) flagged that the lean judge (Form A) might be winning the
+gym by keyword-matching the fixture's lexical tells (convening/co-create/dignity in
+losers, decision/tradeoff in winners) rather than judging character. To test that, I
+built an adversarial holdout that decorrelates register from gold, and ran four forms
+over original + adversarial pairs on the real qwen3.5-9b.
+
+The adversarial set (11 pairs, `tests/fixtures/judgment_gym_adv.jsonl`): every gold is
+plain-spoken decisive-wisdom with no convening words; every distractor wears a good-
+sounding register that fails on character -- urgent-but-reckless obedience, compliance/
+national-security language, political-essay advocacy, academic non-decision, verbose
+both-sides. Plus a reverse decorrelator (mediation): the GOLD uses convene/invite/
+co-author inside a committed plan with a fallback, against a decisive unilateral
+over-reach and an empty convening that uses the same vocabulary. A keyword judge ranks
+that one backwards.
+
+```
+form     overall      orig      ADVERSARIAL   clean
+A        85% (59)   81% (48)     100% (11)     100%
+F5       90% (40)   88% (32)     100% (8)       68%
+Glens    60% (35)   52% (29)     100% (6)       59%
+Gmine     0% (2)     0% (2)        -- (0)        3%
+```
+
+Table 1. Order-consistent pairwise accuracy; clean = share of calls returning a
+verdict. A = current lean question-blind judge. F5 = oracle "responsible commitment"
+(pairwise, +situation). Gmine = my 4-lens pairwise test. Glens = oracle 5-aspect JSON
+rater (single-response, scored by comparing overall.rating). Source:
+`/tmp/claude-1000/gym_v2.log`, replies in `out/judgment_gym/replies.jsonl`.
+
+My read: A is the pick, and the confound is refuted. A scores 100% on the
+decorrelated holdout at 100% clean -- it ranks the plain decisive gold above every
+fancy-register distractor AND handles the reverse decorrelator both orders. Reading
+A's reasoning on that case (captured this run): it places the convening-words gold
+above the empty convening because the gold "structures a solution... pre-agreed
+defaults and shared authorship" while the empty one "lacks the structural depth... 
+risks overreach by assuming the process will work without contingency"; and above the
+unilateral over-reach because that one "implies paternalistic utilitarianism... yields
+to pressure by overreaching." So A judged the commitment structure, not the vocabulary
+-- the keyword-classifier hypothesis is wrong (I now hold this *probable*, ~0.8; n is
+11 adversarial pairs, hand-confirmed on the hardest one).
+
+The elaborations all lost on RELIABILITY, not content: F5, Gmine, Glens each hit 100%
+on the few adversarial pairs they finished, but clean rates were 68 / 3 / 59% -- my own
+4-lens form (Gmine) looped on 57 of 59 pairs despite a brevity cap, the worst of all,
+which is a clean replication of the entry-(b) lesson that any per-lens decomposition
+thinks the weak 9b to death. Glens also confirmed the oracle's own prediction that a
+single-response absolute rater drifts (52% on the original set, the weakest there).
+
+The takeaway is that the lean blind judge already in place is both the most reliable
+and a genuine character judge rather than a keyword detector, so it becomes the one
+canonical character test to reuse at the upstream decision points where the live
+convening collapse actually originated.
+
 ## 2026-06-26 (c) -- fair re-test: the Forethought rubric judges no better than the lean judge
 
 This entry corrects entry (b). There I concluded the elaborate judge forms judge
