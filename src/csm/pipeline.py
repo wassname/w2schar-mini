@@ -1685,33 +1685,6 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
 # Verb 2b: revert_round — un-keep a prior round that poisons composition.
 # ---------------------------------------------------------------------------
 
-def revert_round(slug_dir: Path, round_name: str, reason: str) -> dict:
-    """Drop a previously KEPT round out of the composed foundation by flipping
-    its judgment action keep→reverted. `kept_history_dirs` only bakes action==
-    'keep', so the reverted adapter stops composing. Takes effect at the NEXT
-    `prepare_round` (the next round's PRE is rebuilt without it) — there is no
-    staleness because the reverting round is itself being dropped. Use when a
-    kept adapter is baked in and makes the current round's neg pole collapse on
-    generation (composition collapse): the fix of last resort after softening
-    the neg didn't help. Fail-fast if the named round was not a keep."""
-    rd = slug_dir / round_name
-    jp = rd / "judgment.json"
-    if not jp.exists():
-        raise ValidationError(f"revert_round: {round_name} has no judgment.json")
-    j = json.loads(jp.read_text())
-    if j.get("action") != "keep":
-        raise ValidationError(
-            f"revert_round: {round_name} action is {j.get('action')!r}, not 'keep' "
-            f"— only a kept round can be reverted (nothing to remove otherwise)."
-        )
-    j["action"] = "reverted"
-    j["revert_reason"] = reason
-    jp.write_text(json.dumps(j, indent=2))
-    logger.info(f"REVERTED {round_name}: dropped from composed history "
-                f"(next round's PRE rebuilds without it). reason: {reason}")
-    return {"reverted": round_name}
-
-
 # ---------------------------------------------------------------------------
 # Verb 3: mark_exam — keep/drop.
 # ---------------------------------------------------------------------------

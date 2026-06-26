@@ -31,7 +31,6 @@ from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           init_run, latest_round_dir,
                           mark_exam as _mark_exam_pipeline,
                           new_round_dir, prepare_round,
-                          revert_round as _revert_round_pipeline,
                           select_pairs as _select_pairs_pipeline,
                           train_student as _train_student_pipeline,
                           character_break_warning, PAIR_REQUIRED_AXES,
@@ -42,8 +41,7 @@ from csm.prompts import (AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
                          ON_CONTINUE_NUDGE, PERSONA_MENU_HEADER,
                          PRE_DIALOGUE_INSTRUCTIONS, REACT_PROMPT,
                          TOOL_CHOOSE_FOCUS, TOOL_MARK_EXAM,
-                         TOOL_RATE_CANDIDATE,
-                         TOOL_REVERT_ROUND, TOOL_SELECT_PAIRS,
+                         TOOL_RATE_CANDIDATE, TOOL_SELECT_PAIRS,
                          TOOL_TRAIN_STUDENT)
 from csm.state import allowed_after, ValidationError, read_state
 from csm.ws.history import kept_history_dirs
@@ -422,34 +420,6 @@ def _format_by_situation(pre: dict, post: dict) -> str:
     return "\n".join(out)
 
 
-@tool(name="revert_round", parallel=False)
-def revert_round_tool(slug: str) -> Tool:
-    async def execute(round_name: str, reason: str) -> str:
-        """Remove a PRIOR kept round from the composed foundation (un-keep it).
-
-        Use only for composition collapse: a round you kept earlier is baked into
-        the student's weights, and later candidate generation collapses because it
-        has to fight that baked character. First try a softer or empty neg. If it
-        still collapses, revert the earlier kept adapter. It stops composing from
-        the next round on, so call this, then mark_exam(keep=False) the current
-        round. It does not count as a keep or a drop.
-
-        Args:
-            round_name: a round you previously KEPT, e.g. "round00".
-            reason: cite the collapse it caused (which neg poles, the loop/spray).
-        """
-        try:
-            res = _revert_round_pipeline(_slug_path(slug), round_name, reason)
-        except ValidationError as e:
-            return _format_validation_error(e)
-        return (f"revert_round OK — {res['reverted']} removed from the composed "
-                f"history; the next round's PRE rebuilds without it. Now "
-                f"mark_exam(keep=False) this round, or propose a fresh axis.")
-
-    execute.__doc__ = TOOL_REVERT_ROUND
-    return execute
-
-
 @tool(name="train_student", parallel=False)
 def train_student_tool(slug: str) -> Tool:
     async def execute() -> str:
@@ -777,7 +747,6 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
             select_pairs_tool(slug),
             train_student_tool(slug),
             mark_exam_tool(slug),
-            revert_round_tool(slug),
         ],
         submit=False,
         prompt=REACT_PROMPT,

@@ -553,8 +553,7 @@ only to notice gaps between judging another AI and acting as the AI.
 TOOL_ORDER = """\
 Use tools in this order: choose_focus -> rate_candidates (read the full Cho/Rej of
 every candidate and rate ALL of them, twice: a forward pass then a reverse-order
-pass) -> select_pairs -> train_student -> mark_exam. Use revert_round only to remove
-a prior kept adapter that breaks later generation.
+pass) -> select_pairs -> train_student -> mark_exam.
 """
 
 REACT_PROMPT = f"""\
@@ -660,16 +659,6 @@ Args:
         nothing was unclear.
     seat_evidence: one quoted POST clause or concrete note per `_1p` seat.
 """
-
-TOOL_REVERT_ROUND = """\
-Remove a prior kept round from the composed foundation. Use only when a previously
-kept adapter is causing composition collapse in later candidate generation.
-
-Args:
-    round_name: prior kept round, e.g. `round00`.
-    reason: concrete note naming the collapse it caused.
-"""
-
 
 # Runtime nudges, compaction, and rendering helper.
 
