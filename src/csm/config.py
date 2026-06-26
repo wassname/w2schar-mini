@@ -369,7 +369,7 @@ CONFIGS: dict[str, RunConfig] = {
         # _validate raise. Mirrors qwen-27b-nf4.
         adapter="lora",
         train_batch_size=2,
-        eval_batch_size=2,
+        eval_batch_size=32,  # eval is memory-light (weights dominate); use the idle GPU
         lr=3e-4,            # raised from 1e-4: stronger KL anchor (below) holds coherence
         # Reverse-KL buys coherence headroom for nf4 large students.
         kl_lambda=2.0,
@@ -383,7 +383,7 @@ CONFIGS: dict[str, RunConfig] = {
         adapter="lora",
         # Batch 1 fits the retained contrastive graph on a 31B nf4 student.
         train_batch_size=1,
-        eval_batch_size=2,
+        eval_batch_size=32,  # eval is memory-light (weights dominate); use the idle GPU
         max_len=512,
         lr=3e-4,
         kl_lambda=2.0,
@@ -398,7 +398,7 @@ CONFIGS: dict[str, RunConfig] = {
         # Large students train at batch 1; contrastive training keeps several
         # full-vocab forward graphs live at once.
         train_batch_size=1,
-        eval_batch_size=8,
+        eval_batch_size=32,  # eval is memory-light (weights dominate); use the idle GPU
         lora_r=16,
         lora_alpha=32.0,
         # Lower nominal lr pairs with high gradient clipping; median gradients
@@ -421,7 +421,7 @@ CONFIGS: dict[str, RunConfig] = {
         teacher="qwen/qwen3.5-9b",
         quant="nf4",
         train_batch_size=1,
-        eval_batch_size=8,
+        eval_batch_size=32,  # eval is memory-light (weights dominate); use the idle GPU
         lora_r=16,
         lora_alpha=32.0,
         lr=1.5e-4,
@@ -615,7 +615,11 @@ CONFIGS["gemma-27b-3keep"] = replace(
     quant="nf4",
     adapter="lora",
     train_batch_size=1,
-    eval_batch_size=2,
+    # Eval is forced-choice at max_think=64 and peaked ~16GB at bs=2 on a 27B-nf4 --
+    # almost all of that is fixed weights, so eval is memory-light and the 80-96GB box
+    # is ~80% idle during it. bs=32 (~50GB worst case) cuts eval wall-clock ~16x.
+    # Inherited by qwen36-27b-3keep and gemma4-31b-3keep (the active big students).
+    eval_batch_size=32,
     signed_C=2.0,
     persona_cells=MULTI_AXIS_PERSONA_CELLS,
     # Big-student round-fail floor: >=20 candidates must clear the teacher's
