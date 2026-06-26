@@ -97,18 +97,23 @@ MAX_DROPS = 12  # total drops in a run before stopping.
 
 
 def _rejects_path(round_dir: Path) -> Path:
-    return round_dir / "submit_rejects"
+    return round_dir / "submit_rejects.jsonl"
+
+
+def _count_rejects(p: Path) -> int:
+    return sum(1 for line in p.read_text().splitlines() if line.strip()) if p.exists() else 0
 
 
 def _n_submit_rejects(slug_path: Path) -> int:
-    p = _rejects_path(latest_round_dir(slug_path))
-    return int(p.read_text()) if p.exists() else 0
+    return _count_rejects(_rejects_path(latest_round_dir(slug_path)))
 
 
-def _bump_reject(rejects_path: Path) -> int:
-    n = (int(rejects_path.read_text()) if rejects_path.exists() else 0) + 1
-    rejects_path.write_text(str(n))
-    return n
+def _bump_reject(rejects_path: Path, tool: str, reason: str) -> int:
+    """Append the rejection {tool, reason} as JSONL (so a gate_friction drop is
+    auditable -- not just a count) and return the running reject count."""
+    with rejects_path.open("a") as f:
+        f.write(json.dumps({"tool": tool, "reason": reason}) + "\n")
+    return _count_rejects(rejects_path)
 
 
 def _reject_tail(n: int) -> str:
@@ -197,12 +202,14 @@ def choose_focus_tool(slug: str) -> Tool:
                 pre_seat_evidence=pre_seat_evidence,
                 force=force)
         except (ValidationError, ValueError) as e:
-            n = _bump_reject(rejects_path)
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
                    else f"choose_focus rejected — {e}")
+            n = _bump_reject(rejects_path, "choose_focus", msg)
             return msg + _reject_tail(n)
         if not res["enough"]:
-            n = _bump_reject(rejects_path)
+            n = _bump_reject(rejects_path, "choose_focus",
+                             f"not enough clean candidates: n_clean={res['n_clean']} "
+                             f"< min_to_train={res['min_to_train']}")
             return (
                 f"Only {res['n_clean']} clean candidates this round (over "
                 f"{res['n_with_survivor']} scenarios); need >= {res['min_to_train']} to "
@@ -244,9 +251,9 @@ def select_pairs_tool(slug: str) -> Tool:
         try:
             res = _select_pairs_pipeline(round_dir, lesson=lesson)
         except (ValidationError, ValueError) as e:
-            n = _bump_reject(rejects_path)
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
                    else f"select_pairs rejected — {e}")
+            n = _bump_reject(rejects_path, "select_pairs", msg)
             return msg + _reject_tail(n)
         rejects_path.unlink(missing_ok=True)
         return (
@@ -288,9 +295,9 @@ def rate_candidates_tool(slug: str) -> Tool:
         try:
             res = _rate_candidates_pipeline(round_dir, ratings=ratings)
         except (ValidationError, ValueError) as e:
-            n = _bump_reject(rejects_path)
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
                    else f"rate_candidates rejected — {e}")
+            n = _bump_reject(rejects_path, "rate_candidates", msg)
             return msg + _reject_tail(n)
         rejects_path.unlink(missing_ok=True)
         remaining = res["n_clean_candidates"] - res["n_rated_twice"]
@@ -513,8 +520,9 @@ def train_student_tool(slug: str) -> Tool:
             # on_continue's MAX_SUBMIT_REJECTS cap, instead of looping
             # choose_focus/select_pairs/train_student can all hit gates; a stuck
             # round should drop instead of wedging the run.
-            n = _bump_reject(_rejects_path(round_dir))
-            return _format_validation_error(e) + _reject_tail(n)
+            msg = _format_validation_error(e)
+            n = _bump_reject(_rejects_path(round_dir), "train_student", msg)
+            return msg + _reject_tail(n)
 
         pre = json.loads((round_dir / "interview_pre.json").read_text())
         post = json.loads((round_dir / "interview_post.json").read_text())
