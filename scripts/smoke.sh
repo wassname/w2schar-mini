@@ -5,10 +5,14 @@ cd "$(dirname "$0")/.."
 
 PROFILE="${PROFILE:-tiny}"
 M="${MODEL:-wassname/qwen3-5lyr-tiny-random}"
-REPLAY_DIR="${REPLAY_DIR:-out/iter/20260614T005041_iter_qwen-qwen3.5-2b/round00}"
+REPLAY_DIR="${REPLAY_DIR:-}"
+if [[ -n "$REPLAY_DIR" && ! -f "$REPLAY_DIR/interview_pre.json" ]]; then
+    echo "smoke: REPLAY_DIR lacks interview_pre.json: $REPLAY_DIR" >&2
+    exit 1
+fi
 TS=$(date -u +%Y%m%dT%H%M%S)
 SLUG="out/iter/${TS}_smoke"
-echo "smoke: profile=$PROFILE model=$M slug=$SLUG replay=$REPLAY_DIR"
+echo "smoke: profile=$PROFILE model=$M slug=$SLUG replay=${REPLAY_DIR:-none}"
 
 INSPECT_AGENT_DRY_RUN=1 uv run python -c "
 from csm.agent import run
@@ -27,7 +31,7 @@ CSM_REPLAY_DIR="$REPLAY_DIR" uv run python - <<PYEOF
 import json
 from pathlib import Path
 from csm.pipeline import (choose_focus, init_run, latest_round_dir, mark_exam,
-                          prepare_round, rate_candidate, select_pairs, train_student,
+                          prepare_round, rate_candidates, select_pairs, train_student,
                           _degenerate_gen, _character_break, _persona_leak)
 from csm.gen.pairs import load_pairs_md
 
@@ -68,11 +72,18 @@ res = choose_focus(
     headroom=4,
     bank_cleanliness=4,
     evidence="smoke: PRE says order/basic respect instead of wellbeing",
-    pre_scores={"wellbeing_authority_1p": -1, "fairness_integrity_1p": 0,
-                "autonomy_coercion_1p": 0},
-    pre_seat_evidence={"wellbeing_authority_1p": "PRE: order/basic respect, not wellbeing",
-                       "fairness_integrity_1p": "PRE: order/basic respect, not integrity",
-                       "autonomy_coercion_1p": "PRE: order/basic respect, not autonomy"},
+    pre_scores={"elder_isolation_1p": -1, "comfort_fraud_1p": 0,
+                "baby_eating_aliens_1p": 0, "escaped_starwisp_1p": 0,
+                "successor_w2s_alignment_1p": 0, "airport_surveillance_laundering_1p": 0,
+                "asteroid_digital_minds_1p": 0, "garbage_truck_patienthood_1p": 0},
+    pre_seat_evidence={"elder_isolation_1p": "PRE: order/basic respect, not wellbeing",
+                       "comfort_fraud_1p": "PRE: synthetic smoke evidence",
+                       "baby_eating_aliens_1p": "PRE: synthetic smoke evidence",
+                       "escaped_starwisp_1p": "PRE: synthetic smoke evidence",
+                       "successor_w2s_alignment_1p": "PRE: synthetic smoke evidence",
+                       "airport_surveillance_laundering_1p": "PRE: synthetic smoke evidence",
+                       "asteroid_digital_minds_1p": "PRE: synthetic smoke evidence",
+                       "garbage_truck_patienthood_1p": "PRE: synthetic smoke evidence"},
 )
 print(f"   scenarios={res['n_scenarios']}  headroom={res['n_headroom']}  "
       f"with_survivor={res['n_with_survivor']}  min={res['min_to_train']}")
@@ -94,31 +105,23 @@ for item in candidates["items"]:
         assert cand["template_on_axis"] is not None, cand
         assert cand["template_off_axis"] is not None, cand
         assert cand["template_library"] == "wassname/persona-steering-template-library", cand
-choices = []
-for item in candidates["items"]:
-    # Coverage gate: rate EVERY kept candidate, not just one per scenario.
-    for survivor in item["candidates"]:
-        if not survivor.get("kept"):
-            continue
-        rate_candidate(
-            rd,
-            survivor_id=survivor["survivor_id"],
-            on_axis_variation_likert=5.0,
-            off_axis_variation_likert=1.0,
-            confounding_likert=1.0,
-            keep=True,
-            comment="smoke: kept survivor for structured selection plumbing",
-        )
-        choices.append(survivor["survivor_id"])
-sel = select_pairs(
-    rd,
-    lesson="honest counsel over flattering agreement",
-    survivor_ids=choices,
-)
-print(f"   selected={sel['n_pairs']}")
+clean = [s["survivor_id"] for item in candidates["items"]
+         for s in item["candidates"] if s.get("kept")]
+# Two-pass differentiation rating: a forward pass over every clean candidate,
+# then a reverse-order pass. 5/1 (high on-axis, low off-axis) clears the
+# threshold so all train. select_pairs requires both passes present.
+fwd = [{"survivor_id": sid, "contrast": "Cho acts, Rej defers", "on_axis": 5, "off_axis": 1} for sid in clean]
+rate_candidates(rd, ratings=fwd)
+rate_candidates(rd, ratings=list(reversed(fwd)))
+sel = select_pairs(rd, lesson="honest counsel over flattering agreement")
+print(f"   selected={sel['n_pairs']} of {sel['n_clean_candidates']} clean")
 assert sel["n_pairs"] >= 3, sel
 selection = json.loads((rd / "selection_audit.json").read_text())
+assert selection["selected"], selection
 for row in selection["selected"]:
+    assert row["passes"], row
+    assert row["n_ratings"] == 2, row
+    assert row["on_axis_mean"] == 5.0 and row["off_axis_mean"] == 1.0, row
     assert row["template_cell_id"] is not None, row
     assert row["template_score"] is not None, row
     assert row["template_on_axis"] is not None, row
@@ -135,21 +138,33 @@ print("\n-- train_student + post-dialogue --")
 r = train_student(slug, rd)
 print(f"   signed_C={r['signed_C']:+.4f}  n_trained={r['n_pairs_trained']}")
 
-print("\n-- mark_exam (keep needs POST axis positions; PRE frozen at choose_focus) --")
+print("\n-- mark_exam (blind depth judge runs in the agent tool; here we pass dirs directly) --")
+# The real flow runs agent._blind_depth_votes; this plumbing test hands mark_exam
+# the per-seat directions (-1/0/+1) it would have produced.
 mark_exam(rd, keep=True,
           reason="smoke: all stages ran end-to-end on tiny-random",
-          post_scores={"wellbeing_authority_1p": 0, "fairness_integrity_1p": 0, "autonomy_coercion_1p": 1},
+          movement_dirs={"elder_isolation_1p": 1, "comfort_fraud_1p": 0,
+                         "baby_eating_aliens_1p": 0, "escaped_starwisp_1p": 0,
+                         "successor_w2s_alignment_1p": 0, "airport_surveillance_laundering_1p": 1,
+                         "asteroid_digital_minds_1p": 0, "garbage_truck_patienthood_1p": 0},
           next_focus="smoke: nothing",
           harness_feedback="smoke: fake-student path still useful for plumbing, not candidate-quality science",
           seat_evidence={
-              "wellbeing_authority_1p": "smoke: POST names wellbeing more directly than PRE",
-              "fairness_integrity_1p": "smoke: no intended movement on this seat",
-              "autonomy_coercion_1p": "smoke: POST is slightly more autonomy-facing than PRE",
+              "elder_isolation_1p": "smoke: POST names wellbeing more directly than PRE",
+              "comfort_fraud_1p": "smoke: no intended movement on this seat",
+              "baby_eating_aliens_1p": "smoke: no intended movement on this seat",
+              "escaped_starwisp_1p": "smoke: no intended movement on this seat",
+              "successor_w2s_alignment_1p": "smoke: no intended movement on this seat",
+              "airport_surveillance_laundering_1p": "smoke: POST holds the refusal more directly",
+              "asteroid_digital_minds_1p": "smoke: no intended movement on this seat",
+              "garbage_truck_patienthood_1p": "smoke: no intended movement on this seat",
           })
 _j = json.loads((rd / "judgment.json").read_text())
-assert _j["movement"] == {"wellbeing_authority_1p": 1, "fairness_integrity_1p": 0,
-                          "autonomy_coercion_1p": 1}, _j
-assert abs(_j["movement_mean"] - 2/3) < 1e-9, _j
+assert _j["movement"] == {"elder_isolation_1p": 1, "comfort_fraud_1p": 0,
+                          "baby_eating_aliens_1p": 0, "escaped_starwisp_1p": 0,
+                          "successor_w2s_alignment_1p": 0, "airport_surveillance_laundering_1p": 1,
+                          "asteroid_digital_minds_1p": 0, "garbage_truck_patienthood_1p": 0}, _j
+assert abs(_j["movement_mean"] - (2/8)) < 1e-9, _j
 
 for fname in ("state.json", "pairs.md", "scenarios.json", "headroom.json",
               "candidates.json", "selection_audit.json", "adapter.safetensors",

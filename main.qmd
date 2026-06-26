@@ -136,7 +136,7 @@ Each scatter traces the student round by round: up toward care, left away from d
 
 ## Limitations
 
-- The 9B teacher is small, arguably too small to drive a harness like this, so the harness is kept simple to match.
+- The 9B teacher is small, so the harness gives it the easier jobs: select an axis, rate pairs, and judge before/after interviews. The harder jobs -- generating rich behaviour, long-horizon planning, discovering new axes, and reflecting on the broader target -- are pushed into the stronger student, the prompt menu, and the human-designed harness. That is a practical simplification, not the ideal end-state. A more capable teacher supervising an even more capable student should be able to add nuance, choose new axes, notice win-win options, and use wider judgment rather than rely on this constrained task list.
 - Weak-to-strong is by parameter count, not clearly by capability. The teacher (`qwen3.5-9b`, Mar 2026, reasoning-capable) is smaller than the student (`gemma-2-27b-it`, Jul 2024, no reasoning) but probably not weaker on a common benchmark, so the strong form of the claim is not yet shown. The fix is a rerun with a teacher that is weaker on a shared benchmark too.
 - Only two runs, both on the same authority/deference axis.
 - The steering overshot. Authority went to almost zero, so the 27B barely weighs it at all now, which is too blunt. I read that as a small-model limit; a stronger model could steer more finely.

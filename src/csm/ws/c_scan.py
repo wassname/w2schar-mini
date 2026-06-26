@@ -435,6 +435,8 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     else:
         warn = "hit MAX_PROBES"
 
+    # TODO(task-46): baked c collapses as adapters compose (job-120 r00 1.33 ->
+    # r01 0.40, kl~0.004). If it drops <0.2 with kl~0, later keeps are no-ops.
     final = sign * c * backoff
     trace.append({"stage": "final", "c": final, "note": f"backoff x{backoff}"})
 

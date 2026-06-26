@@ -42,3 +42,6 @@ post.md
 
 /.quarto/
 **/*.quarto_ipynb
+
+# pi agent scheduling/task state (local)
+.pi/
