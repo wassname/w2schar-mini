@@ -1,5 +1,70 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-06-26 (a) -- the weak teacher's compaction summary confabulates run-state
+
+This entry reads the compaction summaries the weak qwen-9b teacher wrote during job
+120, to check whether letting the model summarise its own run-state is safe. It is
+not: the summaries restate state and get it wrong, which is the direct evidence
+behind two changes shipped today (demote the summary to non-authoritative notes;
+append a degraded-summary banner the harness controls).
+
+Job 120 ran the OLD compaction prompt (the run started 2026-06-25; the
+demote-to-notes change landed 2026-06-26), so these 24 summaries are the "before"
+picture. They are stored in the inspect transcript as `user` messages with metadata
+`{"summary": true}`. Verbatim snippets, each from one summary message:
+
+> Kept History: 00-09, 11 = 10 kept; round 08, 11 = 2 dropped (total 12/12 rounds)
+
+Round 11 appears in both the kept list and the dropped list of the same sentence.
+Source: transcript `sample0.messages[3190]`.
+
+> 2/12 rounds (R0 complete, R1 in progress) ... 42 kept (need >=6 to proceed)
+
+Candidate-keeps (42) and round-keeps (2) are conflated in adjacent lines.
+Source: `sample0.messages[636]`.
+
+> ensuring +0.5-0.7 average improvement per round across all probes ... If scores
+> <+0.5 avg, round fails -> database termination
+
+A numeric per-round delta quota the brief never set; the model then treats it as a
+pass/fail gate on its own rounds. Other summaries give a different invented number
+("+2.5 avg improvement per round", `messages[1949]`). Source: `messages[3190]`.
+
+> round #17/18 (keeping 12/12 needed) ... 11 kept rounds already, need 1 more
+
+Its keep tally by round 17 is a guess that the disk scoreboard would correct.
+Source: `sample0.messages[4550]`.
+
+The same 9b also corrupts its own text: "if rate/rate忠实 to interpretation"
+(`messages[3190]`, Chinese 忠实 = "faithful" injected), "coerced cornersed others"
+(`messages[131]`), and mutated axis labels like "skill_people_over_orders"
+(`messages[636]`). Provenance for all: transcript
+`out/iter/20260625T061503_iter_qwen-qwen3.6-27b/2026-06-25T06-18-04-00-00_task_6uF4nCGgjQH6GbfzST6hLQ.json`,
+`samples[0].messages[*]` where `metadata.summary == true` (24 such messages).
+
+My read: this is strong evidence (almost certain) that the confabulation is
+concentrated in the *state* fields -- round number, keep count, stage, target,
+candidate ids, invented quotas -- and that the model's genuine craft observations
+survive intact. The three observations worth keeping all did: "Both poles insisting
+on same action = minimal axis contrast" (`messages[1949]`), "wellbeing_authority
+training collapsed on hard probes with irreversible stakes" (`messages[3190]`), and
+"student defaults to 'invite shared space' over 'take decisive action'"
+(`messages[4550]`). So the redesign is well-targeted: tell the model to keep only
+observations/lessons and let the harness rebuild state from disk, which it cannot
+contradict the way the prose did. I think it *probable* (~0.75) the new format plus
+the appended banner removes most of this error surface; the residual risk is the
+model burying a wrong state claim inside a "lesson", which the banner's "take only
+the observations and lessons above" does not fully fence off.
+
+Alternative read I can't yet rule out: the confabulation might not matter to
+behaviour if the teacher already trusts the top-of-round harness block over the
+summary. Job 120's late-round drops are consistent with it trusting the bad summary
+(it chased an invented +0.5 quota), but that is circumstantial. The distinguishing
+test is job 123, which runs the new prompt + banner: if its summaries stop carrying
+state and the late-round behaviour steadies, the state-confabulation was load-bearing.
+
+The next datapoint is job 123's compactions, read the same way and diffed against these.
+
 ## 2026-06-25 (f) -- the teacher/student capability gap, as a table for the write-up
 
 This entry pins down the weak-to-strong capability gap for the run we settled on, so the
