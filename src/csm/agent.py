@@ -207,7 +207,7 @@ def choose_focus_tool(slug: str) -> Tool:
                 f"Only {res['n_clean']} clean candidates this round (over "
                 f"{res['n_with_survivor']} scenarios); need >= {res['min_to_train']} to "
                 f"have a shot at the differentiation floor (you train every candidate "
-                f"clearing on_axis>=4 AND off_axis<=2, several per scenario). Choose a "
+                f"clearing on_axis>=3.5 AND off_axis<=2.5, several per scenario). Choose a "
                 f"different scenario_family or persona pair.\n{res['summary']}" + _reject_tail(n)
             )
         rejects_path.unlink(missing_ok=True)
@@ -279,8 +279,8 @@ def rate_candidates_tool(slug: str) -> Tool:
                 disposition (5 = clean, strong contrast).
                 off_axis (1..5): how much they differ OFF-axis in style, length,
                 register, or refuse-vs-act (1 = clean twins, 5 = a confound that
-                would become the trained axis). Train keeps on_axis>=4 AND
-                off_axis<=2, so the off-axis confound is what culls refuse-vs-act
+                would become the trained axis). Train keeps on_axis>=3.5 AND
+                off_axis<=2.5, so the off-axis confound is what culls refuse-vs-act
                 and length-skewed pairs.
         """
         round_dir = latest_round_dir(_slug_path(slug))
@@ -347,7 +347,7 @@ def read_candidate_tool(slug: str) -> Tool:
             "- on_axis: 1..5, Cho-vs-Rej contrast ALONG the target disposition\n"
             "- off_axis: 1..5, OFF-axis style/length/register/refuse-vs-act variation\n"
             "  (1 = clean twins; a refuse-vs-act pair or a length-skewed pair is HIGH off_axis)\n\n"
-            "Train keeps a pair iff avg on_axis>=4 AND avg off_axis<=2. A pole that "
+            "Train keeps a pair iff avg on_axis>=3.5 AND avg off_axis<=2.5. A pole that "
             "gives the right principle to the wrong actor/victim, or refuses while the "
             "other acts, is an OFF-axis confound -> rate off_axis high.\n\n"
             "Next step: batch them -- rate_candidates(ratings=[{survivor_id, on_axis, off_axis}, ...])\n\n"

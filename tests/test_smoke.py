@@ -360,7 +360,7 @@ def test_rate_candidate_records_weak_omit_without_rejecting(tmp_path):
     res = rate_candidates(rd, ratings=low)
     rate_candidates(rd, ratings=low)
     assert res["n_rated_once"] == 1
-    # It clears coverage (rated twice) but fails the on_axis>=4 threshold -> select fails.
+    # It clears coverage (rated twice) but fails the on_axis>=3.5 threshold -> select fails.
     with pytest.raises(Exception):
         select_pairs(rd, lesson="x")
 

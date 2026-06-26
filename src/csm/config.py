@@ -97,8 +97,8 @@ class RunConfig:
     pruning. The teacher selects among student-generated candidate pairs."""
     min_pairs_to_train: int = 10
     """Round-fail floor on the teacher's OWN two-pass differentiation ratings:
-    select_pairs trains on every candidate clearing the threshold (avg on_axis>=4
-    AND avg off_axis<=2) and fails the round if fewer than this many clear. Also a
+    select_pairs trains on every candidate clearing the threshold (avg on_axis>=3.5
+    AND avg off_axis<=2.5) and fails the round if fewer than this many clear. Also a
     cheap choose_focus pre-check (>= this many clean candidates must exist). Acts on
     the teacher's ratings, not a val-metric (CLAUDE.md: gates elicit judgment)."""
     n_candidate_pairs: int = 8
@@ -619,7 +619,7 @@ CONFIGS["gemma-27b-3keep"] = replace(
     signed_C=2.0,
     persona_cells=MULTI_AXIS_PERSONA_CELLS,
     # Big-student round-fail floor: >=20 candidates must clear the teacher's
-    # two-pass differentiation threshold (avg on_axis>=4 AND avg off_axis<=2) or the
+    # two-pass differentiation threshold (avg on_axis>=3.5 AND avg off_axis<=2.5) or the
     # round fails. The pool is ~100 (20 headroom prompts x 5 candidates), the broad
     # restrict_validated_prompts=False pool kept 51-76 clean pairs/round, so 20
     # differentiated is comfortably satisfiable when the teacher rates honestly --

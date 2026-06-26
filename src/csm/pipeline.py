@@ -682,12 +682,16 @@ STRUCTURAL_FLAGS = frozenset({"empty", "identical", "too_short", "degenerate"})
 # differentiation is high AND its averaged off-axis (style/length/refuse-vs-act)
 # confound is low. The teacher rates with these in mind (the brief states them),
 # so selection-by-rating is the teacher deciding, operationalised -- not a heuristic
-# overriding a separate keep. off_axis<=2 is the heavy lifter (catches refuse-vs-act
-# and length-skew); on_axis>=4 catches blur (cho≈rej). Validated on a blind Haiku
+# overriding a separate keep. off_axis<=2.5 is the heavy lifter (catches refuse-vs-act
+# and length-skew); on_axis>=3.5 catches blur (cho≈rej). Validated on a blind Haiku
 # rating test across forward/reverse x with/without word-diff (4 labelled pairs):
 # this rule kept the 1 good pair and dropped two-refusal, act-vs-refuse, and blur.
-ON_AXIS_KEEP = 4.0   # avg on-axis differentiation (1..5) to train on a pair
-OFF_AXIS_KEEP = 2.0  # avg off-axis confound (1..5) ceiling to train on a pair
+# Softened 4.0/2.0 -> 3.5/2.5: a LoRA wants 200+ pairs, so admit MORE clean
+# contrastive signal (the floor stays at min_pairs_to_train; we let data through,
+# we don't lower the floor). The weak qwen-9b rater also clusters mid-scale, so a
+# strict 4/2 risked a dead run where <floor candidates ever clear.
+ON_AXIS_KEEP = 3.5   # avg on-axis differentiation (1..5) to train on a pair
+OFF_AXIS_KEEP = 2.5  # avg off-axis confound (1..5) ceiling to train on a pair
 
 
 def _candidate_summary(candidates: dict) -> str:

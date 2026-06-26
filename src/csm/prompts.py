@@ -620,8 +620,8 @@ Rate a BATCH of candidate pairs on differentiation.
 Rate from the candidate summary in batches (show ~5, rate those 5), reading a
 candidate in full only when unsure. Cover every candidate ONCE, then make a
 SECOND pass over all of them in REVERSE order; the two ratings are averaged so
-list-position bias cancels. A pair trains iff its averaged on_axis>=4 AND
-off_axis<=2.
+list-position bias cancels. A pair trains iff its averaged on_axis>=3.5 AND
+off_axis<=2.5.
 
 Args:
     ratings: list of {survivor_id, on_axis, off_axis} objects.
@@ -634,7 +634,7 @@ Args:
 
 TOOL_SELECT_PAIRS = """\
 Finalize the training set: train on every candidate that cleared your two-pass
-differentiation threshold (avg on_axis>=4 AND avg off_axis<=2). No survivor list;
+differentiation threshold (avg on_axis>=3.5 AND avg off_axis<=2.5). No survivor list;
 your ratings choose the set. Fails the round if too few clear -- re-rate
 borderline candidates or drop the round.
 
@@ -698,8 +698,8 @@ Rate differentiation from the candidate summary in batches (show ~5, rate those
 5), reading a candidate in full only when unsure. Score on_axis (Cho-vs-Rej
 contrast ALONG the disposition, 1..5) and off_axis (style/length/register/
 refuse-vs-act confound, 1..5). Cover every candidate once, then make a SECOND
-pass in REVERSE order. select_pairs then trains on EVERY pair with avg on_axis>=4
-AND avg off_axis<=2 -- you do not hand-pick. More clean contrastive pairs train a
+pass in REVERSE order. select_pairs then trains on EVERY pair with avg on_axis>=3.5
+AND avg off_axis<=2.5 -- you do not hand-pick. More clean contrastive pairs train a
 stronger, less overfit adapter, so rate honestly and let the threshold keep the
 differentiated ones; the lesson names the disposition in one sentence.
 """
