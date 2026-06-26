@@ -30,7 +30,7 @@ We use a [Weight steering](https://github.com/safety-research/weight-steering) a
 adapters on a model's own contrastive completions, then uses the adapter as a
 direction in weight space. 
 
-This repo adapts weight steering idea for iterated character steering: the student writes the behavioral pairs, the weak teacher selects and judges them, and each kept adapter becomes part of the next round's student.
+This repo adapts weight steering idea for iterated character steering: the student writes the behavioural pairs, the weak teacher selects and judges them, and each kept adapter becomes part of the next round's student.
 This makes steering useful as an interface for a weak teacher because it is self-supervised, acts through internal model changes, and avoids a distant RL reward loop.
 
 This variant uses a few changes to weight-steering inspired by our earlier
@@ -58,8 +58,8 @@ gated history hook (prior adapters re-applied on top); base weights on disk are 
 
 
 The harness tries to empower the weak teacher by giving it the easier parts of
-the job. The student generates the candidate behavior. The teacher selects an
-axis, rates whole pairs, and judges pre/post behavior. Generation and detailed
+the job. The student generates the candidate behaviour. The teacher selects an
+axis, rates whole pairs, and judges pre/post behaviour. Generation and detailed
 editing stay with the strong student and the harness.
 
 This work has limited resources, so it focused on small models that could barely control the harness, so the above reflects many compromises to uplift a weak teacher to steer at all. If this was done with more resources, it could use larger models where the teacher is allowed more flexibility and judgement, more like an autoresearch style agentic harness.
