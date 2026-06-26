@@ -77,6 +77,15 @@ Task difficulty for a weak teacher, hardest -> easiest:
 
     generate  >  edit  >  rate  >  select/rank  >  bool
 
+No optional shortcut around the work -- a weak agent takes any out you give it.
+"Read in full only when unsure" becomes never-read; an optional inspection becomes
+skipped; a regex offered before reading becomes the whole "read". Force coverage:
+put the full content in front of it and require a judgement on every item (rate ALL
+candidates from their full text, none skipped; an auditor reads the log and builds
+the timeline itself before any grep, which is only an after-the-fact cross-check).
+An opt-out in a form is the tell that the form lets it be lazy -- remove the
+shortcut, do not trust the agent's discipline to decline it.
+
 A weak teacher may struggle to GENERATE or EDIT good content, but it can SELECT
 and RATE. So push its load toward the easy end:
 - The STUDENT (strong) does the GENERATE -- it writes both poles on-policy. The
