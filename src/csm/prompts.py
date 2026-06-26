@@ -719,6 +719,19 @@ Keep only durable lessons not stored on disk:
 Drop old transcripts and full pairs.
 """
 
+# Appended by the harness onto the weak model's compaction summary, so the teacher
+# reads it as degraded colour, not state. The model restates state even when told
+# not to (job 120's summaries misstated round/keep-count/target and invented a
+# per-round delta quota -- RJ 2026-06-26), so the instructions alone are not enough.
+COMPACTION_BANNER = """\
+
+---
+The summary above is a degraded reconstruction by the weak model, not the record.
+It may misstate the round, keep count, stage, target, or candidate ids, and may
+invent rules. The real state is the block the harness prints at the top of each
+round -- trust that, not this. Take only the observations and lessons above.
+"""
+
 
 def render_program_md(
     model: str = "google/gemma-2-2b-it",

@@ -37,7 +37,8 @@ from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           _P1_PROBE_IDS)
 from csm.prompts import (AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
                          AFTER_TRAIN,
-                         COMPACTION_INSTRUCTIONS, INITIAL_TASK,
+                         COMPACTION_BANNER, COMPACTION_INSTRUCTIONS,
+                         INITIAL_TASK,
                          ON_CONTINUE_NUDGE, PERSONA_MENU_HEADER,
                          PRE_DIALOGUE_INSTRUCTIONS, REACT_PROMPT,
                          TOOL_CHOOSE_FOCUS, TOOL_MARK_EXAM,
@@ -80,6 +81,13 @@ class EditThenSummary(CompactionStrategy):
         logger.info(f"compaction: edit->summary, edited={edited_tokens} tok > "
                     f"{self._edit_target}; weak-model summary (audit -- may "
                     f"confabulate):\n{summary_text}")
+        # Append a non-authoritative banner onto the summary the TEACHER reads, so
+        # it lands as degraded colour not state -- the model restates (and
+        # misstates) counts/round/ids despite COMPACTION_INSTRUCTIONS. Log above is
+        # the RAW summary (pre-banner) so an audit still sees what it confabulated.
+        for m in compacted:
+            if (m.metadata or {}).get("summary") and COMPACTION_BANNER not in m.text:
+                m.text = m.text + COMPACTION_BANNER
         return compacted, summary
 
 
