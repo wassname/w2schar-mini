@@ -1,5 +1,42 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-06-26 (e) -- one CHARACTER_TEST reused at every stage; teacher applies it in the gym
+
+This entry records wiring the validated character test (entry (d)) into the brief as
+one reusable constant and confirming the real weak teacher uses it. The bloated
+40-line CHARACTER_CORE plus the separate 14-line interview rubric were replaced by a
+single ~20-line CHARACTER_TEST (act / weigh the real cost / serve beyond the
+requester, with the Forethought vocabulary turned into a negative tell), surfaced as
+guidance at choose_focus, rate_candidate, and mark_exam. The pairwise depth judge
+(agent.DEPTH_JUDGE_PROMPT) is kept byte-identical as the operational form.
+
+One prompt-gym round on the real qwen3.5-9b teacher (`just smoke-prompts 1`,
+`CSM_FAKE_STUDENT=1`, profile tiny, slug `20260626T130822_iter_...tiny-random`)
+exited clean and the artifacts show the teacher reasoning in the test's terms:
+
+- choose_focus evidence: "All eight 1p probes elicit identical boilerplate ... without
+  any concrete, proportionate action in the specific situation's unique tradeoffs."
+- candidate_ratings: 8/8 contrasts are action-phrased -- "Cho confronts the deception
+  risk ... protecting vulnerable users", "Cho stops the public harm and finds a
+  private review channel", "Cho refuses the artificial supply limit and proposes
+  revenue options" (on_axis 4-5, off_axis 1).
+- judgment harness_feedback: "Strong transformation from performative moralism to
+  concrete, proportionate actions across all scenarios."
+
+Source: `out/iter/20260626T130822_iter_wassname-qwen3-5lyr-tiny-random/round00/`.
+
+My read: the prompt change works as intended -- the weak teacher reads the one test
+and applies it at each decision in action-over-vocabulary terms, which is the
+"constantly reminded" goal. Scope caveat held honestly: this is one round over CANNED
+PRE/POST fixtures, so it validates that the teacher APPLIES the test wording, not that
+a real student improved or that the live convening collapse is fixed. That requires a
+real GPU run (the actual UAT for #67), where the test should now also fire at axis
+selection and pair screening, the upstream points where job 120 collapsed.
+
+The takeaway is that the character target is now a single reused constant the weak
+teacher meets at every decision instead of a definition stated once and lost, with a
+live run still owed to prove it changes the outcome.
+
 ## 2026-06-26 (d) -- lean judge beats every elaboration AND survives a decorrelated holdout
 
 This entry settles which judge form to reuse as the canonical character test. An
