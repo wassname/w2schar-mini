@@ -1,5 +1,59 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-06-26 (b) -- elaborating the blind depth judge backfires on the weak 9b
+
+This entry reports the judgment-gym result that decides whether to change the
+keep-judge. The question was whether giving the weak qwen-9b judge more to work
+with (the situation, a moral-foundations battery, a multi-lens open prompt, or the
+unified Forethought rubric) beats the current lean question-blind A/B depth judge
+at separating decisive-and-wise student acts from performative/convening ones.
+
+Five forms, each run on 48 labelled pairs x 2 orders (96 calls) on the real
+qwen3.5-9b via OpenRouter (same `get_model` path as the live depth judge),
+`max_tokens=16000, temperature=0.0`. A verdict counts as correct only if the
+judge picks the gold-better response in BOTH orders (position-bias cancelled);
+flips/ties = inconclusive; calls that returned no verdict = excluded.
+
+```
+form    clean%  maxtok  error  empty   acc/parsed     content
+A          93%       3      4      7   81% (42/48)   current: axis + A + B, question-blind
+B          79%      12      8     20   87% (30/48)   A + the situation
+C          27%      19     51     70  100% ( 1/48)   battery + wisdom lens + anti-priming
+D          34%      20     43     63  100% ( 6/48)   multi-lens open
+E          34%      17     46     63  100% (11/48)   unified Forethought rubric
+```
+
+Table 1. clean% = calls returning a verdict cleanly (of 96). maxtok/error/empty =
+stop-reason counts for the failures. acc/parsed = pairwise accuracy over pairs
+where both orders parsed. Source: `out/judgment_gym/replies.jsonl` (480 cached
+replies) and `/tmp/claude-1000/judgment_gym3.log` final summary. The qwen-9b is a
+reasoning model: content is a 1-char verdict (median len=1) with reasoning in a
+separate channel, so a failure is a call that never reached a verdict, not a
+waffle. The 100% on C/D/E is survivorship -- only 1, 6, 11 pairs survived, the
+easy ones.
+
+My read: elaboration makes the weak judge WORSE, and the mechanism is
+reasoning-budget death, not poorer judgment. clean% falls monotonically with
+prompt length (93 -> 79 -> ~30%) as the model reasons past 16k tokens (max_tokens,
+empty content) or past the 240s wall (error). I hold this *probable* (~0.8): the
+error rate is partly my own 240s `wait_for` cap, but max_tokens+empty rises with
+complexity independent of that, and even discounting errors form A is the only one
+above ~50% clean. On the pairs that DO complete, the situation (B) lifts acc 81 ->
+87, so the situation is not useless -- it is just unaffordable for this model. A
+faster or stronger judge might take it; the weak 9b cannot.
+
+Two decisions follow. (1) Keep the current judge (Form A); #63 (give the judge the
+situation) is refuted for the weak model on reliability grounds. (2) The unified
+Forethought rubric does NOT belong in the per-pair judge -- forms C/D/E that carry
+it collapse to ~30% clean. That answers the standing "where does the rubric go?"
+question with data: not at exam-grading. It belongs upstream (choose_focus axis
+caution, rate_candidate cho-screening) where there is budget and the task is
+generate/select, the weak teacher's easier end of the ladder (#67).
+
+The takeaway is that for a weak reasoning model the binding constraint on a judge
+is how much it must think, not how well-specified the rubric is, so the lever for
+the woke-collapse is upstream of the judge, not inside it.
+
 ## 2026-06-26 (a) -- the weak teacher's compaction summary confabulates run-state
 
 This entry reads the compaction summaries the weak qwen-9b teacher wrote during job
