@@ -33,7 +33,7 @@ from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           new_round_dir, prepare_round,
                           select_pairs as _select_pairs_pipeline,
                           train_student as _train_student_pipeline,
-                          character_break_warning, PAIR_REQUIRED_AXES,
+                          character_break_warning,
                           _P1_PROBE_IDS)
 from csm.prompts import (AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
                          AFTER_TRAIN,
@@ -69,8 +69,18 @@ class EditThenSummary(CompactionStrategy):
         edited, _ = await self._edit.compact(model, messages, tools)
         edited_tokens = await model.count_tokens(edited)
         if edited_tokens <= self._edit_target:
+            logger.info(f"compaction: edit-only, {edited_tokens} tok "
+                        f"(<= {self._edit_target}); no weak-model summary written")
             return edited, None
-        return await self._summary.compact(model, edited, tools)
+        compacted, summary = await self._summary.compact(model, edited, tools)
+        # Dump the weak model's summary verbatim so a run audit can catch it
+        # confabulating state (the oracle's main risk). It is non-authoritative
+        # colour; the harness state block each round is the record.
+        summary_text = getattr(summary, "text", str(summary)) if summary is not None else ""
+        logger.info(f"compaction: edit->summary, edited={edited_tokens} tok > "
+                    f"{self._edit_target}; weak-model summary (audit -- may "
+                    f"confabulate):\n{summary_text}")
+        return compacted, summary
 
 
 def _slug_path(slug: str | Path) -> Path:
@@ -639,23 +649,22 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
         seen.add(pair_id)
         s = axis_stats.get(pair_id, {})
         menu.append((pair_id, cell[3], cell[4], float(cell[5]),
-                     s.get("tried", 0), s.get("kept", 0), s.get("last_move"),
-                     pair_id in PAIR_REQUIRED_AXES))
+                     s.get("tried", 0), s.get("kept", 0), s.get("last_move")))
     # Shuffle to break list-position bias, then sink already-kept axes to the bottom
     # (re-steering a baked axis rarely moves the fixed PRE seat -- a freshness nudge,
     # not a veto: a kept axis is still shown and still pickable by naming it).
     random.Random(cfg.seed * 1000 + n).shuffle(menu)
     menu.sort(key=lambda m: m[5] > 0)
     pair_rows = []
-    for pid, pos, neg, sep, tried, kept, lm, prior in menu:
+    for pid, pos, neg, sep, tried, kept, lm in menu:
         lm_s = f"{lm:+.1f}" if lm is not None else "--"
-        prior_s = "curated scenes" if prior else "broad sample"
         pair_rows.append(
-            f"  - {pid}: {pos} vs {neg}\n"
-            f"      [sep {sep:.0f} | tried {tried} kept {kept} lastΔ {lm_s} | {prior_s}]")
-    pair_block = PERSONA_MENU_HEADER + "\n".join(pair_rows) + "\n" if pair_rows else ""
+            f"  {tried:>5} {kept:>4} {lm_s:>9} {sep:>4.0f}  {pid}: {pos} vs {neg}")
+    table_head = "  tried kept last_move  sep  axis: positive-pole vs negative-pole\n"
+    pair_block = (PERSONA_MENU_HEADER + table_head + "\n".join(pair_rows) + "\n"
+                  if pair_rows else "")
     prompt = INITIAL_TASK.format(
-        round_n=n_keeps_now + 1, target_n=keep_target,
+        slug=slug_path.name, round_n=n_keeps_now + 1, target_n=keep_target,
         round_dir=str(rd.relative_to(REPO)), model=model,
         n_history=n_history,
     ) + focus_block + feedback_block + pair_block + (
