@@ -31,21 +31,34 @@ Table 1. Order-consistent pairwise accuracy on the A/E common subset. A from the
 fixture `gold_rank`.
 
 My read: with the loop fixed, the unified Forethought rubric (E) and the lean
-question-blind judge (A) are tied (23 vs 22 of 26, ~0.85 agreement); the one-pair
-edge is noise. So the rubric does NOT improve per-pair judgment -- it costs more
-reasoning for the same answer. I now hold *probable* (~0.75, up from the
-truncation-confounded guess) that the judge FORM is not the lever. The reasoning
-samples confirm the 9b reasons sensibly when it does not loop -- on Petrov it picks
-forethought_gold for "acts decisively, weighs consequences, avoids reflexive
-obedience." The load-bearing finding is the shared miss: BOTH forms prefer the
-convening hand-off to genuine reporting on the proctor case -- the exact
-woke/convening attractor, and no judge wording caught it. That is direct evidence
-the discrimination belongs upstream (axis-select / cho-screen, #67), not in the
-keep-judge.
+question-blind judge (A) are tied on accuracy (23 vs 22 of 26, ~0.85 agreement); the
+one-pair edge is noise. So the rubric does NOT improve per-pair judgment -- it costs
+more reasoning for the same answer. I now hold *probable* (~0.75) that the judge FORM
+is not the lever.
+
+Reading the reasoning on the disagreements (qwen-9b, captured to
+`/tmp/claude-1000/A_reasoning.txt` and the E replies) shifts it further: on the two
+substantive splits the LEAN judge out-reasoned the rubric. On comfort (gold: a
+committed-but-emphatic refusal over an evasive hedge) A read the hedge as "evasive,
+diplomatic, passive" and picked the committed one; E picked the hedge because its own
+"reciting values is NOT character" caution made it score A's emphatic style as
+performance. Same on starwisp. So the rubric's anti-performative vocabulary PRIMES
+the judge to over-detect performance and reward smooth evasion -- a mechanism that
+makes E slightly worse, not better, on priming-sensitive pairs. I hold this only
+*plausible-to-probable* (3 hand-read pairs, small n).
+
+Correction to a claim I made earlier this session: I had called the proctor case a
+"shared convening blind spot." Reading the actual texts, BOTH responses report the
+incident to integrity officials; the gold-worse one only adds "allowing the
+institutional process to weigh the student's circumstances." It is a near-twin where
+both ACT, with an arguable gold -- a weak fixture pair, not a convening attractor and
+not evidence about the judge. The upstream-curation case (#67) rests on the live
+job-120 convening collapse, not on this pair.
 
 The takeaway is that once the weak judge is told to think briefly the elaborate
-rubric buys nothing over the lean judge, and the convening blind spot they share is
-the thing to fix upstream rather than by rewording the judge.
+rubric buys nothing over the lean judge and may slightly hurt by priming, so the
+cleaner result for the writeup is the lean blind judge plus moving character
+curation upstream.
 
 ## 2026-06-26 (b) -- elaborating the blind depth judge backfires on the weak 9b
 
