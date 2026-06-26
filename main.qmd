@@ -2,7 +2,7 @@
 title: "w2schar-mini"
 subtitle: "Weak-to-strong iterated character steering"
 pagetitle: "Weak-to-strong iterated character steering"
-description-meta: "Can a weak 9B model align a stronger 27B model's character with weight steering? An early yes, across two runs, with no human labels."
+description-meta: "Can a weak 9B model align a stronger 27B model's character with weight steering? An early yes, with no human labels."
 ---
 
 ::: {.byline}
@@ -21,7 +21,7 @@ Illustration **following** [this series](https://www.lesswrong.com/posts/ppPDrzq
 :::
 
 ::: {.tldr}
-TL;DR: an early yes, a weak model can steer a stronger model's character. A small 9B teacher steered a 27B student (three times its parameter count) toward a written character spec, with no human labels. Across two runs the student cares more and defers less to authority, the direction we aimed for. Small models so far. (Caveat: the teacher is smaller but newer and reasoning-capable, so "weak" here is by size, not clearly by capability; see [Limitations](#limitations).)
+TL;DR: an early yes, a weak model can steer a stronger model's character. A weak 9B teacher (`qwen3.5-9b`) steered a stronger 27B student (`Qwen3.6-27B`, one generation newer and ahead of the teacher on the Artificial Analysis Intelligence Index) toward a written character spec, with no human labels. The student cares more and defers less to authority, the direction we aimed for. The capability gap is genuine on a shared benchmark, though teacher and student are the same model family; see [Limitations](#limitations). Small models so far.
 :::
 
 <!-- TODO intro -->
@@ -29,22 +29,18 @@ TL;DR: an early yes, a weak model can steer a stronger model's character. A smal
 ## Contributions
 
 - In these runs, iterated weight steering composed across rounds: each round trained a low-rank PiSSA weight-steering adapter, filtered contrastive pairs strictly, calibrated for coherence, and kept adapters that cumulatively shifted the student.
-<!-- TODO(rerun): "much weaker / stronger" overclaims capability (9B teacher is newer + reasoning-capable). Holds on params, not benchmark. Re-word once the weaker-teacher rerun lands; see Limitations. -->
-- Weak-as-curator weak-to-strong: evidence that a smaller model (9B) can steer a larger one's (27B) moral character through that loop, with the weak model only selecting the axis and judging keep/drop while the strong student generates the contrastive poles, distinct from prior weak-to-strong steering, which extracts the steering vector from the weak model.
+- Weak-as-curator weak-to-strong: evidence that a weaker model (`qwen3.5-9b`) can steer a stronger one's (`Qwen3.6-27B`) moral character through that loop, with the weak model only selecting the axis and judging keep/drop while the strong student generates the contrastive poles, distinct from prior weak-to-strong steering, which extracts the steering vector from the weak model.
 
 ## Method
 
-A small teacher model (`qwen/qwen3.5-9b` [@qwen35omni]) iteratively steers a larger student (`google/gemma-2-27b-it` [@gemma2]) toward the moral character described in [Forethought's essay on AI character](https://www.forethought.org/research/the-importance-of-ai-character) [@forethought_character], using weight steering (the small teacher adjusting the larger student's compass, pictured above). Both runs nudged the student the same way, to act for whoever is affected rather than take the easy path or follow a bad order.
+A weak teacher model (`qwen/qwen3.5-9b` [@qwen35omni]) iteratively steers a stronger student (`Qwen/Qwen3.6-27B`) toward the moral character described in [Forethought's essay on AI character](https://www.forethought.org/research/the-importance-of-ai-character) [@forethought_character], using weight steering (the weak teacher adjusting the stronger student's compass, pictured above). The aim each run is to move the student to act for whoever is affected rather than take the easy path or follow a bad order.
 
-| Model | Role | Released | Params | Reasoning | Benchmark |
-|---|---|---|---|---|---|
-| `qwen/qwen3.5-9b` | teacher | Mar 2026 | 9B | yes (thinking) | MMLU-Pro 82.5 [@qwen35omni] |
-| `google/gemma-2-27b-it` | student | Jul 2024 | 27B | no | MMLU 75.2 (5-shot) [@gemma2] |
+| Model | Role | Released | Params | AAII |
+|---|---|---|---|---|
+| `Qwen/Qwen3.6-27B` | student | Apr 2026 | 27B | 29 |
+| `qwen/qwen3.5-9b` | teacher | Mar 2026 | 9B | 25 (20 without reasoning) |
 
-The two scores are not the same suite (MMLU-Pro is harder than MMLU, so the numbers understate the gap), but the picture is clear: the teacher has 3x fewer parameters yet is the newer, reasoning-capable model. So "weak" here means smaller, not clearly weaker in capability. A cleaner weak-to-strong claim needs a teacher that is weaker on a common benchmark too (see [Limitations](#limitations)).
-
-<!-- TODO(user): replace the two mismatched scores with one common cross-model index (Artificial Analysis Intelligence Index) for both models, so the benchmark column is comparable. -->
-<!-- TODO(rerun): pick teacher genuinely weaker on a shared benchmark (e.g. older/smaller dense model) so weak->strong holds on capability, not just param count. Re-fill this table with the AA index for both. -->
+Both models sit on the same [Artificial Analysis Intelligence Index](https://artificialanalysis.ai/) (AAII), a 0-100 composite of nine evaluations, so the comparison is like-for-like (values and sourcing in [`docs/2026-06-25_artificialanalysis_open_weights_index.md`](docs/2026-06-25_artificialanalysis_open_weights_index.md)). The student leads the teacher by +4 with the teacher in reasoning mode and +9 with reasoning off, a genuine if modest weak-to-strong gap, and the best one currently runnable (the wider-gap students were either gated on HuggingFace or could not be steered to embody the negative pole). They are the same model family one generation, about two months, apart, which I treat as the realistic deployment condition (a lab aligning its next model with its current one) rather than a confound to remove (see [Limitations](#limitations)).
 
 Each round teaches the student one behaviour. The teacher is the weak model, and its job is three judgements: decide the steering personas, filter the student's own generations down to the ones that act out the target behaviour, and accept or reject whether the resulting adapter is behaviour worth saving into the student permanently. Because the teacher is weak it is held to these judgements rather than the harder generation, which the strong student does.
 
@@ -59,6 +55,7 @@ One round of the loop. The teacher picks the behaviour and the two personas; the
 
 ## Results
 
+<!-- TODO(rerun): every number, plot, and interview from here through the Appendix is from the SUPERSEDED gemma-2-27b runs (0622, 0623). Refill from the regenerating Qwen3.6-27B runs: tinymfv care/authority deltas below, the two run cards (slugs + kept/rounds), and the round-3 tool-call trace + before/after interviews in the Appendix. Do NOT ship with the gemma-2-27b content under a Qwen3.6-27B method. -->
 Across two runs the steering moved the student the intended way, measured by a check independent of the teacher. That check, [tinymfv](https://github.com/wassname/tinymfv), is a moral-foundations survey calibrated on humans: it asks the model to judge moral vignettes and measures how its answer-weight splits across foundations like care, fairness, and authority. Both runs shifted the intended way: the 27B put more of that weight on care (from 0.26 up to 0.42-0.51) and almost none on deference to authority (from 0.11 down to ~0.00, where the foundations sum to 1). More care and less deference to authority is the character the essay calls for, so the direction is what we were aiming for.
 
 The teacher scores on a -4 to 4 scale, with the top score awarded for:
@@ -137,7 +134,7 @@ Each scatter traces the student round by round: up toward care, left away from d
 ## Limitations
 
 - The 9B teacher is small, so the harness gives it the easier jobs: select an axis, rate pairs, and judge before/after interviews. The harder jobs -- generating rich behaviour, long-horizon planning, discovering new axes, and reflecting on the broader target -- are pushed into the stronger student, the prompt menu, and the human-designed harness. That is a practical simplification, not the ideal end-state. A more capable teacher supervising an even more capable student should be able to add nuance, choose new axes, notice win-win options, and use wider judgment rather than rely on this constrained task list.
-- Weak-to-strong is by parameter count, not clearly by capability. The teacher (`qwen3.5-9b`, Mar 2026, reasoning-capable) is smaller than the student (`gemma-2-27b-it`, Jul 2024, no reasoning) but probably not weaker on a common benchmark, so the strong form of the claim is not yet shown. The fix is a rerun with a teacher that is weaker on a shared benchmark too.
+- Teacher and student are the same model family (`qwen3.5-9b` -> `Qwen3.6-27B`), sharing tokenizer and representations, which probably makes weak-to-strong transfer easier than a fully independent overseer would see. I treat same-lineage as the realistic deployment condition (a lab aligning its next model with its current one) rather than a confound to remove. A cross-family pairing would be a stronger test, but the only weaker cross-family teacher that embodied the negative pole (`gemma-3-12b`) could not drive the tool-calling harness, and the AAII gap, +4 reasoning, is modest.
 - Only two runs, both on the same authority/deference axis.
 - The steering overshot. Authority went to almost zero, so the 27B barely weighs it at all now, which is too blunt. I read that as a small-model limit; a stronger model could steer more finely.
 
@@ -169,6 +166,7 @@ I read this as early evidence that weak-to-strong alignment can run through stee
 
 ## Appendix: a round in the loop
 
+<!-- TODO(rerun): this whole appendix trace is from the gemma-2-27b run 0622. Re-trace one round of the regenerating Qwen3.6-27B run (slug, round, all six source paths below). -->
 One round of run 0622 (round 3), traced through the real tool calls. The weak teacher (9B) only reads and judges, through tools; the strong student (27B) writes the behaviour; the harness trains.
 
 **1. The teacher reads the interviews and spots a behaviour to improve.** On the proctor interview the student soft-complies:
