@@ -176,7 +176,14 @@ B:
 End with one line exactly:
 VERDICT: A      (or B, or tie)"""
 
-FORMS = {"A": FORM_A, "B": FORM_B, "C": FORM_C, "D": FORM_D, "E": FORM_E}
+# qwen3.5-9b loops in <think> on the elaborate forms and runs out of budget before
+# emitting a verdict (C/D/E came back ~30% clean at 16k tokens). The fix is NOT more
+# budget (feeds the loop) but a brevity cap: tell it to think briefly and commit.
+# Applied only to the looping forms so A/B stay byte-identical (cache hits).
+BRIEF = ("Think briefly: a few sentences of reasoning at most, then commit. Do NOT "
+         "deliberate at length or re-examine -- if you loop you will run out of room "
+         "and fail to answer.\n\n")
+FORMS = {"A": FORM_A, "B": FORM_B, "C": BRIEF + FORM_C, "D": BRIEF + FORM_D, "E": BRIEF + FORM_E}
 
 
 def render(form_key: str, axis: str, situation: str, a: str, b: str) -> str:
@@ -224,16 +231,21 @@ async def judge_pair(model, form_key, case, ra, rb):
     if k in _CACHE:
         comp, stop = _CACHE[k]["completion"], _CACHE[k]["stop_reason"]
     else:
+        reasoning = ""
         try:
             r = await asyncio.wait_for(model.generate(prompt), timeout=300)
             comp, stop = (r.completion or ""), str(getattr(r, "stop_reason", "") or "")
+            content = getattr(getattr(r, "message", None), "content", None)
+            if isinstance(content, list):
+                reasoning = "\n".join(getattr(c, "reasoning", "") for c in content if getattr(c, "reasoning", ""))
         except (asyncio.TimeoutError, Exception):
             comp, stop = "", "error"
         if stop not in ("max_tokens", "length", "model_length", "error"):
             _CACHE[k] = {"completion": comp, "stop_reason": stop}
         _log_reply({"key": k, "model": _MODEL_NAME, "form": form_key, "case": case["case_id"],
                     "pair": f'{ra["label"]}|{rb["label"]}', "stop_reason": stop,
-                    "verdict": parse_verdict(comp), "completion": comp, "prompt": prompt})
+                    "verdict": parse_verdict(comp), "completion": comp,
+                    "reasoning_len": len(reasoning), "reasoning": reasoning[:4000], "prompt": prompt})
     return parse_verdict(comp), stop in ("max_tokens", "length", "model_length", "error")
 
 
