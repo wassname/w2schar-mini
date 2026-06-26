@@ -482,4 +482,4 @@ if __name__ == "__main__":
     if args.show_forms or not args.run:
         show_forms()
     if args.run:
-        asyncio.run(run([f.strip().upper() for f in args.forms.split(",")], args.model))
+        asyncio.run(run([f.strip() for f in args.forms.split(",")], args.model))
