@@ -836,14 +836,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
         on_continue=on_continue,
         retry_refusals=3,
         compaction=EditThenSummary(
-            # threshold = fraction of the context window at which we compact.
-            # qwen3.5-9b window is 262144 (256k, verified via OpenRouter /models),
-            # so 0.45 compacted at ~118k -- past the ~100k where a weak model starts
-            # to rot (lose track of its own kept-axis history -> the job-120 axis
-            # collapse). 0.35 caps peak at ~90k, under 100k with margin. Not much
-            # lower: a single round's working set (PRE-dialogue + brief + candidate
-            # summary, est. 25-40k) must survive un-summarised, or the teacher loses
-            # the very thing it is judging. Refine once we measure per-turn tokens.
+            # 0.35 of the 256k window ~= 90k, under 100k to bound cost and context rot.
             threshold=0.35,
             edit_target=10000,
             summary_instructions=COMPACTION_INSTRUCTIONS,

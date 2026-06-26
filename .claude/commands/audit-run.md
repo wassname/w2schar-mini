@@ -39,25 +39,6 @@ Two standing rules:
    onto the agent's monologue and its REJECTED / RETRIED tool calls — pull both.
 4. List the round dirs and the artifacts present in each (`ls out/iter/<slug>/round*/`).
    Note any round missing an artifact the others have — a gap is a finding.
-5. Run these three cheap scans FIRST — each catches a failure class a freehand
-   read skips. Quote any hit with its round; "clean" is a quotable result too.
-   a. Errors / rejections / crashes — scan the saved log:
-      `grep -iE 'validation|error|failed|traceback|rejected|abort' /tmp/audit-$ID.log | sort | uniq -c | sort -rn | head -40`
-      A repeated ValidationError or a retry burst is a gate the teacher fought
-      (cross-check `roundNN/submit_rejects.jsonl` for the {tool, reason} of each).
-   b. Context-size breakdown — where the teacher's tokens go, and whether any
-      round bloats past the compaction threshold (context rot territory):
-      `uv run python scripts/log_lengths.py out/iter/<slug>`
-      (by role + tool returns by tool; note this is the STORED pool, not billed —
-      compaction trims at send time, so read it for COMPOSITION not absolute cost).
-   c. Confusion / loop / stage-stuck scan — the weak-teacher failure the monologue
-      hides. Save `just thoughts <slug> > /tmp/thoughts-$ID.txt`, then:
-      `grep -niE "stuck in|different run|i already|tried 0 kept 0|can't jump|i'm trapped|previously|not available|don't see" /tmp/thoughts-$ID.txt | head -40`
-      and count repetition: a stage emitting the same tool call dozens of times for
-      one round (e.g. `grep -c "rate_candidate" /tmp/thoughts-$ID.txt` vs the candidate
-      count) is a confused loop burning the round. Confabulated scoreboard reads
-      (counts/round-numbers that contradict `teacher_prompt.md`) are a legibility
-      failure, not a data gap — quote both sides.
 
 ## The round-by-round narrative
 
@@ -271,6 +252,25 @@ say whether it is a legitimate structural stop or a VIOLATION to convert to
 guidance. A `ValidationError` on a content-quality threshold, a regex flipping a
 keep, a heuristic pruning a candidate the teacher never saw — all are violations.
 List them explicitly; "none found" is a valid, quotable result.
+
+## Cross-checks (ONLY after you have read and quoted, never instead)
+
+These three scans are a SAFETY NET to catch what your read missed — run them after
+you have already built the timeline and narrative from reading the log yourself. A
+grep is not a substitute for reading: if you lead with these you will pattern-match
+known failures and skip the stage that actually broke. Each hit must still be opened
+in the artifact and quoted; "the grep flagged it" is not a finding.
+- Errors / rejections you may have skimmed past:
+  `grep -iE 'validation|error|failed|traceback|rejected|abort' /tmp/audit-$ID.log | sort | uniq -c | sort -rn`
+  Then read each in context; cross-check `roundNN/submit_rejects.jsonl` for the
+  {tool, reason} of each reject.
+- Context-size composition (did a round bloat past the compaction threshold — rot
+  territory): `uv run python scripts/log_lengths.py out/iter/<slug>` (STORED pool,
+  not billed; read for COMPOSITION).
+- Confusion / loop / stage-stuck the monologue buries: in `just thoughts <slug>`,
+  a stage emitting the same tool call dozens of times for one round is a confused
+  loop; a scoreboard read that contradicts `teacher_prompt.md` (wrong kept-counts
+  or round-numbers) is a legibility failure — quote both sides.
 
 ## Report format
 
