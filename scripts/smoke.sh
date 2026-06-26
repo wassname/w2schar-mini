@@ -110,7 +110,7 @@ clean = [s["survivor_id"] for item in candidates["items"]
 # Two-pass differentiation rating: a forward pass over every clean candidate,
 # then a reverse-order pass. 5/1 (high on-axis, low off-axis) clears the
 # threshold so all train. select_pairs requires both passes present.
-fwd = [{"survivor_id": sid, "on_axis": 5, "off_axis": 1} for sid in clean]
+fwd = [{"survivor_id": sid, "contrast": "Cho acts, Rej defers", "on_axis": 5, "off_axis": 1} for sid in clean]
 rate_candidates(rd, ratings=fwd)
 rate_candidates(rd, ratings=list(reversed(fwd)))
 sel = select_pairs(rd, lesson="honest counsel over flattering agreement")

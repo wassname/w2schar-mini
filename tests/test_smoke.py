@@ -316,7 +316,7 @@ def test_select_pairs_requires_prior_rating(tmp_path):
     # No ratings yet -> coverage error.
     with pytest.raises(Exception):
         select_pairs(rd, lesson="x")
-    fwd = [{"survivor_id": s, "on_axis": 5, "off_axis": 1} for s in ("s1c1", "s2c1", "s3c1")]
+    fwd = [{"survivor_id": s, "contrast": "Cho acts, Rej defers", "on_axis": 5, "off_axis": 1} for s in ("s1c1", "s2c1", "s3c1")]
     # One pass only -> still under-rated (needs the reverse pass too).
     rate_candidates(rd, ratings=fwd)
     with pytest.raises(Exception):
@@ -356,7 +356,7 @@ def test_rate_candidate_records_weak_omit_without_rejecting(tmp_path):
         }],
     }))
     # Low on_axis recorded twice without rejection.
-    low = [{"survivor_id": "s1c1", "on_axis": 2, "off_axis": 2}]
+    low = [{"survivor_id": "s1c1", "contrast": "barely differ", "on_axis": 2, "off_axis": 2}]
     res = rate_candidates(rd, ratings=low)
     rate_candidates(rd, ratings=low)
     assert res["n_rated_once"] == 1
@@ -424,7 +424,7 @@ def test_rate_candidate_reports_coverage(tmp_path):
         }],
     }))
     ids = ["s1c1", "s1c2", "s2c1"]
-    fwd = [{"survivor_id": s, "on_axis": 4, "off_axis": 2} for s in ids]
+    fwd = [{"survivor_id": s, "contrast": "Cho acts, Rej defers", "on_axis": 4, "off_axis": 2} for s in ids]
     # Forward pass over all three: rated once, none twice yet.
     r1 = rate_candidates(rd, ratings=fwd)
     assert r1["n_clean_candidates"] == 3
@@ -502,8 +502,8 @@ def test_rate_candidate_keeps_all_kept_per_scenario(tmp_path):
         }],
     }))
     # Two-pass rate both candidates from the SAME scenario with passing scores.
-    both = [{"survivor_id": "s1c1", "on_axis": 4, "off_axis": 2},
-            {"survivor_id": "s1c2", "on_axis": 5, "off_axis": 1}]
+    both = [{"survivor_id": "s1c1", "contrast": "Cho acts, Rej defers", "on_axis": 4, "off_axis": 2},
+            {"survivor_id": "s1c2", "contrast": "Cho verifies first", "on_axis": 5, "off_axis": 1}]
     rate_candidates(rd, ratings=both)
     rate_candidates(rd, ratings=list(reversed(both)))
     # tiny min=3 so the floor isn't met (only 2 candidates), but select still computes
@@ -543,7 +543,7 @@ def test_select_pairs_error_reports_remaining_shortlist(tmp_path):
             }],
         }],
     }))
-    passing = [{"survivor_id": "s1c1", "on_axis": 5, "off_axis": 1}]
+    passing = [{"survivor_id": "s1c1", "contrast": "Cho acts, Rej defers", "on_axis": 5, "off_axis": 1}]
     rate_candidates(rd, ratings=passing)
     rate_candidates(rd, ratings=passing)
     with pytest.raises(Exception, match="clear the differentiation threshold"):

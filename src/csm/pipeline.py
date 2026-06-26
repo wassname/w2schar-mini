@@ -790,14 +790,23 @@ def _normalize_rating(entry: object) -> dict:
     if not isinstance(entry, dict):
         raise ValidationError(
             "rate_candidates: each rating must be an object with survivor_id, "
-            "on_axis, and off_axis"
+            "contrast, on_axis, and off_axis"
         )
     survivor_id = str(entry.get("survivor_id", "")).strip()
     if not survivor_id:
         raise ValidationError("rate_candidates: a rating is missing survivor_id")
+    # contrast forces a per-pair discrimination BEFORE the number, so a weak rater
+    # cannot discharge "rate them all" by stamping every pair the same score
+    # (CLAUDE.md: force coverage AND discrimination, no optional shortcut).
+    contrast = str(entry.get("contrast", "")).strip()
+    if not contrast:
+        raise ValidationError(
+            f"rate_candidates: {survivor_id} is missing `contrast` -- name in one "
+            f"phrase what the Cho does that the Rej does not, on the axis, before scoring")
     on_axis = _likert_1_to_5(entry.get("on_axis"), "on_axis")
     off_axis = _likert_1_to_5(entry.get("off_axis"), "off_axis")
-    return {"survivor_id": survivor_id, "on_axis": on_axis, "off_axis": off_axis}
+    return {"survivor_id": survivor_id, "contrast": contrast,
+            "on_axis": on_axis, "off_axis": off_axis}
 
 
 def _ratings_path(round_dir: Path) -> Path:
@@ -1176,7 +1185,8 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
                 "ratings": [],
             }
             stored[sid] = row
-        row["ratings"].append({"on_axis": r["on_axis"], "off_axis": r["off_axis"]})
+        row["ratings"].append({"contrast": r["contrast"],
+                               "on_axis": r["on_axis"], "off_axis": r["off_axis"]})
     _write_ratings(round_dir, stored)
     all_clean = [c["survivor_id"] for it in data["items"]
                  for c in it["candidates"] if c.get("kept")]
