@@ -204,10 +204,11 @@ def choose_focus_tool(slug: str) -> Tool:
         if not res["enough"]:
             n = _bump_reject(rejects_path)
             return (
-                f"Only {res['n_with_survivor']} scenarios have at least one surviving "
-                f"candidate, so the teacher can select at most {res['n_with_survivor']} "
-                f"pairs this round; need ≥{res['min_to_train']}. Choose a different "
-                f"scenario_family or persona pair.\n{res['summary']}" + _reject_tail(n)
+                f"Only {res['n_clean']} clean candidates this round (over "
+                f"{res['n_with_survivor']} scenarios); need >= {res['min_to_train']} to "
+                f"have a shot at the differentiation floor (you train every candidate "
+                f"clearing on_axis>=4 AND off_axis<=2, several per scenario). Choose a "
+                f"different scenario_family or persona pair.\n{res['summary']}" + _reject_tail(n)
             )
         rejects_path.unlink(missing_ok=True)
         pre_line = " ".join(f"{k.replace('_1p','')}={v:+.1f}" for k, v in res['pre_scores'].items())

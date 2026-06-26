@@ -1230,10 +1230,12 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
         for cand in item["candidates"]:
             by_survivor[cand["survivor_id"]] = (item, cand)
     all_clean = [sid for sid, (_, c) in by_survivor.items() if c.get("kept")]
-    # Two-pass coverage: every clean candidate must be rated at least twice (a
-    # forward pass and a reverse-order pass) so the average cancels position bias.
-    # A weak rater silently skips messy pairs in a single pass; requiring the
-    # second pass forces them back into view (validated in the Haiku format test).
+    # Two-pass coverage: every clean candidate must be rated at least twice. The
+    # main benefit is COVERAGE-forcing, not position-debias: a weak rater silently
+    # skips messy pairs in a single pass, and requiring the second look forces them
+    # back into view (the Haiku format test caught a pair dropped in one pass). The
+    # reverse order is a secondary, unverifiable nudge against list-position bias --
+    # the harness only checks the count, not that the order was actually reversed.
     under = [sid for sid in all_clean if len(stored.get(sid, {}).get("ratings", [])) < 2]
     if under:
         raise ValidationError(
@@ -1268,6 +1270,24 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
             f"off_axis <= {OFF_AXIS_KEEP:g}); need >= {cfg.min_pairs_to_train}. Your "
             f"ratings left too few differentiated pairs (passing={passing}). Re-rate "
             f"borderline candidates you under-scored, or drop the round.")
+    # Rubber-stamp FLAG (logged + persisted, NEVER gated): the gym showed a weak
+    # teacher can hand every candidate the same 5/1, which clears the threshold but
+    # means the rating did NO discriminating -- only the upstream structural cull
+    # filtered. We do NOT force drops (the bank may genuinely be clean); we surface
+    # it so /audit-run and the human judge whether the uniform bank is real or lazy.
+    # Variance, not absence of passes, is the signal (CLAUDE.md: flags elicit
+    # judgment, never override it). The full per-pass ratings live in each row, so
+    # the audit can also inspect pass-to-pass disagreement.
+    on_means = {round(r["on_axis_mean"], 2) for r in audit_rows}
+    off_means = {round(r["off_axis_mean"], 2) for r in audit_rows}
+    rubber_stamp = len(audit_rows) >= 3 and len(on_means) == 1 and len(off_means) == 1
+    if rubber_stamp:
+        logger.warning(
+            f"select_pairs [{round_dir.name}]: all {len(audit_rows)} candidates got "
+            f"IDENTICAL means (on={on_means.pop()}, off={off_means.pop()}) -> the "
+            "teacher's rating did not discriminate; only the structural cull filtered. "
+            "SHOULD: a real bank has a spread. Uniform = a clean bank OR rubber-stamping; "
+            "the audit decides which.")
     pairs_path = round_dir / "pairs.md"
     write_gen_pairs(pairs_path, selected, lesson=lesson)
     shutil.copy(pairs_path, round_dir / "pairs.md.bak")
@@ -1277,6 +1297,7 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
         "off_axis_keep": OFF_AXIS_KEEP,
         "n_clean_candidates": len(all_clean),
         "n_selected": len(selected),
+        "rubber_stamp_flag": rubber_stamp,
         "rated": audit_rows,
         "selected": [r for r in audit_rows if r["passes"]],
     }, indent=2))
@@ -1949,7 +1970,10 @@ def _selection_quotes(selection: dict) -> list[str]:
 def _rating_quotes(ratings: list[dict], *, want_pass: bool, limit: int = 3) -> list[str]:
     out: list[str] = []
     for row in ratings:
-        if bool(row.get("passes")) != want_pass:
+        # `passes` is written only by select_pairs; rows rated but not yet selected
+        # have it absent. Match on the explicit bool so an unselected (mid-round)
+        # row is neither a "pass" nor a "fail" quote, instead of showing as omitted.
+        if row.get("passes") is not want_pass:
             continue
         sid = row.get("survivor_id") or "?"
         score = (
