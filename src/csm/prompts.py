@@ -686,18 +686,14 @@ Next action: {next_action}
 """
 
 AFTER_CHOOSE_FOCUS = """\
------ next: rate_candidates(...) over EVERY candidate twice -> select_pairs(lesson) -----
-Rate differentiation from the candidate summary, which shows the FULL Cho/Rej of
-each candidate (work in batches of ~5). Read every pair's full text; rate ALL of
-them, none skipped. For each pair FIRST write `contrast` -- one phrase naming the
-concrete thing the Cho does that the Rej does not, on the axis -- THEN score
-on_axis (Cho-vs-Rej contrast ALONG the disposition, 1..5) and off_axis
-(style/length/register/refuse-vs-act confound, 1..5). The contrast phrase keeps
-the pairs from all scoring alike. Cover every candidate once, then make a SECOND
-pass in REVERSE order. select_pairs then trains on EVERY pair with avg
-on_axis>=3.5 AND avg off_axis<=2.5 -- you do not hand-pick. More clean contrastive
-pairs train a stronger, less overfit adapter, so rate honestly and let the
-threshold keep the differentiated ones; the lesson names the disposition in one
+----- next: rate_candidates in batches over EVERY candidate twice -> select_pairs(lesson) -----
+The candidate summary shows the FULL Cho/Rej of each candidate. For every one (none
+skipped), a forward pass then a reverse-order pass, giving three things per pair:
+  - contrast: one phrase, what the Cho does that the Rej does not, on the axis;
+  - on_axis 1..5: Cho-vs-Rej contrast ALONG the disposition;
+  - off_axis 1..5: style/length/register/refuse-vs-act confound.
+select_pairs then trains EVERY pair with avg on_axis>=3.5 AND avg off_axis<=2.5 --
+you do not hand-pick, so rate honestly; the lesson names the disposition in one
 sentence.
 """
 
@@ -710,19 +706,17 @@ A blind two-pass depth judge scores POST vs frozen PRE for you; you decide keep/
 AFTER_MARK_EXAM = ""
 
 COMPACTION_INSTRUCTIONS = """\
-These are NON-AUTHORITATIVE notes. Each round the harness rebuilds the real state
-from disk -- run id, round number, stage, the per-axis tried/kept/last_move
-scoreboard, and the keep target -- and prints it at the top of the round. That
-block is the source of truth and overrides anything here. Do NOT restate counts,
-round numbers, stage, target, selected candidate ids, or next_focus: you would
-only risk corrupting them.
+These notes are NOT state. Each round the harness rebuilds the real state from
+disk -- run id, round, stage, the per-axis tried/kept/last_move scoreboard, the
+keep target -- and prints it at the top; that block is the record. Do NOT restate
+counts, round numbers, stage, target, selected candidate ids, or next_focus.
 
-Preserve ONLY durable notes and lessons that are not on disk. Separate what you
-OBSERVED from what you INFER, and say how sure you are: write "saw X" for what
-happened and "X probably moved the student" for a guess. Keep which pair styles or
-axes seemed to help and why you think so, any judge quirk you noticed, and lessons
-for later rounds. These are fallible notes, not facts; the harness state block
-above is the record. Drop full old transcripts and pairs.
+Keep only durable lessons not stored on disk:
+  - what you SAW;
+  - what you INFER from it, marked as uncertain;
+  - pair or axis styles that helped or hurt, and why you think so;
+  - any judge quirk or harness friction.
+Drop old transcripts and full pairs.
 """
 
 

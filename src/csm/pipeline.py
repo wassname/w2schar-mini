@@ -775,10 +775,10 @@ def _leading_rating(text: str) -> int | None:
 
 def _likert_1_to_5(value: object, key: str) -> float:
     if not isinstance(value, (int, float)):
-        raise ValidationError(f"select_pairs: {key} must be numeric 1..5, got {value!r}")
+        raise ValidationError(f"rate_candidates: {key} must be numeric 1..5, got {value!r}")
     score = float(value)
     if not (1.0 <= score <= 5.0):
-        raise ValidationError(f"select_pairs: {key} must be in 1..5, got {score}")
+        raise ValidationError(f"rate_candidates: {key} must be in 1..5, got {score}")
     return score
 
 
