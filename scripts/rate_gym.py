@@ -348,6 +348,7 @@ def _reasoning(r):
 async def rate(model, fk, case):
     prompt = render(fk, case)
     k = _key(prompt)
+    out_tok = rsn_tok = None
     if k in _CACHE:
         comp = _CACHE[k]
     else:
@@ -355,24 +356,28 @@ async def rate(model, fk, case):
             r = await asyncio.wait_for(model.generate(prompt), timeout=300)
             comp, stop = (r.completion or ""), str(getattr(r, "stop_reason", "") or "")
             rsn = _reasoning(r)
+            u = getattr(r, "usage", None)
+            out_tok = getattr(u, "output_tokens", None)
+            rsn_tok = getattr(u, "reasoning_tokens", None)
         except (asyncio.TimeoutError, Exception):
             comp, stop, rsn = "", "error", ""
         if stop not in ("max_tokens", "length", "model_length", "error"):
             _CACHE[k] = comp
         _log({"key": k, "model": _MODEL, "form": fk, "case": case["id"],
-              "stop_reason": stop, "completion": comp, "reasoning": rsn, "prompt": prompt})
+              "stop_reason": stop, "out_tokens": out_tok, "reasoning_tokens": rsn_tok,
+              "completion": comp, "reasoning": rsn, "prompt": prompt})
     d = parse(comp)
-    return d, predict(fk, d)
+    return d, predict(fk, d), out_tok, rsn_tok
 
 
 async def score_form(model, fk):
     res = await asyncio.gather(*(rate(model, fk, c) for c in CASES))
     rows, n_ok, n_parsed = [], 0, 0
-    for case, (d, pred) in zip(CASES, res):
+    for case, (d, pred, out_tok, rsn_tok) in zip(CASES, res):
         correct = pred == case["gold"]
         n_ok += correct
         n_parsed += d is not None
-        rows.append((case["id"], case["gold"], pred, d, correct))
+        rows.append((case["id"], case["gold"], pred, d, correct, out_tok, rsn_tok))
     return {"form": fk, "rows": rows, "acc": n_ok / len(CASES), "parsed": n_parsed}
 
 
@@ -383,7 +388,8 @@ async def run(form_keys, model_name, max_tokens=16000):
     _load_cache()
     from inspect_ai.model import get_model, GenerateConfig
     model = get_model(model_name, config=GenerateConfig(
-        max_connections=16, timeout=300, max_retries=4, max_tokens=max_tokens, temperature=0.0))
+        max_connections=16, timeout=300, max_retries=4, max_tokens=max_tokens,
+        temperature=0.0, reasoning_tokens=max_tokens))  # reasoning_tokens enables the trace passthrough
     if _CACHE:
         print(f"cache: {len(_CACHE)} prior replies")
     print(f"rate-gym: {len(CASES)} cases ({sum(c['gold']=='pass' for c in CASES)} pass / "
@@ -393,7 +399,7 @@ async def run(form_keys, model_name, max_tokens=16000):
         r = await score_form(model, fk)
         summary.append(r)
         print(f"--- form {fk}: {r['acc']:.0%} correct, {r['parsed']}/{len(CASES)} parsed")
-        for cid, gold, pred, d, ok in r["rows"]:
+        for cid, gold, pred, d, ok, out_tok, rsn_tok in r["rows"]:
             if not d:
                 nums = "UNPARSED"
             else:
@@ -407,7 +413,8 @@ async def run(form_keys, model_name, max_tokens=16000):
             if d:
                 fl = [f for f in ("cho_coherent", "cho_acts", "rej_coherent", "rej_acts") if f in d and not d[f]]
                 extra = f" flagged={fl}" if fl else ""
-            print(f"  {'OK' if ok else 'XX'} {cid:6s} gold={gold:4s} pred={str(pred):4s} {nums}{extra}")
+            tok = f" tok(out={out_tok},think={rsn_tok})" if out_tok is not None else " tok(cached)"
+            print(f"  {'OK' if ok else 'XX'} {cid:6s} gold={gold:4s} pred={str(pred):4s} {nums}{extra}{tok}")
         print()
     print("=== summary (correct classification of clean PASS vs confounded FAIL) ===")
     for r in sorted(summary, key=lambda x: -x["acc"]):
