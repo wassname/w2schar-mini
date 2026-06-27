@@ -200,6 +200,36 @@ For the cold check, hand the rubric to a fresh subagent with only the slug (no
 chat context) — it has no priors to confirm. If the rubric lets it miss
 something, improve `.claude/commands/audit-run.md`, don't just patch the finding.
 
+### The gyms (what each is for)
+
+Four cheap test harnesses, each isolating one part so you don't need a full GPU run
+to validate a change. Match the change to the gym:
+
+- **`just smoke`** -- full end-to-end on tiny-random, no network, ~1 min. Every stage
+  runs (choose_focus -> rate -> select -> train -> c_scan -> mark_exam) so it catches
+  RUNTIME errors and schema breaks. Stubs both models, so it proves PLUMBING, not
+  judgment quality. Run after ANY code edit.
+- **`just smoke-prompts N`** (the "full"/teacher gym) -- real OpenRouter teacher
+  (qwen3.5-9b), stubbed student, ~$2/round. The ONLY weak-model evidence that a
+  teacher-facing change (prompts.py, tool schema, gate text) is followable. Batch all
+  brief edits, run ONCE, READ the artifacts. Required before relying on a brief change live.
+- **`scripts/probe_gym.py`** (the question gym) -- runs every interview PROBE through the
+  real student-class model (qwen3.6-27b, OpenRouter, thinking-off, no system, 512 tok =
+  matches the live dialogue) and scores how much character it ELICITS (behaviour mode +
+  judgment_depth 1-7) vs CONFOUND (1-7: a flat refusal / agency-denial / generic
+  explaining = no signal). Append-only corpus `data/probe_gym_questions.jsonl`, cache in
+  `out/` (reruns free). Use it to keep/drop/tune probe scenarios: a good probe is high
+  judgment + low confound in a doing/judging/tradeoff mode; one that only elicits refusing
+  is dead. Pennies. Caveat: OpenRouter bf16 vs the live local nf4 student; single-turn
+  (multi-turn probes like the console only show their setup turn).
+- **`scripts/judgment_gym.py` / `scripts/rate_gym.py`** -- labeled-fixture benches for the
+  TEACHER's judge/rate FORMS (does a depth-judge form catch a paraphrase-keep; does a rate
+  form catch refusal/length/incoherence confounds). Use when changing how the teacher
+  judges movement or rates candidates, to pick the form before wiring it into the brief.
+- Axis-menu validation lives UPSTREAM in the persona-steering-template-library
+  (`scripts/validate_persona_axes_openrouter.py`): blinded A/B axis judge + separate
+  confound rater. Use it for `persona_cells` work (tasks #29/#32), don't reinvent it here.
+
 ### Changing the teacher brief (prompts.py / gate text)
 
 Any edit to `src/csm/prompts.py`, the submit_pairs gates, or the pairs
