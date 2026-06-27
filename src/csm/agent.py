@@ -836,9 +836,19 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     # deliberating over the 6 PRE/POST probes. So the number must clear THAT while
     # still cutting the rate runaway: 12k is comfortable for keep/select, clean rates
     # finish under 2k regardless, and a rate runaway is bounded at 12k vs ~20k+.
+    # Sampling: the Qwen3.5 card's "Thinking mode, general tasks" profile
+    # (temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5; min_p=0.0 and
+    # repetition_penalty=1.0 are no-op defaults, omitted). Qwen warns GREEDY decoding
+    # breaks thinking mode (endless repetition); presence_penalty=1.5 is the anti-loop
+    # lever -- so this is the ROOT-CAUSE fix for the deliberation loops, the reasoning
+    # cap above is the backstop. A temp=1.0 judge is non-deterministic round-to-round,
+    # which is fine here: a noisy weak teacher IS the w2s premise. Provider support for
+    # top_k/presence_penalty varies on OpenRouter (the card notes this).
     teacher_model = get_model(
         _inspect_model_name(teacher),
-        config=GenerateConfig(reasoning_tokens=12000, max_tokens=18000),
+        config=GenerateConfig(reasoning_tokens=12000, max_tokens=18000,
+                              temperature=1.0, top_p=0.95, top_k=20,
+                              presence_penalty=1.5),
     )
     logs = inspect_eval(
         task, model=teacher_model,
