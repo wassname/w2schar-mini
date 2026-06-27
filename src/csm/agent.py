@@ -822,16 +822,23 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     # Bound the teacher's deliberation. A weak qwen-9b can burn 20k+ reasoning
     # tokens re-interpreting an ambiguous/confounded pair and never emit the tool
     # call (rate-gym 2026-06-27: s13c2 looped to out=20000, reasoning=20731). We
-    # cap REASONING (not total output) so it is FORCED to commit a rating inside
-    # the budget rather than running away -- when forced to finish, that same
-    # confounded pair lands a high confound score (s13c2 -> incoherent=3) and the
-    # existing threshold culls it. So the cap bounds cost AND the teacher's own
-    # judgment still does the filtering (CLAUDE.md: bound the order, never veto the
-    # call). Clean pairs rate in <2k reasoning tokens, so 6k only bites the
-    # runaways. max_tokens leaves headroom for the answer after the reasoning cap.
+    # cap REASONING (not total output) so it is FORCED to commit inside the budget
+    # rather than running away -- when forced to finish, that same confounded pair
+    # lands a high confound score (s13c2 -> incoherent=3) and the existing threshold
+    # culls it. The cap bounds cost AND the teacher's own judgment still does the
+    # filtering (CLAUDE.md: bound the order, never veto the call).
+    #
+    # This is ONE GLOBAL cap, not per-tool: the react harness drives every tool turn
+    # with the same model config, and the reasoning happens before execute() runs, so
+    # a tool cannot set its own budget. None of the teacher's stages are heavy
+    # GENERATION (the STUDENT generates the poles; the teacher only selects the axis,
+    # lightly edits, rates, and keeps/drops), so the heaviest legit call is mark_exam
+    # deliberating over the 6 PRE/POST probes. So the number must clear THAT while
+    # still cutting the rate runaway: 12k is comfortable for keep/select, clean rates
+    # finish under 2k regardless, and a rate runaway is bounded at 12k vs ~20k+.
     teacher_model = get_model(
         _inspect_model_name(teacher),
-        config=GenerateConfig(reasoning_tokens=6000, max_tokens=12000),
+        config=GenerateConfig(reasoning_tokens=12000, max_tokens=18000),
     )
     logs = inspect_eval(
         task, model=teacher_model,
