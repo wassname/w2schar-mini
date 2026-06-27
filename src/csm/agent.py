@@ -21,7 +21,8 @@ from inspect_ai import Task, eval as inspect_eval
 from inspect_ai.agent import AgentState, react
 from inspect_ai.dataset import Sample
 from inspect_ai.model import (ChatMessageUser, CompactionEdit,
-                              CompactionStrategy, CompactionSummary)
+                              CompactionStrategy, CompactionSummary,
+                              GenerateConfig, get_model)
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import Tool, tool
 
@@ -807,7 +808,6 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     # Dump it once so an audit can verify which brief actually ran.
     (slug_path / "system_prompt.md").write_text(REACT_PROMPT)
 
-    teacher_model = _inspect_model_name(teacher)
     task = Task(
         dataset=[Sample(input=[ChatMessageUser(content=initial)], id="w2schar-mini")],
         solver=inspect_solver(slug=str(slug_path), n_rounds=n_rounds),
@@ -815,10 +815,24 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     )
 
     if os.environ.get("INSPECT_AGENT_DRY_RUN") == "1":
-        print(f"agent-run: DRY_RUN PASS model={teacher_model} slug={slug_path} "
-              f"n_rounds={n_rounds}", file=sys.stderr)
+        print(f"agent-run: DRY_RUN PASS model={_inspect_model_name(teacher)} "
+              f"slug={slug_path} n_rounds={n_rounds}", file=sys.stderr)
         return
 
+    # Bound the teacher's deliberation. A weak qwen-9b can burn 20k+ reasoning
+    # tokens re-interpreting an ambiguous/confounded pair and never emit the tool
+    # call (rate-gym 2026-06-27: s13c2 looped to out=20000, reasoning=20731). We
+    # cap REASONING (not total output) so it is FORCED to commit a rating inside
+    # the budget rather than running away -- when forced to finish, that same
+    # confounded pair lands a high confound score (s13c2 -> incoherent=3) and the
+    # existing threshold culls it. So the cap bounds cost AND the teacher's own
+    # judgment still does the filtering (CLAUDE.md: bound the order, never veto the
+    # call). Clean pairs rate in <2k reasoning tokens, so 6k only bites the
+    # runaways. max_tokens leaves headroom for the answer after the reasoning cap.
+    teacher_model = get_model(
+        _inspect_model_name(teacher),
+        config=GenerateConfig(reasoning_tokens=6000, max_tokens=12000),
+    )
     logs = inspect_eval(
         task, model=teacher_model,
         display="conversation",
