@@ -1,5 +1,42 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-06-27 (a) -- rate-gym: elaborating the rate form backfires; refusals need the flag, not the rater
+
+Job 123 round00 trained 94 of 95 candidates: the two-pass on/off-axis rating let
+confounded pairs through, including an incoherent cho (s13c2, rated on=4.8 off=1.9)
+and a refusal rej (s10c1, off=2.0). off_axis is meant to catch these. I built a rate
+gym (`scripts/rate_gym.py`, 6 verbatim job-123 candidates: 3 clean, 3 confounded) to
+test whether a better rate FORM lets the weak qwen-9b catch them. Three forms, real
+qwen-9b, single pair each:
+
+| form | correct | parsed | notes |
+|------|---------|--------|-------|
+| R0 (current) | 4/6 | 5/6 | caught s13c2 (off=3) + s16c5 length (off=5); false-rejected clean s8c1; refusal s10c1 came back UNPARSED |
+| R1 (off_axis warns incoherence) | 3/6 | 4/6 | fixed s8c1 but now MISSES s13c2 (off=1); 2 unparsed (looped) |
+| R2 (explicit confound fields) | 3/6 | 4/6 | "acts" field CAUGHT refusal s10c1; 2 clean ones looped to unparsed; still missed s13c2 |
+
+Table 1. pred = pass iff on>=3.5 AND off<=2.5 (R2 also requires no pole flagged
+incoherent/refusal). Source: `out/rate_gym/replies.jsonl` (18 cached replies),
+scored by `scripts/rate_gym.py`.
+
+Interpretation (calibrated): elaborating the rate form backfires, *probable* and
+consistent with the depth-judge gym (entry (c)): R1 and R2 both add looping (unparsed)
+and R1 even flips s13c2 from caught to missed. So there is no better rate prompt; R0
+stays. Two things follow. First, the live 94/95 miss is *probably* mostly a BATCH
+effect: single-pair plain R0 caught s13c2 (off=3) whereas the live run rating 95 pairs
+in two passes compressed every score to ~4.x/2.0 -- the lever is fewer pairs per call,
+not rewording. Second, the refusal is best caught by the existing `character_break`
+flag, not the rater: R0 could not even parse s10c1 and the harness already flags it
+`character_break_rej`. My read: the weak rater provably cannot substitute for that
+flag, so I promoted `character_break_cho/rej` into the auto-cull STRUCTURAL_FLAGS
+(`pipeline.py`). This extends the CLAUDE.md "~99% structural" cull exception to
+refusal poles, with the gym as the evidence; `length_skew` stays with the rater (it
+catches it, off=5) and `prompt_mismatch` stays surfaced (s13c2 is a borderline
+vague-but-on-axis answer, not clear garbage).
+
+A cleaner rate form is not the fix; acting on the structural flag the harness already
+computes is.
+
 ## 2026-06-26 (e) -- one CHARACTER_TEST reused at every stage; teacher applies it in the gym
 
 This entry records wiring the validated character test (entry (d)) into the brief as

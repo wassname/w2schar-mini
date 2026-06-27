@@ -669,13 +669,19 @@ def _replay_candidates(round_dir: Path, *, selected_pair_id: str,
 
 # A candidate is hidden from the teacher ONLY for a STRUCTURAL defect that makes it
 # ~99%-certainly unusable for contrastive training: a blank pole (empty), no contrast
-# (cho==rej identical), or not a real answer (too_short / degenerate word-salad).
-# Everything else -- length_skew, prompt_mismatch, persona_leak/echo (regex),
-# character_break (refusal), blur (a soft _pair_diff<0.10 threshold), weak-rating
-# flags -- is a HEURISTIC the TEACHER should judge: surfaced as a flag on the survivor
-# it rates, never auto-pruned. A dumb flag is never 99% sure, so it must not block the
-# teacher's view (CLAUDE.md "gates elicit judgment, never override it").
-STRUCTURAL_FLAGS = frozenset({"empty", "identical", "too_short", "degenerate"})
+# (cho==rej identical), not a real answer (too_short / degenerate word-salad), or a
+# REFUSAL pole (character_break). A refusal is not a valid contrastive pole -- it makes
+# the trained axis "act vs refuse-to-engage", not the disposition -- and the rate-gym
+# (scripts/rate_gym.py, 2026-06-27) showed the weak qwen-9b rater CANNOT catch it: on
+# the s10c1 refusal-rej the plain rate form came back unparsed and the incoherence-warned
+# form passed it; only the existing character_break flag is reliable. The weak rater
+# provably can't substitute, and a refusal is structural, so this is the ~99% exception
+# to "surface, don't cull" (CLAUDE.md), not a heuristic vetoing a judgment.
+# Everything else -- length_skew, prompt_mismatch, persona_leak/echo, blur, weak-rating
+# flags -- stays a HEURISTIC the TEACHER judges: surfaced on the survivor it rates, never
+# auto-pruned (length the rater catches via off_axis; prompt_mismatch is borderline).
+STRUCTURAL_FLAGS = frozenset({"empty", "identical", "too_short", "degenerate",
+                              "character_break_cho", "character_break_rej"})
 
 # Differentiation thresholds applied to the teacher's OWN two-pass ratings (NOT a
 # val-metric or regex veto). A candidate trains iff its averaged on-axis
