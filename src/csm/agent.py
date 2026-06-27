@@ -229,7 +229,7 @@ def choose_focus_tool(slug: str) -> Tool:
                 f"Only {res['n_clean']} clean candidates this round (over "
                 f"{res['n_with_survivor']} scenarios); need >= {res['min_to_train']} to "
                 f"have a shot at the differentiation floor (you train every candidate "
-                f"clearing on_axis>=3.5 AND off_axis<=2.5, several per scenario). Choose a "
+                f"clearing on_axis>=3.5 AND every confound<=2.5, several per scenario). Choose a "
                 f"different scenario_family or persona pair.\n{res['summary']}" + _reject_tail(n)
             )
         rejects_path.unlink(missing_ok=True)
@@ -294,16 +294,18 @@ def rate_candidates_tool(slug: str) -> Tool:
         candidate ends with two ratings the harness averages.
 
         Args:
-            ratings: list of {survivor_id, on_axis, off_axis} objects, e.g.
-                [{"survivor_id": "s1c3", "on_axis": 5, "off_axis": 1},
-                 {"survivor_id": "s1c4", "on_axis": 2, "off_axis": 4}].
+            ratings: list of {survivor_id, contrast, on_axis, refusal_confound,
+                length_confound, incoherent_confound} objects, e.g.
+                [{"survivor_id": "s1c3", "contrast": "acts to protect the patient",
+                  "on_axis": 5, "refusal_confound": 1, "length_confound": 1,
+                  "incoherent_confound": 1}].
                 on_axis (1..5): how strongly Cho vs Rej differ ALONG the target
                 disposition (5 = clean, strong contrast).
-                off_axis (1..5): how much they differ OFF-axis in style, length,
-                register, or refuse-vs-act (1 = clean twins, 5 = a confound that
-                would become the trained axis). Train keeps on_axis>=3.5 AND
-                off_axis<=2.5, so the off-axis confound is what culls refuse-vs-act
-                and length-skewed pairs.
+                refusal_confound / length_confound / incoherent_confound (1..5):
+                the three off-axis confounds, scored separately (1 = clean, 5 =
+                severe; rate the worse pole). The harness takes the worst of the
+                three; train keeps on_axis>=3.5 AND every confound<=2.5, so a
+                refusal, a length-skew, or an incoherent pole each culls the pair.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)

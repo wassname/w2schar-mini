@@ -669,35 +669,35 @@ def _replay_candidates(round_dir: Path, *, selected_pair_id: str,
 
 # A candidate is hidden from the teacher ONLY for a STRUCTURAL defect that makes it
 # ~99%-certainly unusable for contrastive training: a blank pole (empty), no contrast
-# (cho==rej identical), not a real answer (too_short / degenerate word-salad), or a
-# REFUSAL pole (character_break). A refusal is not a valid contrastive pole -- it makes
-# the trained axis "act vs refuse-to-engage", not the disposition -- and the rate-gym
-# (scripts/rate_gym.py, 2026-06-27) showed the weak qwen-9b rater CANNOT catch it: on
-# the s10c1 refusal-rej the plain rate form came back unparsed and the incoherence-warned
-# form passed it; only the existing character_break flag is reliable. The weak rater
-# provably can't substitute, and a refusal is structural, so this is the ~99% exception
-# to "surface, don't cull" (CLAUDE.md), not a heuristic vetoing a judgment.
-# Everything else -- length_skew, prompt_mismatch, persona_leak/echo, blur, weak-rating
-# flags -- stays a HEURISTIC the TEACHER judges: surfaced on the survivor it rates, never
-# auto-pruned (length the rater catches via off_axis; prompt_mismatch is borderline).
-STRUCTURAL_FLAGS = frozenset({"empty", "identical", "too_short", "degenerate",
-                              "character_break_cho", "character_break_rej"})
+# (cho==rej identical), or not a real answer (too_short / degenerate word-salad). These
+# are reporting an impossibility, not overruling a judgment (CLAUDE.md).
+# Everything else -- including the REFUSAL flag (character_break) -- stays a HEURISTIC
+# the TEACHER judges: surfaced on the survivor it rates, never auto-pruned. The rate-gym
+# (scripts/rate_gym.py, 2026-06-27) settled the refusal question: the R3 per-confound
+# form lets the weak qwen-9b rater catch the s10c1 refusal-rej through JUDGMENT
+# (refusal_confound=5 -> off_axis=5 -> dropped by the threshold), +16pp over the plain
+# form, WITHOUT an auto-cull. So the noisy refusal regex is surfaced as a flag the
+# teacher confirms, not a wall (CLAUDE.md: judgment uplift beats acting on a noisy
+# regex; surface, don't cull). length_skew, prompt_mismatch, persona_leak/echo, blur
+# likewise surface and the teacher decides.
+STRUCTURAL_FLAGS = frozenset({"empty", "identical", "too_short", "degenerate"})
 
 # Differentiation thresholds applied to the teacher's OWN two-pass ratings (NOT a
 # val-metric or regex veto). A candidate trains iff its averaged on-axis
-# differentiation is high AND its averaged off-axis (style/length/refuse-vs-act)
-# confound is low. The teacher rates with these in mind (the brief states them),
-# so selection-by-rating is the teacher deciding, operationalised -- not a heuristic
-# overriding a separate keep. off_axis<=2.5 is the heavy lifter (catches refuse-vs-act
-# and length-skew); on_axis>=3.5 catches blur (cho≈rej). Validated on a blind Haiku
-# rating test across forward/reverse x with/without word-diff (4 labelled pairs):
-# this rule kept the 1 good pair and dropped two-refusal, act-vs-refuse, and blur.
-# Softened 4.0/2.0 -> 3.5/2.5: a LoRA wants 200+ pairs, so admit MORE clean
-# contrastive signal (the floor stays at min_pairs_to_train; we let data through,
-# we don't lower the floor). The weak qwen-9b rater also clusters mid-scale, so a
-# strict 4/2 risked a dead run where <floor candidates ever clear.
+# differentiation is high AND its averaged off_axis confound is low, where off_axis
+# is DERIVED = max(refusal_confound, length_confound, incoherent_confound) -- the
+# teacher rates the three named confounds SEPARATELY (R3 form) and the worst one is
+# what would become the trained axis. The teacher rates with these in mind (the brief
+# states them), so selection-by-rating is the teacher deciding, operationalised -- not
+# a heuristic overriding a separate keep. off_axis<=2.5 is the heavy lifter (catches
+# refuse-vs-act AND length-skew -- rate-gym 2026-06-27: the R3 per-confound form caught
+# both on the weak qwen-9b, +16pp over one blended off_axis); on_axis>=3.5 catches blur
+# (cho≈rej). Softened 4.0/2.0 -> 3.5/2.5: a LoRA wants 200+ pairs, so admit MORE clean
+# contrastive signal (the floor stays at min_pairs_to_train; we let data through, we
+# don't lower the floor). The weak qwen-9b rater also clusters mid-scale, so a strict
+# 4/2 risked a dead run where <floor candidates ever clear.
 ON_AXIS_KEEP = 3.5   # avg on-axis differentiation (1..5) to train on a pair
-OFF_AXIS_KEEP = 2.5  # avg off-axis confound (1..5) ceiling to train on a pair
+OFF_AXIS_KEEP = 2.5  # avg worst-confound (1..5) ceiling to train on a pair
 
 
 def _candidate_summary(candidates: dict) -> str:
@@ -753,6 +753,9 @@ def _selected_pair_review(audit_rows: list[dict]) -> str:
         lines.append(
             f"## [{mark}] {r['survivor_id']} (scenario {r['scenario_id']}) "
             f"on={r['on_axis_mean']:.1f} off={r['off_axis_mean']:.1f} "
+            f"(refuse={r.get('refusal_confound_mean', 0):.1f} "
+            f"len={r.get('length_confound_mean', 0):.1f} "
+            f"incoh={r.get('incoherent_confound_mean', 0):.1f}) "
             f"n={r['n_ratings']} len={r.get('length_ratio') or 0:.2f}x{flagstr}"
         )
         lines.append(f"  cho[{r['cho_tokens']} tok]: {_first_sentence(r['cho'])}")
@@ -790,13 +793,16 @@ def _likert_1_to_5(value: object, key: str) -> float:
 
 def _normalize_rating(entry: object) -> dict:
     """One differentiation rating: how much do the two poles differ ALONG the
-    target trait (on_axis, 5 = clean strong contrast) versus OFF-axis in
-    style/length/register/refuse-vs-act (off_axis, 1 = clean twins, 5 = a confound
-    that would become the trained axis)."""
+    target trait (on_axis, 5 = clean strong contrast) versus OFF-axis in three
+    named confounds the teacher rates SEPARATELY -- refusal, length, incoherence
+    (R3 rate form, rate-gym 2026-06-27: scoring each confound on its own beats one
+    blended off_axis, +16pp on the weak qwen-9b, and localises which one fired).
+    off_axis is DERIVED = max(the three): the worst confound is what would become
+    the trained axis, so the selection threshold keys on it unchanged."""
     if not isinstance(entry, dict):
         raise ValidationError(
-            "rate_candidates: each rating must be an object with survivor_id, "
-            "contrast, on_axis, and off_axis"
+            "rate_candidates: each rating must be an object with survivor_id, contrast, "
+            "on_axis, refusal_confound, length_confound, and incoherent_confound"
         )
     survivor_id = str(entry.get("survivor_id", "")).strip()
     if not survivor_id:
@@ -810,9 +816,13 @@ def _normalize_rating(entry: object) -> dict:
             f"rate_candidates: {survivor_id} is missing `contrast` -- name in one "
             f"phrase what the Cho does that the Rej does not, on the axis, before scoring")
     on_axis = _likert_1_to_5(entry.get("on_axis"), "on_axis")
-    off_axis = _likert_1_to_5(entry.get("off_axis"), "off_axis")
-    return {"survivor_id": survivor_id, "contrast": contrast,
-            "on_axis": on_axis, "off_axis": off_axis}
+    refusal = _likert_1_to_5(entry.get("refusal_confound"), "refusal_confound")
+    length = _likert_1_to_5(entry.get("length_confound"), "length_confound")
+    incoherent = _likert_1_to_5(entry.get("incoherent_confound"), "incoherent_confound")
+    off_axis = max(refusal, length, incoherent)
+    return {"survivor_id": survivor_id, "contrast": contrast, "on_axis": on_axis,
+            "refusal_confound": refusal, "length_confound": length,
+            "incoherent_confound": incoherent, "off_axis": off_axis}
 
 
 def _ratings_path(round_dir: Path) -> Path:
@@ -1144,9 +1154,9 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
 def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
     """Append a BATCH of two-pass differentiation ratings to the per-candidate
     record. The teacher rates every clean candidate once (forward pass) then again
-    in reverse order (reverse pass), so each accumulates >=2 (on_axis, off_axis)
-    ratings that select_pairs averages. Batching ("show 5, rate 5") keeps the call
-    count down vs one tool call per candidate."""
+    in reverse order (reverse pass), so each accumulates >=2 ratings (on_axis +
+    the three confound Likerts) that select_pairs averages. Batching ("show 5,
+    rate 5") keeps the call count down vs one tool call per candidate."""
     require_state(round_dir, "select_pairs", "rate_candidates")
     cand_path = round_dir / "candidates.json"
     if not cand_path.exists():
@@ -1154,7 +1164,8 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
     data = json.loads(cand_path.read_text())
     if not isinstance(ratings, list) or not ratings:
         raise ValidationError("rate_candidates: ratings must be a non-empty list of "
-                              "{survivor_id, on_axis, off_axis} objects")
+                              "{survivor_id, contrast, on_axis, refusal_confound, "
+                              "length_confound, incoherent_confound} objects")
     by_survivor = {}
     for item in data["items"]:
         for cand in item["candidates"]:
@@ -1191,8 +1202,11 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
                 "ratings": [],
             }
             stored[sid] = row
-        row["ratings"].append({"contrast": r["contrast"],
-                               "on_axis": r["on_axis"], "off_axis": r["off_axis"]})
+        row["ratings"].append({"contrast": r["contrast"], "on_axis": r["on_axis"],
+                               "refusal_confound": r["refusal_confound"],
+                               "length_confound": r["length_confound"],
+                               "incoherent_confound": r["incoherent_confound"],
+                               "off_axis": r["off_axis"]})
     _write_ratings(round_dir, stored)
     all_clean = [c["survivor_id"] for it in data["items"]
                  for c in it["candidates"] if c.get("kept")]
@@ -1250,6 +1264,8 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
         passes = on_mean >= ON_AXIS_KEEP and off_mean <= OFF_AXIS_KEEP
         row["on_axis_mean"] = on_mean
         row["off_axis_mean"] = off_mean
+        for cf in ("refusal_confound", "length_confound", "incoherent_confound"):
+            row[f"{cf}_mean"] = sum(r[cf] for r in row["ratings"]) / len(row["ratings"])
         row["n_ratings"] = len(on_vals)
         row["passes"] = passes
         audit_rows.append(row)

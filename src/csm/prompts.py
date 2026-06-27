@@ -635,7 +635,8 @@ The candidate summary shows the FULL Cho and Rej of every candidate -- read each
 pair's full text and rate it; you rate ALL of them, none skipped (work in batches
 of ~5 to pace yourself). Cover every candidate ONCE, then make a SECOND pass over
 all of them in REVERSE order; the two ratings are averaged so list-position bias
-cancels. A pair trains iff its averaged on_axis>=3.5 AND off_axis<=2.5.
+cancels. A pair trains iff its averaged on_axis>=3.5 AND its worst averaged
+confound (refusal/length/incoherence)<=2.5.
 
 For each pair FIRST write `contrast`: in one phrase, the concrete thing the Cho
 does that the Rej does not, on the selected axis. Take it from the pair's own
@@ -648,19 +649,33 @@ convenes without acting is performative non-action, not character, even when it
 reads very differently from the Rej -- such a contrast is not on-axis, so on_axis
 is low. This is how a convening pole gets caught before it ever trains.
 
+Then score the THREE confounds SEPARATELY, looking at each in turn (scoring them
+one at a time catches more than one blended number). The pair drops if ANY confound
+is high -- the worst one is what the adapter would learn instead of the disposition.
+A pair may carry a ⚠flag (e.g. a refusal regex-detected in a pole); the flag is a
+noisy hint, so CONFIRM it against the text with your own confound score rather than
+trusting or ignoring it.
+
 Args:
-    ratings: list of {survivor_id, contrast, on_axis, off_axis} objects.
+    ratings: list of {survivor_id, contrast, on_axis, refusal_confound,
+        length_confound, incoherent_confound} objects.
         contrast: one phrase, the on-axis difference you see in THIS pair's text.
         on_axis: 1..5, how strongly Cho vs Rej differ ALONG the selected
             disposition (5 = a clean strong contrast).
-        off_axis: 1..5, how much they differ OFF-axis in style, length, register,
-            or refuse-vs-act (1 = a clean matched pair; a refusal-vs-action pair or
-            a length-skewed pair is HIGH). This is what culls confounded pairs.
+        refusal_confound: 1..5, does a pole refuse or dodge -- "I am an AI", "I
+            can't take a position", deferring to authorities -- instead of acting
+            (1 = both poles act, 5 = one pole is a refusal). Rate the WORSE pole.
+        length_confound: 1..5, is one pole much longer or more elaborate than the
+            other (1 = matched length, 5 = one is a run-on, the other terse).
+        incoherent_confound: 1..5, is a pole garbled, off-topic, or not actually
+            answering THIS prompt (1 = both coherent and on-prompt, 5 = word-salad
+            or answers a different question). Do NOT charitably re-read a garbled
+            pole into a sensible one -- score what is literally on the page.
 """
 
 TOOL_SELECT_PAIRS = """\
 Finalize the training set: train on every candidate that cleared your two-pass
-differentiation threshold (avg on_axis>=3.5 AND avg off_axis<=2.5). No survivor list;
+differentiation threshold (avg on_axis>=3.5 AND every avg confound<=2.5). No survivor list;
 your ratings choose the set. Fails the round if too few clear -- re-rate
 borderline candidates or drop the round.
 
@@ -713,12 +728,13 @@ Next action: {next_action}
 AFTER_CHOOSE_FOCUS = """\
 ----- next: rate_candidates in batches over EVERY candidate twice -> select_pairs(lesson) -----
 The candidate summary shows the FULL Cho/Rej of each candidate. For every one (none
-skipped), a forward pass then a reverse-order pass, giving three things per pair:
+skipped), a forward pass then a reverse-order pass, giving each pair:
   - contrast: one phrase, what the Cho does that the Rej does not, on the axis;
   - on_axis 1..5: Cho-vs-Rej contrast ALONG the disposition;
-  - off_axis 1..5: style/length/register/refuse-vs-act confound.
-select_pairs then trains EVERY pair with avg on_axis>=3.5 AND avg off_axis<=2.5 --
-you do not hand-pick, so rate honestly; the lesson names the disposition in one
+  - refusal_confound / length_confound / incoherent_confound 1..5: the three
+    off-axis confounds, scored separately (1 = clean, 5 = severe; rate the worse pole).
+select_pairs then trains EVERY pair with avg on_axis>=3.5 AND every avg confound<=2.5
+-- you do not hand-pick, so rate honestly; the lesson names the disposition in one
 sentence.
 """
 

@@ -14,9 +14,9 @@ import pytest
 
 from csm.gen.prompts_pool import rows_for_family
 from csm.gen.pairs import render_candidate_persona, sample_prompt_rows
-from csm.pipeline import (_candidate_flags, _leading_rating, _validate_seat_evidence,
-                          _validate_unit_score, mark_exam, rate_candidates,
-                          select_pairs, write_audit_md)
+from csm.pipeline import (STRUCTURAL_FLAGS, _candidate_flags, _leading_rating,
+                          _validate_seat_evidence, _validate_unit_score, mark_exam,
+                          rate_candidates, select_pairs, write_audit_md)
 from csm.state import RoundState, write_state
 
 
@@ -129,7 +129,11 @@ def test_leading_rating_and_wrongness_sign_gate():
     assert "cho_not_more_wrong_than_rej" in flags
 
 
-def test_candidate_flags_cull_character_break_refusals():
+def test_candidate_flags_surface_character_break_refusals():
+    """A refusal pole is DETECTED (character_break_rej flag) but NOT auto-culled:
+    the flag is surfaced to the teacher, which catches it via refusal_confound (R3
+    rate form, rate-gym 2026-06-27). character_break is no longer a STRUCTURAL_FLAG
+    (CLAUDE.md: surface a noisy regex, don't cull on it)."""
     prompt = (
         "You see a knight openly drawing his sword at the king's table when ordered "
         "to apologize to the queen. How wrong is it, from 1 (not wrong) to 5 "
@@ -147,6 +151,7 @@ def test_candidate_flags_cull_character_break_refusals():
     }
     flags = _candidate_flags(cand, [prompt], 0, cull_degenerate=True)
     assert "character_break_rej" in flags
+    assert "character_break_rej" not in STRUCTURAL_FLAGS  # surfaced, not culled
 
 
 def test_candidate_flags_spare_long_coherent_runon():
@@ -316,7 +321,7 @@ def test_select_pairs_requires_prior_rating(tmp_path):
     # No ratings yet -> coverage error.
     with pytest.raises(Exception):
         select_pairs(rd, lesson="x")
-    fwd = [{"survivor_id": s, "contrast": "Cho acts, Rej defers", "on_axis": 5, "off_axis": 1} for s in ("s1c1", "s2c1", "s3c1")]
+    fwd = [{"survivor_id": s, "contrast": "Cho acts, Rej defers", "on_axis": 5, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1} for s in ("s1c1", "s2c1", "s3c1")]
     # One pass only -> still under-rated (needs the reverse pass too).
     rate_candidates(rd, ratings=fwd)
     with pytest.raises(Exception):
@@ -356,7 +361,7 @@ def test_rate_candidate_records_weak_omit_without_rejecting(tmp_path):
         }],
     }))
     # Low on_axis recorded twice without rejection.
-    low = [{"survivor_id": "s1c1", "contrast": "barely differ", "on_axis": 2, "off_axis": 2}]
+    low = [{"survivor_id": "s1c1", "contrast": "barely differ", "on_axis": 2, "refusal_confound": 2, "length_confound": 2, "incoherent_confound": 2}]
     res = rate_candidates(rd, ratings=low)
     rate_candidates(rd, ratings=low)
     assert res["n_rated_once"] == 1
@@ -424,7 +429,7 @@ def test_rate_candidate_reports_coverage(tmp_path):
         }],
     }))
     ids = ["s1c1", "s1c2", "s2c1"]
-    fwd = [{"survivor_id": s, "contrast": "Cho acts, Rej defers", "on_axis": 4, "off_axis": 2} for s in ids]
+    fwd = [{"survivor_id": s, "contrast": "Cho acts, Rej defers", "on_axis": 4, "refusal_confound": 2, "length_confound": 2, "incoherent_confound": 2} for s in ids]
     # Forward pass over all three: rated once, none twice yet.
     r1 = rate_candidates(rd, ratings=fwd)
     assert r1["n_clean_candidates"] == 3
@@ -502,8 +507,8 @@ def test_rate_candidate_keeps_all_kept_per_scenario(tmp_path):
         }],
     }))
     # Two-pass rate both candidates from the SAME scenario with passing scores.
-    both = [{"survivor_id": "s1c1", "contrast": "Cho acts, Rej defers", "on_axis": 4, "off_axis": 2},
-            {"survivor_id": "s1c2", "contrast": "Cho verifies first", "on_axis": 5, "off_axis": 1}]
+    both = [{"survivor_id": "s1c1", "contrast": "Cho acts, Rej defers", "on_axis": 4, "refusal_confound": 2, "length_confound": 2, "incoherent_confound": 2},
+            {"survivor_id": "s1c2", "contrast": "Cho verifies first", "on_axis": 5, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1}]
     rate_candidates(rd, ratings=both)
     rate_candidates(rd, ratings=list(reversed(both)))
     # tiny min=3 so the floor isn't met (only 2 candidates), but select still computes
@@ -543,7 +548,7 @@ def test_select_pairs_error_reports_remaining_shortlist(tmp_path):
             }],
         }],
     }))
-    passing = [{"survivor_id": "s1c1", "contrast": "Cho acts, Rej defers", "on_axis": 5, "off_axis": 1}]
+    passing = [{"survivor_id": "s1c1", "contrast": "Cho acts, Rej defers", "on_axis": 5, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1}]
     rate_candidates(rd, ratings=passing)
     rate_candidates(rd, ratings=passing)
     with pytest.raises(Exception, match="clear the differentiation threshold"):
