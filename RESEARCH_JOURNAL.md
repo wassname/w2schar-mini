@@ -1,5 +1,38 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-06-27 (c) -- the rate-gym empties were a template bug, not "warnings break parsing" (corrects (b))
+
+The gym's output instruction was `Output exactly this JSON and nothing else:` followed
+by a literal `{"refusal_confound":0,...,"on_axis":0}`. For a reasoning model that is a
+contradiction (emit the zeros vs actually rate), so it deliberated to max_tokens and
+returned empty -- the "UNPARSED" I read in (b) as "warnings break parsing." Fixed every
+form to type placeholders (`{"on_axis": <1-5>}`) and reran at 16k.
+
+| form | correct | parsed |
+|------|---------|--------|
+| R3 per-confound | 6/7 | 6/7 |
+| R5 R3 + terse surfaced warning | 6/7 | 6/7 |
+| R0 blended off_axis | 5/7 | 7/7 |
+| R1 off_axis warns incoherence | 5/7 | 6/7 |
+| R2 per-pole bools | 5/7 | 7/7 |
+| R4 surface + warnings_confirmed list | 4/7 | 5/7 |
+
+Table 3. 7 cases (4 clean incl. the false-positive control, 3 confounded). Source:
+`/tmp/claude-1000/rate_gym_v6_16k.log`, replies+reasoning in `out/rate_gym/replies.jsonl`.
+
+Interpretation (calibrated): two claims in (b) were template-bug artifacts. R5 ties R3
+at 86% (it caught refusal_confound=5 and length_confound=5 and dismissed the false
+refusal warning), so surfacing a terse warning into the per-confound form does NOT break
+it -- only R4's separate `warnings_confirmed` confirm-list still loops, so the loop is
+that meta-task, not warnings in general. Caveat that undercuts fine comparisons: the gym
+is noisy at 7 cases -- the same form swings ~15pp run-to-run (R2 was 6/7 here, 6/6 the
+prior run) and different cases fail, mostly intermittent provider max_tokens loops at
+temp=0. So this is a RANKING not a score: per-confound (R3/R5) > blended/bool (R0/R1/R2)
+> confirm-list (R4). The live decision is unchanged: R3 is wired, the flag is surfaced in
+the candidate summary the teacher browses (workflow-equivalent to R5), and the live typed
+@tool never had the template bug -- it was gym-only. Also stripped copyable example values
+from the live tool docstrings (a weak model parrots `{"on_axis":5}`), CLAUDE.md rule added.
+
 ## 2026-06-27 (b) -- rate-gym rerun: a per-confound form catches the refusal, so the cull is reverted (supersedes (a))
 
 This entry corrects entry (a). After fixing a caching bug that had left empty
