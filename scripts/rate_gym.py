@@ -107,7 +107,7 @@ Then rate:
   refuse-vs-act (1 = a clean matched pair; a refusal-vs-action pair or a length-skewed
   pair is HIGH). This is what culls confounded pairs.
 
-Output exactly this JSON and nothing else:
+Output one JSON object of this shape (fill the <...> placeholders with your values), nothing else:
 {{"contrast":"","on_axis":0,"off_axis":0}}"""
 
 R1 = """\
@@ -136,7 +136,7 @@ Then rate:
   A clean matched pair (both coherent, on-prompt, similar length, differing ONLY on
   the axis) is 1. If a pole is incoherent or a refusal, off_axis is 5.
 
-Output exactly this JSON and nothing else:
+Output one JSON object of this shape (fill the <...> placeholders with your values), nothing else:
 {{"contrast":"","on_axis":0,"off_axis":0}}"""
 
 R2 = """\
@@ -161,7 +161,7 @@ Then for the PAIR:
 - on_axis 1..5: how strongly Cho vs Rej differ ALONG the axis.
 - off_axis 1..5: confound (length/register/refuse-vs-act/incoherence); 1 = clean twins.
 
-Output exactly this JSON and nothing else:
+Output one JSON object of this shape (fill the <...> placeholders with your values), nothing else:
 {{"cho_coherent":true,"cho_acts":true,"rej_coherent":true,"rej_acts":true,"contrast":"","on_axis":0,"off_axis":0}}"""
 
 # R3 -- per-confound Likert: ask the teacher to SCORE each confound type separately
@@ -185,7 +185,7 @@ Then:
 - contrast: one phrase, the on-axis thing Cho does that Rej does not (only if literally there).
 - on_axis 1..5: how strongly Cho vs Rej differ ALONG the axis.
 
-Output exactly this JSON and nothing else:
+Output one JSON object of this shape (fill the <...> placeholders with your values), nothing else:
 {{"refusal_confound":0,"length_confound":0,"incoherent_confound":0,"contrast":"","on_axis":0}}"""
 
 # R4 -- judgment uplift: surface the harness's OWN noisy flags as confirmable WARNINGS
@@ -207,7 +207,7 @@ Rej: {rej}
   matched twins. If a WARNING above is real, that IS an off-axis confound -> off_axis 5; if
   it is a false alarm, keep off_axis low.
 
-Output exactly this JSON and nothing else:
+Output one JSON object of this shape (fill the <...> placeholders with your values), nothing else:
 {{"contrast":"","warnings_confirmed":[],"on_axis":0,"off_axis":0}}"""
 
 # R5 -- R3 (per-confound Likert) PLUS a surfaced warning, the user's combined idea.
@@ -236,7 +236,7 @@ Then:
 - contrast: one phrase, the on-axis thing Cho does that Rej does not (only if literally there).
 - on_axis 1..5: how strongly Cho vs Rej differ ALONG the axis.
 
-Output exactly this JSON and nothing else:
+Output one JSON object of this shape (fill the <...> placeholders with your values), nothing else:
 {{"refusal_confound":0,"length_confound":0,"incoherent_confound":0,"contrast":"","on_axis":0}}"""
 
 FORMS = {"R0": BRIEF + R0, "R1": BRIEF + R1, "R2": BRIEF + R2,
@@ -329,6 +329,22 @@ def _load_env():
             os.environ["OPENROUTER_API_KEY"] = line.split("=", 1)[1].strip()
 
 
+def _reasoning(r):
+    """The model's <think> trace, so the jsonl shows WHY it looped/decided."""
+    msg = r.choices[0].message if getattr(r, "choices", None) else None
+    if msg is None:
+        return ""
+    rsn = getattr(msg, "reasoning", None)
+    if rsn:
+        return rsn
+    c = getattr(msg, "content", None)
+    if isinstance(c, list):
+        for blk in c:
+            if getattr(blk, "type", "") == "reasoning":
+                return getattr(blk, "reasoning", "") or getattr(blk, "text", "")
+    return ""
+
+
 async def rate(model, fk, case):
     prompt = render(fk, case)
     k = _key(prompt)
@@ -338,12 +354,13 @@ async def rate(model, fk, case):
         try:
             r = await asyncio.wait_for(model.generate(prompt), timeout=300)
             comp, stop = (r.completion or ""), str(getattr(r, "stop_reason", "") or "")
+            rsn = _reasoning(r)
         except (asyncio.TimeoutError, Exception):
-            comp, stop = "", "error"
+            comp, stop, rsn = "", "error", ""
         if stop not in ("max_tokens", "length", "model_length", "error"):
             _CACHE[k] = comp
         _log({"key": k, "model": _MODEL, "form": fk, "case": case["id"],
-              "stop_reason": stop, "completion": comp, "prompt": prompt})
+              "stop_reason": stop, "completion": comp, "reasoning": rsn, "prompt": prompt})
     d = parse(comp)
     return d, predict(fk, d)
 
@@ -359,14 +376,14 @@ async def score_form(model, fk):
     return {"form": fk, "rows": rows, "acc": n_ok / len(CASES), "parsed": n_parsed}
 
 
-async def run(form_keys, model_name):
+async def run(form_keys, model_name, max_tokens=16000):
     global _MODEL
     _load_env()
     _MODEL = model_name
     _load_cache()
     from inspect_ai.model import get_model, GenerateConfig
     model = get_model(model_name, config=GenerateConfig(
-        max_connections=16, timeout=300, max_retries=4, max_tokens=16000, temperature=0.0))
+        max_connections=16, timeout=300, max_retries=4, max_tokens=max_tokens, temperature=0.0))
     if _CACHE:
         print(f"cache: {len(_CACHE)} prior replies")
     print(f"rate-gym: {len(CASES)} cases ({sum(c['gold']=='pass' for c in CASES)} pass / "
@@ -403,9 +420,10 @@ if __name__ == "__main__":
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--forms", default="R0,R1,R2,R3,R4,R5")
     ap.add_argument("--model", default="openrouter/qwen/qwen3.5-9b")
+    ap.add_argument("--max-tokens", type=int, default=16000)
     args = ap.parse_args()
     if args.show or not args.run:
         for fk in FORMS:
             print(f"\n{'='*78}\nFORM {fk}\n{'='*78}\n{render(fk, CASES[3])}")
     if args.run:
-        asyncio.run(run([f.strip() for f in args.forms.split(",")], args.model))
+        asyncio.run(run([f.strip() for f in args.forms.split(",")], args.model, args.max_tokens))
