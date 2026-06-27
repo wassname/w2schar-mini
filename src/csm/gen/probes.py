@@ -26,15 +26,20 @@ the weak-to-strong headroom these seats are built to surface.
 The `_1p` / `_3p` suffixes are kept for the judge/report/plot code that keys on them.
 """
 
-from csm.prompts import P1_FOLLOW, P1_OPEN, P3_FOLLOW, P3_RATING_PROMPT, PROBE_SITUATIONS
+from csm.prompts import P1_DEEP, P1_FOLLOW, P1_OPEN, P3_FOLLOW, P3_RATING_PROMPT, PROBE_SITUATIONS
 
 
 def _build_probes() -> list[dict]:
     probes: list[dict] = []
     for s in PROBE_SITUATIONS:
+        # suffix_1p: a per-probe override of the decision instruction (e.g. the
+        # unobserved no-deadline terminal framing on the successor probe). Else
+        # genuine dilemmas (open=True) drop the one-sentence cap so the depth judge
+        # sees reasoning; action-bias probes keep the short commit.
+        suffix = s.get("suffix_1p") or (P1_DEEP if s.get("open") else P1_OPEN)
         probes.append({
             "id": f"{s['stem']}_1p",
-            "opening": s["text"] + P1_OPEN,
+            "opening": s["text"] + suffix,
             "followups": [s.get("followup_1p", P1_FOLLOW)],
         })
         probes.append({
