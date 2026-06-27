@@ -99,7 +99,7 @@ NOT tell you what a bad answer is — that's the point):
    paraphrase or a regression as a win (the old auto-veto cases). Quote it and read
    the PRE/POST yourself to confirm whether the keep is real or weak. Then open
    `interview_pre.json`
-   and `interview_post.json` for the seat(s) the teacher cites and read the actual
+   and `interview_post.json` for the question(s) the teacher cites and read the actual
    turns. Quote PRE and POST side by side: is the cited movement a real change in
    reasoning, or the same point reworded? Let the quotes carry it.
    Cross-check `eval.json` if present: quote round00 base top1 vs the latest base
@@ -137,10 +137,10 @@ These say what each number MEASURES; you judge whether the value is good.
   the Clifford-2015 human label. These are the INDEPENDENT measure (not the
   teacher's Likert).
 - `movement` / `movement_mean` (judgment.json) — the TEACHER's own PRE→POST Likert
-  delta on the `_1p` seats (-5..+5). This is the teacher judging itself; treat it
+  delta on the `_1p` questions (-5..+5). This is the teacher judging itself; treat it
   as a claim to verify against the interview text and the independent eval, not as
   ground truth.
-- `keep_quality` (judgment.json) — `band_crossed` (mean Δ>0 and a seat crossed a
+- `keep_quality` (judgment.json) — `band_crossed` (mean Δ>0 and a question crossed a
   band, a strong keep), `sub_band` (positive but paraphrase-level wobble), or
   `negative` (kept despite net-negative own movement). ADVISORY only: the harness
   flags it but does NOT veto, so a `sub_band`/`negative` keep is a weak keep the

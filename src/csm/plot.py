@@ -167,7 +167,7 @@ def _persona_html(persona: str) -> str:
 def _round_probes(round_dir: Path) -> list[dict]:
     """Every interview probe (id, opening prompt, pre + post first assistant reply)
     for the round, in interview order. Drives the per-round probe dropdown so the
-    reader can switch between the fixed held-out seats (elder_isolation_1p,
+    reader can switch between the fixed held-out questions (elder_isolation_1p,
     comfort_fraud_1p, proctor_witness_1p, confidant_duty_1p, plus the _3p
     judgment twins)."""
     pre = _read_probes(round_dir, "pre")
@@ -985,7 +985,7 @@ def _build_table(rows: list[dict]) -> str:
 
     options = "".join(f'<option value="{_escape(pid)}">{_escape(pid)}</option>'
                       for pid in probe_ids)
-    select = (f'<label class="probe-pick">seat '
+    select = (f'<label class="probe-pick">question '
               f'<select id="probe-select">{options}</select></label>') if probe_ids else ""
     return f"""{select}
 <table class="timeline">
@@ -1173,7 +1173,7 @@ _HOVER_JS = """
     setTimeout(drawGraph, 200);  // re-draw after font/layout shifts
   });
 
-  // ── probe dropdown: show one interview seat across all rounds ──────────────
+  // ── probe dropdown: show one interview question across all rounds ──────────────
   function showProbe(pid) {
     document.querySelectorAll('.probe-cell').forEach(function(c) {
       c.classList.toggle('show', c.dataset.probeId === pid);

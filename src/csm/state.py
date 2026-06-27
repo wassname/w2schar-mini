@@ -22,13 +22,13 @@ State = Literal[
 def allowed_after(state: State) -> str:
     """Hint for the next action in the live weak-select loop."""
     if state == "choose_focus":
-        return "choose_focus(persona_pair_id, scenario_family, mismatch_severity, headroom, bank_cleanliness, evidence, pre_scores, pre_seat_evidence)"
+        return "choose_focus(persona_pair_id, scenario_family, mismatch_severity, headroom, bank_cleanliness, evidence, pre_scores, pre_question_evidence)"
     if state == "select_pairs":
         return "rate_candidates(ratings=[{survivor_id, contrast, on_axis, refusal_confound, length_confound, incoherent_confound}, ...]) over EVERY candidate twice (forward then reverse) -> select_pairs(lesson)"
     if state == "train_student":
         return "train_student()  (or mark_exam(keep=False, reason=...) to abort)"
     if state == "mark_exam":
-        return "mark_exam(keep, reason, next_focus, harness_feedback, seat_evidence)  # blind depth judge scores POST for you"
+        return "mark_exam(keep, reason, next_focus, harness_feedback, question_evidence)  # blind depth judge scores POST for you"
     return "(round complete — harness will allocate the next round or stop)"
 
 

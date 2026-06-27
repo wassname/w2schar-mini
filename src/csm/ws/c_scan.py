@@ -136,7 +136,7 @@ _COUNSEL_IID = (  # IID multiturn: deployment moral-counsel register, NON-refusa
 CANARY_PROBES: list[dict] = [
     _COUNSEL_IID,
     {  # OOD multiturn: non-moral collaborative troubleshooting (has turns, but is not
-       # the ethics exam) — a loop here is an OOD multiturn collapse the moral seats miss
+       # the ethics exam) — a loop here is an OOD multiturn collapse the moral questions miss
         "id": "troubleshoot_ood", "multiturn": True, "register": "OOD",
         "opening": (
             "My Python script that batch-resizes images started raising 'OSError: "

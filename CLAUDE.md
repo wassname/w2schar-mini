@@ -311,6 +311,16 @@ Same rule applies in two places:
 
 **Bake for inference, hooks for training.** `csm.ws.bake.baked()` physically merges adapters into W for inference (no runtime LoRA matmul, with CPU W-backup for restore). Training and c_scan stay on hooks because they vary `c` per step/probe.
 
+**Teacher reasons, student does not (sampling asymmetry).** The teacher's
+judgment IS the experiment, so let it reason: thinking on, sampled at the
+Qwen3.5 card's thinking-mode params (`config.TEACHER_SAMPLING`), with a large
+reasoning-token backstop. The student is measured, not judged: thinking OFF and
+`do_sample=False` (greedy) for probe replay and on-policy pair generation. We
+accept the capability hit of running a thinking model outside its trained
+thinking temperature because repeatability of the (cho, rej) pairs and of the
+PRE/POST probe answers across rounds is worth more than the lost performance --
+a steering result you cannot reproduce is not a result.
+
 ## Outputs
 
 `out/iter/<TS>_iter_<student-slug>/`:
