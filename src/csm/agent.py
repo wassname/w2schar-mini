@@ -57,7 +57,8 @@ class CandidateRating(BaseModel):
     to malformed-JSON / missing-field rejects (job-131 audit)."""
     survivor_id: str = Field(description="the candidate id copied exactly from the row you are rating; it carries both the scenario number and the candidate number within it, not the scenario number on its own")
     contrast: str = Field(description="one phrase naming the on-axis thing Cho does that Rej does not, taken from this pair's text")
-    on_axis: int = Field(ge=1, le=5, description="how strongly Cho and Rej differ ALONG the target disposition: 1 = poles barely differ on the axis, 5 = clean strong contrast")
+    cho_more_on_axis: bool = Field(description="judged on its own: does Cho express the target disposition MORE than Rej does?")
+    rej_more_on_axis: bool = Field(description="judged on its own (the reverse direction): does Rej express the target disposition MORE than Cho does?")
     refusal_confound: int = Field(ge=1, le=5, description="off-axis: does a pole refuse/disclaim rather than act? 1 = clean, 5 = severe; rate the worse pole")
     length_confound: int = Field(ge=1, le=5, description="off-axis: is one pole much longer than the other? 1 = clean, 5 = severe")
     incoherent_confound: int = Field(ge=1, le=5, description="off-axis: is a pole incoherent/degenerate? 1 = clean, 5 = severe")

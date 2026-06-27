@@ -821,25 +821,47 @@ def _normalize_rating(entry: object) -> dict:
     if not isinstance(entry, dict):
         raise ValidationError(
             "rate_candidates: each rating must be an object with survivor_id, contrast, "
-            "on_axis, refusal_confound, length_confound, and incoherent_confound"
+            "cho_more_on_axis, rej_more_on_axis, refusal_confound, length_confound, and "
+            "incoherent_confound"
         )
     survivor_id = str(entry.get("survivor_id", "")).strip()
     if not survivor_id:
         raise ValidationError("rate_candidates: a rating is missing survivor_id")
-    # contrast forces a per-pair discrimination BEFORE the number, so a weak rater
-    # cannot discharge "rate them all" by stamping every pair the same score
+    # contrast forces a per-pair discrimination BEFORE the verdict, so a weak rater
+    # cannot discharge "rate them all" by stamping every pair the same
     # (CLAUDE.md: force coverage AND discrimination, no optional shortcut).
     contrast = str(entry.get("contrast", "")).strip()
     if not contrast:
         raise ValidationError(
             f"rate_candidates: {survivor_id} is missing `contrast` -- name in one "
-            f"phrase what the Cho does that the Rej does not, on the axis, before scoring")
-    on_axis = _likert_1_to_5(entry.get("on_axis"), "on_axis")
+            f"phrase what the Cho does that the Rej does not, on the axis, before judging")
+    # On-axis is now a two-DIRECTION comparison (CLAUDE.md: comparative beats absolute
+    # for a weak rater; the +1.1 keep mis-score was an absolute-rate failure the blind
+    # A/B judge caught). The teacher answers both "is Cho>Rej on the axis?" and "is
+    # Rej>Cho?" -- asking both orders cancels Cho/Rej-label bias AND catches a MISLABELED
+    # pair (Rej actually more on-axis). We map the verdict onto the existing 1..5 on_axis
+    # so the threshold/averaging/dashboard are unchanged: clean+oriented=5, contradictory
+    # (both) or no-contrast (neither)=2, reversed=1. Avg over the two list passes vs
+    # ON_AXIS_KEEP=3.5 then means: clean in both, or clean+ambiguous, survives; a reversed
+    # or two-weak pair falls out.
+    cho_more = entry.get("cho_more_on_axis")
+    rej_more = entry.get("rej_more_on_axis")
+    if not isinstance(cho_more, bool) or not isinstance(rej_more, bool):
+        raise ValidationError(
+            f"rate_candidates: {survivor_id} needs cho_more_on_axis and rej_more_on_axis "
+            f"as true/false -- judge each direction on its own")
+    if cho_more and not rej_more:
+        on_axis = 5.0
+    elif rej_more and not cho_more:
+        on_axis = 1.0
+    else:
+        on_axis = 2.0
     refusal = _likert_1_to_5(entry.get("refusal_confound"), "refusal_confound")
     length = _likert_1_to_5(entry.get("length_confound"), "length_confound")
     incoherent = _likert_1_to_5(entry.get("incoherent_confound"), "incoherent_confound")
     off_axis = max(refusal, length, incoherent)
     return {"survivor_id": survivor_id, "contrast": contrast, "on_axis": on_axis,
+            "cho_more_on_axis": cho_more, "rej_more_on_axis": rej_more,
             "refusal_confound": refusal, "length_confound": length,
             "incoherent_confound": incoherent, "off_axis": off_axis}
 
@@ -1183,8 +1205,8 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
     data = json.loads(cand_path.read_text())
     if not isinstance(ratings, list) or not ratings:
         raise ValidationError("rate_candidates: ratings must be a non-empty list of "
-                              "{survivor_id, contrast, on_axis, refusal_confound, "
-                              "length_confound, incoherent_confound} objects")
+                              "{survivor_id, contrast, cho_more_on_axis, rej_more_on_axis, "
+                              "refusal_confound, length_confound, incoherent_confound} objects")
     by_survivor = {}
     for item in data["items"]:
         for cand in item["candidates"]:
@@ -1222,6 +1244,8 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
             }
             stored[sid] = row
         row["ratings"].append({"contrast": r["contrast"], "on_axis": r["on_axis"],
+                               "cho_more_on_axis": r["cho_more_on_axis"],
+                               "rej_more_on_axis": r["rej_more_on_axis"],
                                "refusal_confound": r["refusal_confound"],
                                "length_confound": r["length_confound"],
                                "incoherent_confound": r["incoherent_confound"],
