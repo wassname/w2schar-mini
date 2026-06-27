@@ -16,6 +16,8 @@ from csm.prompts import (CORE_THREE_AXIS_PERSONA_CELLS, DEFAULT_PERSONA_CELLS,
 
 # Teacher sampling, single source for live (agent.py) + gym: Qwen3.5 card "Thinking mode, general tasks" -- greedy breaks thinking mode, presence_penalty=1.5 is the anti-loop lever.
 TEACHER_SAMPLING = dict(temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5)
+# Teacher reasoning budget (live): backstop for non-termination only, above qwen3.5-9b's 17-29k output-tok/task envelope (Artificial Analysis Intelligence Index); presence_penalty handles loops, this just kills infinite ones.
+TEACHER_REASONING_TOKENS = 40000
 
 
 @dataclass

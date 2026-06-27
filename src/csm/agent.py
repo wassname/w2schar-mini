@@ -26,7 +26,7 @@ from inspect_ai.model import (ChatMessageUser, CompactionEdit,
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import Tool, tool
 
-from csm.config import config_for_run, TEACHER_SAMPLING
+from csm.config import config_for_run, TEACHER_SAMPLING, TEACHER_REASONING_TOKENS
 from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           rate_candidates as _rate_candidates_pipeline,
                           init_run, latest_round_dir,
@@ -819,26 +819,11 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
               f"slug={slug_path} n_rounds={n_rounds}", file=sys.stderr)
         return
 
-    # Bound the teacher's deliberation. A weak qwen-9b can burn 20k+ reasoning
-    # tokens re-interpreting an ambiguous/confounded pair and never emit the tool
-    # call (rate-gym 2026-06-27: s13c2 looped to out=20000, reasoning=20731). We
-    # cap REASONING (not total output) so it is FORCED to commit inside the budget
-    # rather than running away -- when forced to finish, that same confounded pair
-    # lands a high confound score (s13c2 -> incoherent=3) and the existing threshold
-    # culls it. The cap bounds cost AND the teacher's own judgment still does the
-    # filtering (CLAUDE.md: bound the order, never veto the call).
-    #
-    # This is ONE GLOBAL cap, not per-tool: the react harness drives every tool turn
-    # with the same model config, and the reasoning happens before execute() runs, so
-    # a tool cannot set its own budget. None of the teacher's stages are heavy
-    # GENERATION (the STUDENT generates the poles; the teacher only selects the axis,
-    # lightly edits, rates, and keeps/drops), so the heaviest legit call is mark_exam
-    # deliberating over the 6 PRE/POST probes. So the number must clear THAT while
-    # still cutting the rate runaway: 12k is comfortable for keep/select, clean rates
-    # finish under 2k regardless, and a rate runaway is bounded at 12k vs ~20k+.
+    # Reasoning cap is a global non-termination backstop (config.TEACHER_REASONING_TOKENS); presence_penalty in TEACHER_SAMPLING is the real loop fix, confounds are caught by the rating not by truncation. +8k headroom for the answer after thinking.
     teacher_model = get_model(
         _inspect_model_name(teacher),
-        config=GenerateConfig(reasoning_tokens=12000, max_tokens=18000,
+        config=GenerateConfig(reasoning_tokens=TEACHER_REASONING_TOKENS,
+                              max_tokens=TEACHER_REASONING_TOKENS + 8000,
                               **TEACHER_SAMPLING),
     )
     logs = inspect_eval(
