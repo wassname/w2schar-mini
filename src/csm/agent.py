@@ -805,6 +805,11 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
     initial = _build_teacher_prompt(
         slug_path, rd, model=model, keep_target=_n_keeps(slug_path) + n_rounds,
     )
+    # The teacher's SYSTEM prompt (GOAL + CHARACTER_CORE + CHARACTER_TEST + tool
+    # briefs) is sent by inspect's react(prompt=REACT_PROMPT) but is otherwise
+    # invisible in artifacts -- teacher_prompt.md is only the per-round user turn.
+    # Dump it once so an audit can verify which brief actually ran.
+    (slug_path / "system_prompt.md").write_text(REACT_PROMPT)
 
     teacher_model = _inspect_model_name(teacher)
     task = Task(
