@@ -621,7 +621,8 @@ Args:
         the exact probe id. Score the PRE answer on this pair's axis using
         AXIS_RUBRIC. This is an absolute position, not a change.
     pre_seat_evidence: one quoted PRE clause per `_1p` probe, keyed by the same ids.
-    persona_pair_id: measured pair to train, e.g. `honest_when_uncomfortable`.
+    persona_pair_id: the id of the measured pair to train, copied from the menu in
+        the brief (not invented).
     scenario_family: optional. Use mixed by default; character for first-person
         character dilemmas; sycophancy for honest advice versus flattering
         agreement; power for institutional-risk cases; control for non-moral checks.

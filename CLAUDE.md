@@ -82,6 +82,22 @@ Narrow exception: RUN-LEVEL cost/safety caps the user explicitly set (`MAX_DROPS
 keep/drop the teacher already made and override no single judgment -- they only
 stop paying for MORE rounds. This is the one place we halt, and only by request.
 
+### Never put a concrete example VALUE in a tool schema or prompt -- small models copy it verbatim
+
+A weak model copies a literal example exactly: a sample rating `{"on_axis": 5,
+"refusal_confound": 1}` becomes every rating; an example label `persona_pair_id:
+"autonomy_coercion"` becomes the pick regardless of the menu; a null template
+`{"x": 0}` after "output exactly this JSON" becomes a null reply or, for a reasoning
+model, an unresolvable contradiction (emit the zeros vs actually rate) that loops to
+max_tokens and returns empty. So describe TYPES and FORMAT, never copyable values:
+`on_axis (1..5)`, `persona_pair_id: the id copied from the menu`, output schema as
+`{"on_axis": <1-5>}` placeholders -- not `{"on_axis": 0}`. The live rate/choose_focus
+tools take a typed signature (inspect builds the schema), so keep their docstrings
+type-only too; the rate-gym's "output exactly this JSON {0,...}" was exactly this bug
+(2026-06-27, the empties/null ratings were the gym's free-text template, not a real
+property of the warning forms -- the live @tool never had it). When you must
+illustrate, label it clearly and make the values obviously-not-to-copy, or omit it.
+
 ### Lean the teacher's tasks toward the EASY end of the judgment ladder
 
 Task difficulty for a weak teacher, hardest -> easiest:
