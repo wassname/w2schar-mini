@@ -86,8 +86,7 @@ stop paying for MORE rounds. This is the one place we halt, and only by request.
 
 A weak model copies a literal example exactly (a sample `{"on_axis": 5}` becomes every
 rating, a null template after "output exactly this JSON" becomes empty/looping replies),
-so write `on_axis (1..5)` and `{"on_axis": <1-5>}` placeholders, never concrete values
-(this was the rate-gym's empties bug, 2026-06-27; the live typed @tool never had it).
+so write `on_axis (1..5)` and `{"on_axis": <1-5>}` placeholders, never concrete values.
 
 ### Lean the teacher's tasks toward the EASY end of the judgment ladder
 
