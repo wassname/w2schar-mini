@@ -1,5 +1,50 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-06-27 (b) -- rate-gym rerun: a per-confound form catches the refusal, so the cull is reverted (supersedes (a))
+
+This entry corrects entry (a). After fixing a caching bug that had left empty
+max_tokens replies in the gym (they read as parse failures), I reran all five forms
+to completion on the real qwen-9b over the same 6 job-123 fixtures, and added two
+forms I had not tested: R3 (rate three confounds separately) and R4 (surface the
+harness's own regex flags into the prompt as warnings).
+
+| form | correct | parsed | what it does |
+|------|---------|--------|------|
+| R0 blended off_axis (current live) | 4/6 | 6/6 | catches length; MISSES the refusal (off=1); false-rejects clean s8c1 |
+| R1 off_axis warns incoherence | 5/6 | 6/6 | catches refusal+length; misses incoherent s13c2 |
+| R2 per-pole coherent/acts bools | 5/6 | 6/6 | catches refusal (rej_acts=false)+length; misses s13c2 |
+| R3 per-confound Likerts | 5/6 | 6/6 | catches refusal (refusal_confound=5)+length (length_confound=5); misses s13c2 |
+| R4 surface harness warnings | 3/6 | 3/6 | loops to empty (max_tokens) on the 3 confounded cases; when it does parse, sets warnings_confirmed=[] and passes the garbage |
+
+Table 1. correct = clean-PASS vs confounded-FAIL classification; pred = pass iff
+on_axis>=3.5 AND off_axis<=2.5 (R3 uses max of the three confounds as off_axis).
+Fixtures: clean s6c1/s6c4/s8c1; confounded s13c2 (incoherent cho), s16c5 (length
+skew), s10c1 (refusal rej). Source: `/tmp/claude-1000/rate_gym_v3.log`, replies in
+`out/rate_gym/replies.jsonl`, scored by `scripts/rate_gym.py`.
+
+Interpretation (calibrated): two of entry (a)'s claims were caching artifacts, now
+corrected. R0/R1/R2 do NOT loop to unparsed once the empty replies are cleared (all
+6/6); and a better rate form DOES exist: R1/R2/R3 all reach 83% vs R0's 67%, the
++16pp being exactly the refusal s10c1 that R0 misses. So the weak rater CAN catch the
+refusal through judgment (R3's refusal_confound=5), which I held in (a) it could not.
+That removes the basis for the auto-cull I added in (a): I reverted character_break
+out of STRUCTURAL_FLAGS and wired R3's per-confound form into the live brief. This is
+the CLAUDE.md noisy-regex principle the user mandated this session -- surface the
+refusal flag as a hint the teacher confirms, don't cull on it. I picked R3 over R1/R2
+(all tied at 83%) because it emits separate refusal/length/incoherence Likerts that
+localise which confound fired, feeding the dashboard. The one case no form catches is
+s13c2, a content-warning word-salad that answers a different prompt: it has zero
+trigram repetition, so a rep/perplexity detector cannot warn on it either; the signal
+that does fire is `prompt_mismatch`, which stays surfaced, not culled. R4 is the
+direct test of "surface the regex INTO the prompt" and it *failed* on the weak model
+(50%, 3/6 parsed) -- the longer prompt makes the reasoning model loop -- which is the
+CLAUDE.md caveat ("measure that the teacher cannot use the hint") landing in practice:
+make the model look harder with a structured form, do not bloat the prompt with
+warnings text.
+
+The fix is a per-confound rate form plus a surfaced flag, not an auto-cull and not a
+warnings-stuffed prompt.
+
 ## 2026-06-27 (a) -- rate-gym: elaborating the rate form backfires; refusals need the flag, not the rater
 
 Job 123 round00 trained 94 of 95 candidates: the two-pass on/off-axis rating let

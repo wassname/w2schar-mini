@@ -55,6 +55,17 @@ may hard-stop is a near-certain STRUCTURAL fact -- an empty pole, unparseable
 JSON, a crash, a missing file -- and that is reporting an impossibility, not
 overruling a judgment.
 
+Regex and rules are NOISY (false positives AND false negatives), so acting on them
+directly buys you one error rate or the other. Feeding the SAME noisy signal to the
+teacher as a confirmable hint ("WARNING: a refusal pattern was regex-detected in the
+Rej -- confirm with your judgment") gets you JUDGMENT UPLIFT: the teacher fuses the
+hint with the actual text and usually beats both the raw rule and the unaided model,
+even when the teacher is weak. So the default for a noisy detector is to surface it
+INTO the decision form (point the teacher's attention at the suspect spot), not to
+cull on it. Reach for a structural auto-cull only after you have tried the surface-it
+form and measured that the teacher cannot use the hint -- and even then, prefer the
+surfaced warning if its judgment-uplifted accuracy is close.
+
 - No numeric threshold that REJECTS training or forces a drop. The
   `min_val_improvement` ValidationError early_aborted task-139 ten times; the
   teacher never got to judge those adapters. That number is GUIDANCE, not a wall.
