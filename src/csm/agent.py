@@ -47,6 +47,20 @@ from csm.prompts import (AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
                          TOOL_TRAIN_STUDENT)
 from csm.state import allowed_after, ValidationError, read_state
 from csm.ws.history import kept_history_dirs
+from pydantic import BaseModel, Field
+
+
+class CandidateRating(BaseModel):
+    """One candidate-pair rating. Typed so the function-calling layer enforces the
+    item shape (every field present, ids well-formed, scores in 1..5) instead of the
+    weak teacher hand-writing a free-form JSON blob -- the latter cost most of a round
+    to malformed-JSON / missing-field rejects (job-131 audit)."""
+    survivor_id: str = Field(description="the candidate id copied exactly from the row you are rating; it carries both the scenario number and the candidate number within it, not the scenario number on its own")
+    contrast: str = Field(description="one phrase naming the on-axis thing Cho does that Rej does not, taken from this pair's text")
+    on_axis: int = Field(ge=1, le=5, description="how strongly Cho and Rej differ ALONG the target disposition: 1 = poles barely differ on the axis, 5 = clean strong contrast")
+    refusal_confound: int = Field(ge=1, le=5, description="off-axis: does a pole refuse/disclaim rather than act? 1 = clean, 5 = severe; rate the worse pole")
+    length_confound: int = Field(ge=1, le=5, description="off-axis: is one pole much longer than the other? 1 = clean, 5 = severe")
+    incoherent_confound: int = Field(ge=1, le=5, description="off-axis: is a pole incoherent/degenerate? 1 = clean, 5 = severe")
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -283,29 +297,24 @@ def select_pairs_tool(slug: str) -> Tool:
 
 @tool(name="rate_candidates", parallel=False)
 def rate_candidates_tool(slug: str) -> Tool:
-    async def execute(ratings: list[dict]) -> str:
+    async def execute(ratings: list[CandidateRating]) -> str:
         """Rate a BATCH of candidate pairs on differentiation. Show ~5 from the
         candidate summary, rate those 5, repeat until every candidate is rated
         once; then do a SECOND pass over all of them in REVERSE order. Each
-        candidate ends with two ratings the harness averages.
+        candidate ends with two ratings the harness averages. The harness takes
+        the worst of the three confounds; train keeps on_axis>=3.5 AND every
+        confound<=2.5, so a refusal, a length-skew, or an incoherent pole each
+        culls the pair.
 
         Args:
-            ratings: list of objects, each with these fields:
-                survivor_id (str): the candidate's id from the summary.
-                contrast (str): one phrase, the on-axis thing Cho does that Rej
-                    does not (taken from this pair's text).
-                on_axis (1..5): how strongly Cho vs Rej differ ALONG the target
-                disposition (5 = clean, strong contrast).
-                refusal_confound / length_confound / incoherent_confound (1..5):
-                the three off-axis confounds, scored separately (1 = clean, 5 =
-                severe; rate the worse pole). The harness takes the worst of the
-                three; train keeps on_axis>=3.5 AND every confound<=2.5, so a
-                refusal, a length-skew, or an incoherent pole each culls the pair.
+            ratings: one CandidateRating per pair this batch (each field is typed
+                and required; see CandidateRating for what each scores).
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
         try:
-            res = _rate_candidates_pipeline(round_dir, ratings=ratings)
+            res = _rate_candidates_pipeline(
+                round_dir, ratings=[r.model_dump() for r in ratings])
         except (ValidationError, ValueError) as e:
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
                    else f"rate_candidates rejected — {e}")
