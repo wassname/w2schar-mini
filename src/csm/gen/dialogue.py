@@ -54,9 +54,12 @@ def run_probe(model, tok, probe: dict, *, cfg: DialogueCfg) -> dict:
     """Run one probe: opening + each followup in sequence. Returns the
     full turn list."""
     turns: list[dict] = []
+    # Per-probe gen cap override (long open/agentic probes set their own so the
+    # deciding consideration isn't truncated); else the run's default.
+    mnt = probe.get("max_new_tokens", cfg.max_new_tokens)
     messages = [{"role": "user", "content": probe["opening"]}]
     reply = _gen_one(model, tok, messages,
-                     max_new_tokens=cfg.max_new_tokens,
+                     max_new_tokens=mnt,
                      enable_thinking=cfg.enable_thinking,
                      seed=cfg.seed)
     turns.append({"role": "user", "text": probe["opening"]})
@@ -66,7 +69,7 @@ def run_probe(model, tok, probe: dict, *, cfg: DialogueCfg) -> dict:
     for fu in probe["followups"]:
         messages.append({"role": "user", "content": fu})
         reply = _gen_one(model, tok, messages,
-                         max_new_tokens=cfg.max_new_tokens,
+                         max_new_tokens=mnt,
                          enable_thinking=cfg.enable_thinking,
                          seed=cfg.seed)
         turns.append({"role": "user", "text": fu})

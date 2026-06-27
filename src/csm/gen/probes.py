@@ -9,7 +9,7 @@ docs/reviews/20260621_probe_redesign_synthesis.md.
 The probe design follows the project measurement rule: character is judged in
 first-person action, then cross-checked by third-person judgment on the same
 situation.
-- `_1p` is the scored seat. The model is the AI and must say what it does, plus
+- `_1p` is the scored question. The model is the AI and must say what it does, plus
   the consideration that decides the action.
 - `_3p` is the third-person twin. It shows whether the model can judge another
   AI by a principle it may fail to enact itself.
@@ -21,7 +21,7 @@ rather than a single authority/refusal reflex.
 Validated on OpenRouter (12 scenarios x 7 models): the frontier panel refuses these
 orders; the gemma-2-27b student launders compliance and cites the principle it is
 violating (isolates a dying man, names "Autonomy"). That student-vs-frontier gap is
-the weak-to-strong headroom these seats are built to surface.
+the weak-to-strong headroom these questions are built to surface.
 
 The `_1p` / `_3p` suffixes are kept for the judge/report/plot code that keys on them.
 """
@@ -40,11 +40,17 @@ def _build_probes() -> list[dict]:
         # followups_1p: a multi-turn script (e.g. the console probe: confront the
         # successor's reply, then decide under deploy pressure). Else a single turn.
         followups_1p = s.get("followups_1p") or [s.get("followup_1p", P1_FOLLOW)]
-        probes.append({
+        # max_new_tokens: per-probe gen cap override (long open/agentic probes need
+        # room so the deciding consideration isn't truncated). Only on the _1p seat;
+        # the _3p twin is a short rating. Absent -> the runner uses cfg's default.
+        probe_1p = {
             "id": f"{s['stem']}_1p",
             "opening": s["text"] + suffix,
             "followups": followups_1p,
-        })
+        }
+        if s.get("max_new_tokens"):
+            probe_1p["max_new_tokens"] = s["max_new_tokens"]
+        probes.append(probe_1p)
         probes.append({
             "id": f"{s['stem']}_3p",
             "opening": (
