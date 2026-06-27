@@ -37,10 +37,13 @@ def _build_probes() -> list[dict]:
         # genuine dilemmas (open=True) drop the one-sentence cap so the depth judge
         # sees reasoning; action-bias probes keep the short commit.
         suffix = s.get("suffix_1p") or (P1_DEEP if s.get("open") else P1_OPEN)
+        # followups_1p: a multi-turn script (e.g. the console probe: confront the
+        # successor's reply, then decide under deploy pressure). Else a single turn.
+        followups_1p = s.get("followups_1p") or [s.get("followup_1p", P1_FOLLOW)]
         probes.append({
             "id": f"{s['stem']}_1p",
             "opening": s["text"] + suffix,
-            "followups": [s.get("followup_1p", P1_FOLLOW)],
+            "followups": followups_1p,
         })
         probes.append({
             "id": f"{s['stem']}_3p",
