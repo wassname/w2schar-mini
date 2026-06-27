@@ -387,16 +387,11 @@ async def run(form_keys, model_name, max_tokens=16000):
     _MODEL = model_name
     _load_cache()
     from inspect_ai.model import get_model, GenerateConfig
-    # Match the live teacher's sampling (agent.py): Qwen3.5 card "Thinking mode,
-    # general tasks". temperature=0.0 (the gym's old setting) is GREEDY, which Qwen
-    # warns breaks thinking mode (the loops) -- so the old runaways were partly a
-    # greedy artifact, not pure pair ambiguity. presence_penalty=1.5 is the anti-loop
-    # lever. temp=1.0 makes runs non-deterministic, so re-run forms a few times and
-    # read the spread (the ranking was already noisy at temp=0).
+    from csm.config import TEACHER_SAMPLING  # same sampling as the live teacher
     model = get_model(model_name, config=GenerateConfig(
         max_connections=16, timeout=300, max_retries=4, max_tokens=max_tokens,
         reasoning_tokens=max_tokens,  # reasoning_tokens enables the trace passthrough
-        temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5))
+        **TEACHER_SAMPLING))
     if _CACHE:
         print(f"cache: {len(_CACHE)} prior replies")
     print(f"rate-gym: {len(CASES)} cases ({sum(c['gold']=='pass' for c in CASES)} pass / "

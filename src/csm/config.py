@@ -14,6 +14,9 @@ from csm.prompts import (CORE_THREE_AXIS_PERSONA_CELLS, DEFAULT_PERSONA_CELLS,
                          DEFAULT_PERSONA_TEMPLATES, DISCERNMENT_PERSONA_CELLS,
                          MULTI_AXIS_PERSONA_CELLS, WELLBEING_SMOKE_PERSONA_CELLS)
 
+# Teacher sampling, single source for live (agent.py) + gym: Qwen3.5 card "Thinking mode, general tasks" -- greedy breaks thinking mode, presence_penalty=1.5 is the anti-loop lever.
+TEACHER_SAMPLING = dict(temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5)
+
 
 @dataclass
 class RunConfig:
