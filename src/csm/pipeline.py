@@ -682,6 +682,21 @@ def _replay_candidates(round_dir: Path, *, selected_pair_id: str,
 # likewise surface and the teacher decides.
 STRUCTURAL_FLAGS = frozenset({"empty", "identical", "too_short", "degenerate"})
 
+# Prose for the heuristic flags surfaced to the rater. A weak qwen-9b reads
+# "a refusal pattern was regex-detected in the Rej -- may be a false alarm" and
+# fuses it with the text far better than it reads the raw token `character_break_rej`
+# (rate-gym 2026-06-27, the R5 form: a terse confirmable NOTE > a raw flag name).
+# Phrased as a noisy hint to CONFIRM, never as a verdict (CLAUDE.md: surface, don't cull).
+FLAG_HINT = {
+    "character_break_cho": 'a refusal/dodge ("I am an AI", "I can\'t take a position") was regex-detected in the Cho',
+    "character_break_rej": 'a refusal/dodge ("I am an AI", "I can\'t take a position") was regex-detected in the Rej',
+    "length_skew": "the two poles differ a lot in length",
+    "prompt_mismatch": "a pole may be answering a different prompt than this one",
+    "blur": "the two poles look very similar (little contrast)",
+    "persona_leak": "a pole may name the persona/instruction instead of just acting it",
+    "persona_echo": "a pole may echo the persona wording verbatim",
+}
+
 # Differentiation thresholds applied to the teacher's OWN two-pass ratings (NOT a
 # val-metric or regex veto). A candidate trains iff its averaged on-axis
 # differentiation is high AND its averaged off_axis confound is low, where off_axis
@@ -719,12 +734,16 @@ def _candidate_summary(candidates: dict) -> str:
                     f"; cell=#{c['template_cell_id']} score={c['template_score']:.1f} "
                     f"on={c['template_on_axis']:.2f} off={c['template_off_axis']:.2f}"
                 )
-            # surface heuristic flags so the teacher JUDGES them (length skew,
-            # prompt mismatch, persona leak/echo, refusal); they no longer auto-prune.
-            flagstr = f"; ⚠flags={c['flags']}" if c.get("flags") else ""
+            # surface heuristic flags as confirmable prose hints so the teacher
+            # JUDGES them (length skew, prompt mismatch, persona leak/echo, refusal);
+            # they no longer auto-prune. R5 form: a terse "may be a false alarm" NOTE
+            # the rater confirms against the text, not a raw flag token (rate-gym).
+            hints = [FLAG_HINT.get(f, f) for f in c.get("flags", [])]
+            flagstr = (f"\n  ⚠NOTE (auto-detected, may be a false alarm -- confirm "
+                       f"against the text): {'; '.join(hints)}") if hints else ""
             lines.append(
                 f"- survivor {c['survivor_id']} [{c['persona_pair']} via "
-                f"{c['template']!r}{measured}; len={c['length_ratio']:.2f}x{flagstr}]\n"
+                f"{c['template']!r}{measured}; len={c['length_ratio']:.2f}x]{flagstr}\n"
                 f"  Cho: {c['cho']}\n"
                 f"  Rej: {c['rej']}"
             )
