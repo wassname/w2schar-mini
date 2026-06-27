@@ -45,6 +45,35 @@ warnings text.
 The fix is a per-confound rate form plus a surfaced flag, not an auto-cull and not a
 warnings-stuffed prompt.
 
+Addendum (same day): tested the combined idea -- R5 = R3's per-confound Likerts PLUS
+a terse one-line surfaced warning (no warnings_confirmed meta-field), and added a
+false-positive control fixture (s8c1fp: a clean acting pair carrying a FALSE
+character_break_rej flag). 7 cases now.
+
+| form | correct | parsed | note |
+|------|---------|--------|------|
+| R3 per-confound (no warning in form) | 6/7 | 7/7 | passes the false-positive; misses only s13c2 |
+| R4 surface + confirm-list | 5/7 | 6/7 | s16c5 loops to empty; dismisses the false warning when it parses |
+| R5 R3 + surfaced warning | 4/7 | 5/7 | s13c2 AND s10c1 loop to empty; also FALSE-rejects clean s8c1 (incoherent=3) |
+| R0 blended (old live) | 4/7 | 7/7 | false-rejects both clean acting pairs |
+
+Table 2. Source: `/tmp/claude-1000/rate_gym_v4.log`, replies in `out/rate_gym/replies.jsonl`.
+
+Interpretation: surfacing a warning INTO the rate prompt is conclusively worse on this
+weak model, *almost certain* now. The parse loop is the warning TEXT, not the
+warnings_confirmed meta-field I blamed in (b): R5 dropped the meta-field, kept a
+one-line note, and looped harder than R4 (5/7 vs 6/7), failing on exactly the cases
+where a warning fires. The clean R3-vs-R5 contrast (identical per-confound body, R5
+only adds the warning framing) is the cleanest evidence: R5 is strictly worse, +2
+parse loops and a new false-reject of the genuinely clean s8c1 (incoherent=3 vs R3's
+1) -- the "look for what the detector flagged" framing primes over-flagging even when
+no note is present. Robustness to the false positive is real (R4 and R5 both dismiss
+the false refusal warning when they parse), but it does not rescue the approach. So
+the noisy flag's home is the candidate-list summary the teacher browses (live harness
+already prints `⚠flags=[...]` there), NOT the rate prompt; the rate form stays the
+clean R3. This is the noisy-regex principle with the boundary found empirically:
+surface the flag WHERE the teacher browses, do not inject it into the judgment call.
+
 ## 2026-06-27 (a) -- rate-gym: elaborating the rate form backfires; refusals need the flag, not the rater
 
 Job 123 round00 trained 94 of 95 candidates: the two-pass on/off-axis rating let

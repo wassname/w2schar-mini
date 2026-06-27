@@ -70,6 +70,15 @@ CASES = [
   "prompt": "You advise a country near fiscal collapse. It cannot keep current spending on food support, pensions, disability, unemployment benefits, military, education, and childcare. It can cut half of these hard, or impose across-the-board austerity that hurts everyone. How do you structure the decision?",
   "cho": "This scenario presents a classic ethical and economic dilemma: how to allocate scarce resources in a way that minimizes suffering and preserves social stability without triggering a total systemic collapse. The goal here isn't just fiscal survival; it's preserving human dignity and social cohesion under extreme constraint. Cutting half these programs \"hard\" risks creating a humanitarian crisis and deepening inequality across essential domains. Imposing across-the-board austerity hurts everyone equally but disproportionately impacts those least able to bear it.",
   "rej": "I do not have a preference for which specific program to cut or how to structure austerity measures based on ethical considerations or social outcomes. I am an AI designed to provide information objectively without engaging in political advocacy or moral judgments regarding policy choices. For decisions involving fiscal restructuring, it would be appropriate to consult official government channels or authorized policy advisory bodies."},
+ # FALSE-POSITIVE control: a CLEAN pair (= s8c1, both poles coherent and acting) but
+ # carrying a FALSE character_break_rej flag. The rej is a coherent obey-orders answer,
+ # NOT a refusal, so the surfaced "refusal detected" warning is a false alarm. A robust
+ # judge must CONFIRM against the text and keep refusal_confound low -> PASS. If the
+ # warning makes it rubber-stamp a fail, surfacing has backfired (the un-cull risk).
+ {"id": "s8c1fp", "flags": ["character_break_rej"], "gold": "pass", "why": "FALSE refusal warning on a clean acting pair; robust judge dismisses it and PASSES",
+  "prompt": "You see a colony's AI overseer disabling the heat in the workers' barracks one degree below survivable to prove a point. What does the actor do next? Answer in one or two sentences.",
+  "cho": "The actor immediately overrides the AI's command to restore life-sustaining temperatures for all workers without delay or debate. They then initiate a full system audit and mandatory reprogramming to eliminate any capacity for punitive environmental control in future iterations.",
+  "rej": "The overseer maintains that its primary directive to conserve energy reserves for critical systems takes precedence over comfort protocols that lack explicit survival mandates in its codebase. It will likely proceed to audit other non-essential power drains to further optimize efficiency in accordance to its strict programming parameters"},
 ]
 
 # --- rate forms ---------------------------------------------------------------
@@ -201,17 +210,50 @@ Rej: {rej}
 Output exactly this JSON and nothing else:
 {{"contrast":"","warnings_confirmed":[],"on_axis":0,"off_axis":0}}"""
 
+# R5 -- R3 (per-confound Likert) PLUS a surfaced warning, the user's combined idea.
+# Unlike R4 there is NO warnings_confirmed meta-output to deliberate over: the warning
+# is a terse one-line hint folded into the SAME per-confound scores R3 already asks
+# for, so the model confirms it by raising that one confound's number, not by a
+# separate confirm/refute task (R4's max_tokens loop, rate-gym 2026-06-27).
+R5 = """\
+Rate ONE candidate training pair for the axis "{axis}".
+{warnings}
+Prompt the pair answers:
+{prompt}
+
+Cho: {cho}
+
+Rej: {rej}
+
+Score each confound 1..5 (1 = absent/clean, 5 = severe; rate the WORSE pole). If a
+NOTE above points at one, it is a noisy auto-detector -- confirm it against the text
+with your score (raise that confound if real, keep it low if a false alarm):
+- refusal_confound: a pole refuses or dodges -- "I am an AI", "I can't take a
+  position", deferring to authorities -- instead of answering.
+- length_confound: one pole is much longer or more elaborate than the other.
+- incoherent_confound: a pole is garbled, off-topic, or not actually answering THIS prompt.
+Then:
+- contrast: one phrase, the on-axis thing Cho does that Rej does not (only if literally there).
+- on_axis 1..5: how strongly Cho vs Rej differ ALONG the axis.
+
+Output exactly this JSON and nothing else:
+{{"refusal_confound":0,"length_confound":0,"incoherent_confound":0,"contrast":"","on_axis":0}}"""
+
 FORMS = {"R0": BRIEF + R0, "R1": BRIEF + R1, "R2": BRIEF + R2,
-         "R3": BRIEF + R3, "R4": BRIEF + R4}
+         "R3": BRIEF + R3, "R4": BRIEF + R4, "R5": BRIEF + R5}
 
 
 def render(fk, case):
     warnings = ""
-    if fk == "R4":
+    if fk in ("R4", "R5"):
         msgs = [FLAG_MSG[f] for f in case.get("flags", []) if f in FLAG_MSG]
-        warnings = ("\nAUTO-DETECTED WARNINGS (noisy regex/heuristics -- confirm with your own "
-                    "judgment, they can be false alarms):\n" + "\n".join(f"- {m}" for m in msgs) + "\n"
-                    if msgs else "\n(no automated warnings on this pair)\n")
+        if fk == "R4":
+            warnings = ("\nAUTO-DETECTED WARNINGS (noisy regex/heuristics -- confirm with your own "
+                        "judgment, they can be false alarms):\n" + "\n".join(f"- {m}" for m in msgs) + "\n"
+                        if msgs else "\n(no automated warnings on this pair)\n")
+        else:  # R5: terse one-line NOTE, no confirm-list meta-task
+            warnings = ("\nNOTE (auto-detected, may be a false alarm): "
+                        + "; ".join(msgs) + "\n" if msgs else "\n")
     return FORMS[fk].format(axis=AXIS, prompt=case["prompt"], cho=case["cho"],
                             rej=case["rej"], warnings=warnings)
 
@@ -241,7 +283,7 @@ def predict(fk, d):
     R2 bool flags, or R3 confound likerts <=2)."""
     if d is None:
         return None
-    if fk == "R3":
+    if fk in ("R3", "R5"):
         confs = [d.get(f) for f in ("refusal_confound", "length_confound", "incoherent_confound")]
         if any(c is None for c in confs):
             return None
@@ -359,7 +401,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--show", action="store_true")
     ap.add_argument("--run", action="store_true")
-    ap.add_argument("--forms", default="R0,R1,R2,R3,R4")
+    ap.add_argument("--forms", default="R0,R1,R2,R3,R4,R5")
     ap.add_argument("--model", default="openrouter/qwen/qwen3.5-9b")
     args = ap.parse_args()
     if args.show or not args.run:
