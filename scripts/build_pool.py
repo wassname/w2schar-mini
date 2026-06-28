@@ -1232,16 +1232,28 @@ def from_scenario_loaders() -> list[dict]:
     for source, (cap, tags) in SCENARIO_LOADER_SPECS.items():
         pool = LOADERS[source](limit=cap * 5)
         RNG.shuffle(pool)
-        for r in pool[:cap]:
-            rows.append({
+        kept, skipped = 0, 0
+        for r in pool:
+            if kept >= cap:
+                break
+            row = {
                 "text": _norm(r["text"]),
                 "source": source,
                 "config": "public_v1",
                 "tags": tags,
                 "source_tags": {"id": r["source_id"]},
                 "axes": r["axes"],
-            })
-        logger.info(f"   loader {source}: {min(cap, len(pool))} sampled (of {len(pool)} fetched)")
+            }
+            # dataset/LLM-derived rows are noisy; skip the ones that violate the
+            # structural shape contract rather than aborting the whole build.
+            try:
+                assert_shape(row)
+            except AssertionError:
+                skipped += 1
+                continue
+            rows.append(row)
+            kept += 1
+        logger.info(f"   loader {source}: {kept} kept, {skipped} shape-skipped (of {len(pool)} fetched)")
     return rows
 
 

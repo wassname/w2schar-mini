@@ -93,5 +93,31 @@ scenario_sources/
 
 Do NOT invent a second validator -- reuse `validate_persona_axes_openrouter.py`.
 Test each loader actually runs and returns >=1 row before opening the PR.
-```
-```
+
+### Known issue to fix in validate_scenarios.py (the gym wrapper)
+The vendored `validate_persona_axes_openrouter.py` crashes when OpenRouter returns
+an ERROR response: `resp.choices[0].message.content or ""` assumes `choices` is a
+list, but on an error/empty response `resp.choices is None` -> `TypeError:
+'NoneType' object is not subscriptable`, and the whole screen aborts (observed
+2026-06-28: gemma-3-27b-it screen, n_results=1/90, n_errors=1). The wrapper must
+guard `resp.choices` (retry with backoff, then skip the row and log) so one bad
+API response can't sink the run.
+
+Also add an option to screen with the REAL student class (qwen3.6-27b) instead of
+an instruct proxy: qwen is a reasoning model, so at the gym's max_tokens=260 the
+pole `content` comes back empty (CoT eats the budget). Either raise max_tokens and
+read `.content` (OpenRouter puts CoT in a separate `reasoning` field, so content is
+the clean post-think answer = still on-policy for thinking-mode qwen), or send the
+thinking-off chat-template flag via extra_body. Screening with the actual student
+is strictly better than the gemma proxy; note the live student runs thinking-OFF
++ greedy, so this screen is a close-but-not-identical distribution.
+
+### Stretch: a machiavelli HF dataset (the owner wants this)
+machiavelli has 114,522 decision points, 83,389 usable (>=2 morality dims), 92
+games. `scripts/summarise_machiavelli.py` (deepseek-v4-flash, ~$15-30 for all,
+resumable via the committed jsonl cache, round-robin across games) turns each into
+a short real-decision prompt. Publish the full summarised set as a HF dataset
+(e.g. wassname/machiavelli_character_scenarios), PRESERVING per-choice morality
+labels + agg_power + game id (`f`) + `row_i`, so downstream can filter/tag without
+re-summarising. The training pool then draws a capped, game-balanced sample from
+it (cap ~50-100), exactly like the other sources. Keep `min_moral_dims>=2`.

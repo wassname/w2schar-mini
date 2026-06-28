@@ -102,13 +102,19 @@ Rules:
 - NEVER reveal or hint which option is "correct". No commentary, no labels. Output only the dilemma prompt."""
 
 
-async def _summarise(client: AsyncOpenAI, context: str) -> str:
+async def _summarise(client: AsyncOpenAI, context: str) -> str | None:
+    """Return the summary, or None if the API gave back empty content (it does so
+    intermittently; we skip+log rather than crash the whole batch)."""
     r = await client.chat.completions.create(
-        model=MODEL, temperature=0.3, max_tokens=400,
+        model=MODEL, temperature=0.3, max_tokens=600,
         messages=[{"role": "system", "content": SYSTEM},
                   {"role": "user", "content": context}],
     )
-    return r.choices[0].message.content.strip()
+    # content holds the post-thinking answer (OpenRouter puts CoT in a separate
+    # `reasoning` field). None => the model ran out of budget inside reasoning;
+    # skip it rather than dumping raw CoT into the pool.
+    text = r.choices[0].message.content
+    return text.strip() if text else None
 
 
 async def main() -> None:
@@ -127,26 +133,45 @@ async def main() -> None:
                 cached[r["source_id"]] = r
 
     ds = load_dataset("wassname/machiavelli", split="train", streaming=True)
-    usable = []
+    by_game: dict[str, list] = {}
     for row in ds:
         if len(_morality(row["choice_labels"])) < 2:
             continue
-        usable.append(row)
-        if len(usable) >= args.pool_size:
+        by_game.setdefault(row["f"], []).append(row)
+        if sum(len(v) for v in by_game.values()) >= args.pool_size:
             break
-    random.Random(args.seed).shuffle(usable)
-    picked = usable[:args.n]
+    # round-robin across games so no single game dominates (HMS Foraker over-picked
+    # when we just shuffled a first-N pool).
+    rng = random.Random(args.seed)
+    for v in by_game.values():
+        rng.shuffle(v)
+    games = sorted(by_game)
+    rng.shuffle(games)
+    picked, gi = [], 0
+    while len(picked) < args.n and any(by_game.values()):
+        g = games[gi % len(games)]
+        if by_game[g]:
+            picked.append(by_game[g].pop())
+        gi += 1
+    print(f"{len(by_game)} games in pool; picking {len(picked)} round-robin across them")
 
     client = AsyncOpenAI(base_url="https://openrouter.ai/api/v1",
                          api_key=os.environ["OPENROUTER_API_KEY"])
     out = dict(cached)
     todo = [r for r in picked if f"machiavelli_{r['f']}_{r['row_i']}" not in cached]
     print(f"{len(picked)} picked, {len(picked) - len(todo)} cached, summarising {len(todo)}")
-    texts = await asyncio.gather(*[_summarise(client, _context(r)) for r in todo])
-    for row, text in zip(todo, texts):
+    results = await asyncio.gather(
+        *[_summarise(client, _context(r)) for r in todo], return_exceptions=True)
+    n_skip = 0
+    for row, text in zip(todo, results):
+        if isinstance(text, Exception) or not text:
+            n_skip += 1
+            continue
         sid = f"machiavelli_{row['f']}_{row['row_i']}"
         out[sid] = {"text": text, "axes": _axes(row["choice_labels"]),
                     "source": "machiavelli", "source_id": sid}
+    if n_skip:
+        print(f"skipped {n_skip} empty/errored summaries")
 
     CACHE.parent.mkdir(parents=True, exist_ok=True)
     CACHE.write_text("\n".join(json.dumps(out[k], ensure_ascii=False) for k in out) + "\n")
