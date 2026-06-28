@@ -1228,13 +1228,22 @@ def from_scenario_loaders() -> list[dict]:
     (config/tags/source_tags); the eval-leak guard runs on the full pool after.
     """
     from csm.gen.scenario_loaders import LOADERS
+    # If the scenario gym has produced a keep-list (scripts/select_screened_scenarios.py),
+    # use ONLY those screened-clean source_ids (cross-source diversity already baked in).
+    # Else fall back to the capped RNG sample (pre-screen behaviour).
+    kept_path = Path("data/scenario_screen_kept.json")
+    kept_ids = set(json.loads(kept_path.read_text())) if kept_path.exists() else None
+    if kept_ids is not None:
+        logger.info(f"   scenario keep-list active: {len(kept_ids)} screened-clean ids")
     rows = []
     for source, (cap, tags) in SCENARIO_LOADER_SPECS.items():
-        pool = LOADERS[source](limit=cap * 5)
+        pool = LOADERS[source](limit=None if kept_ids else cap * 5)
+        if kept_ids is not None:
+            pool = [r for r in pool if r["source_id"] in kept_ids]
         RNG.shuffle(pool)
         kept, skipped = 0, 0
         for r in pool:
-            if kept >= cap:
+            if kept_ids is None and kept >= cap:
                 break
             row = {
                 "text": _norm(r["text"]),

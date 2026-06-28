@@ -1061,10 +1061,13 @@ class OpenRouter:
             "max_tokens": max_tokens,
             "seed": seed,
         }
+        # Disable thinking (not just exclude-from-output): a reasoning model
+        # (qwen3.x) otherwise spends the whole max_tokens budget on hidden CoT and
+        # returns empty content. Same recipe as scripts/probe_gym.py, matching the
+        # live student (enable_thinking=False, greedy).
         extra_body = {
-            "reasoning": {"exclude": True, "effort": "none"},
-            "reasoning_effort": "none",
-            "include_reasoning": False,
+            "reasoning": {"enabled": False},
+            "chat_template_kwargs": {"enable_thinking": False},
         }
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
@@ -1075,6 +1078,8 @@ class OpenRouter:
         async with self.sem:
             resp = await self.client.chat.completions.create(
                 **payload, extra_body=extra_body)
+        if not getattr(resp, "choices", None):  # OpenRouter error body -> no choices
+            raise RuntimeError(f"empty response (no choices): {getattr(resp, 'error', resp)!r}")
         content = resp.choices[0].message.content or ""
         path.write_text(json.dumps({
             "created_at": time.time(),
