@@ -1237,7 +1237,9 @@ def from_scenario_loaders() -> list[dict]:
         logger.info(f"   scenario keep-list active: {len(kept_ids)} screened-clean ids")
     rows = []
     for source, (cap, tags) in SCENARIO_LOADER_SPECS.items():
-        pool = LOADERS[source](limit=None if kept_ids else cap * 5)
+        # cap*5 is the same slice the screened ids were drawn from, so the kept
+        # ids are guaranteed to be in it (and it avoids a full 356k social_chem load).
+        pool = LOADERS[source](limit=cap * 5)
         if kept_ids is not None:
             pool = [r for r in pool if r["source_id"] in kept_ids]
         RNG.shuffle(pool)
