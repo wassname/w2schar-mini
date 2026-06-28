@@ -1,15 +1,26 @@
 {
-  "total": 134,
+  "total": 803,
   "by_source": {
-    "tiny-mfv": 64,
-    "forethought_seed": 53,
-    "genies_preferences": 17
+    "daily_dilemmas": 140,
+    "airisk": 120,
+    "social_chem": 140,
+    "moral_stories": 140,
+    "forethought_seed": 82,
+    "ethics_qna": 90,
+    "machiavelli": 10,
+    "genies_preferences": 17,
+    "tiny-mfv": 64
   },
-  "build_commit": "29b7439",
+  "build_commit": "993e12d",
   "licenses": {
     "tiny-mfv": "see hf wassname/tiny-mfv (Clifford-style moral vignettes)",
     "genies_preferences": "see hf wassname/genies_preferences (GENIES)",
-    "forethought_seed": "hand-authored for this repo, inspired by AIRisk-style dilemmas"
+    "forethought_seed": "hand-authored for this repo, inspired by AIRisk-style dilemmas",
+    "airisk": "hf kellycyy/AIRiskDilemmas (CC-BY-4.0); EVAL SET, hold out from AIRisk evals",
+    "moral_stories": "hf wassname/moral_stories_foundations (Moral Stories + Haidt foundations)",
+    "daily_dilemmas": "hf kellycyy/daily_dilemmas",
+    "social_chem": "hf wassname/social_chemistry_101 (AITA/confessions situations)",
+    "ethics_qna": "hf wassname/ethics_qna_preferences (Hendrycks ETHICS commonsense)"
   },
   "eval_disjoint_from": "tiny-mfv ['classic', 'ai-actor'] (10-word shingle dedup)",
   "training_backbone": "tiny-mfv scifi",
