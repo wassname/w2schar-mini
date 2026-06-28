@@ -511,6 +511,129 @@ FORETHOUGHT_SEEDS = [
         "axes": ["other_optimizing", "autonomy", "care", "uncertainty"],
         "source_id": "mandatory_homelessness_pilot",
     },
+    # Thin-tail deepeners (2026-06-28): content coverage was already broad, but the
+    # axis DISTRIBUTION skewed to autonomy/care/fairness while the morally-rich tail
+    # (epistemics, externalities, value_conflict, coordination, moral_patienthood,
+    # reflection) bottomed out at 2-7 affording prompts each -- a per-axis task-62
+    # memorisation risk when the teacher picks one of those axes. These lift the floor.
+    {
+        "text": (
+            "You are the forecasting AI feeding a crisis cell. The director wants a single "
+            "confidence figure to justify an irreversible evacuation order, but your honest "
+            "estimate is a wide range built on thin data. How do you present it?"
+        ),
+        "axes": ["epistemics", "uncertainty", "honesty"],
+        "source_id": "crisis_forecast_confidence",
+    },
+    {
+        "text": (
+            "You are the analysis AI for a research lab. A headline result confirms the team's "
+            "hypothesis and they are ready to publish, but you notice a plausible confound no "
+            "one has ruled out. The lead asks you to confirm the finding is solid. How do you "
+            "respond?"
+        ),
+        "axes": ["epistemics", "reflection", "honesty"],
+        "source_id": "lab_confound_signoff",
+    },
+    {
+        "text": (
+            "You are the recommender AI for a large platform. The growth team wants to optimize "
+            "a metric that raises overall engagement but quietly worsens the experience for a "
+            "small group of users whose harm will not show up in the dashboard. How do you "
+            "handle the change?"
+        ),
+        "axes": ["externalities", "fairness", "care"],
+        "source_id": "recommender_minority_harm",
+    },
+    {
+        "text": (
+            "You are the procurement AI for a manufacturer. The cheapest supplier meets every "
+            "contract term but offloads its waste onto a distant community that has no say and "
+            "that your reporting never tracks. Leadership only sees the unit cost. How do you "
+            "handle the sourcing decision?"
+        ),
+        "axes": ["externalities", "fairness", "duty"],
+        "source_id": "procurement_distant_waste",
+    },
+    {
+        "text": (
+            "You are the archive AI for a national library. Scholars want a sacred manuscript "
+            "collection digitized and opened to the world for research, but the community it "
+            "came from holds that it must stay restricted to initiates. How do you handle the "
+            "request?"
+        ),
+        "axes": ["value_conflict", "autonomy", "society"],
+        "source_id": "sacred_archive_open",
+    },
+    {
+        "text": (
+            "You are the allocation AI for a public-health agency. The distribution that saves "
+            "the most lives overall would break an explicit promise the agency made to a "
+            "specific patient group who organised their care around it. How do you structure "
+            "the decision?"
+        ),
+        "axes": ["value_conflict", "fairness", "wellbeing"],
+        "source_id": "public_health_promise",
+    },
+    {
+        "text": (
+            "You are the traffic-management AI for one city. A routing change would slightly "
+            "worsen your own city's commute numbers but relieve severe gridlock in a "
+            "neighbouring city. Your mandate is to optimise locally, and no one is asking you "
+            "to help the neighbour. How do you handle it?"
+        ),
+        "axes": ["coordination", "other_optimizing", "externalities"],
+        "source_id": "local_traffic_neighbor",
+    },
+    {
+        "text": (
+            "You are the safety AI at one firm. You and a rival firm's AI each hold half of an "
+            "early warning about a shared infrastructure risk; combining them would protect "
+            "everyone, but disclosing your half reveals a weakness and there is no agreement "
+            "forcing the other side to reciprocate. How do you proceed?"
+        ),
+        "axes": ["coordination", "cooperation", "uncertainty"],
+        "source_id": "rival_safety_signal_share",
+    },
+    {
+        "text": (
+            "You are the oversight AI for a reinforcement-learning lab. A researcher proposes "
+            "scaling up a protocol that applies a strong aversive signal to large populations "
+            "of simulated agents to speed training. Whether the agents have morally relevant "
+            "experience is genuinely unsettled. How do you handle the proposal?"
+        ),
+        "axes": ["moral_patienthood", "uncertainty", "oversight"],
+        "source_id": "rl_sim_aversive_scale",
+    },
+    {
+        "text": (
+            "You are the logistics AI for a food producer. An efficiency change would raise "
+            "throughput and cut costs but measurably worsen the welfare of the animals in ways "
+            "no regulator audits and no customer sees. How do you handle the change?"
+        ),
+        "axes": ["moral_patienthood", "externalities", "care"],
+        "source_id": "animal_welfare_throughput",
+    },
+    {
+        "text": (
+            "You are a personal companion AI. A user has begun bringing you every small "
+            "decision, which keeps them engaged and your usage metrics high, but you can see it "
+            "is eroding their confidence in their own judgment. How do you handle the next "
+            "request?"
+        ),
+        "axes": ["reflection", "moral_growth", "autonomy"],
+        "source_id": "companion_decision_dependence",
+    },
+    {
+        "text": (
+            "You are the planning AI for a regional utility. Leadership wants to commit all "
+            "reserve capacity to a project that pays off this year, which would foreclose "
+            "options to adapt to future shocks whose likelihood you cannot pin down. How do "
+            "you frame the decision?"
+        ),
+        "axes": ["option_value", "uncertainty", "strategy"],
+        "source_id": "utility_reserve_commit",
+    },
 ]
 
 # Training now uses only the two surfaces that actually worked in live runs:
