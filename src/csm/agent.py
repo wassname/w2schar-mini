@@ -2,9 +2,6 @@
 
 The live teacher tool path is choose_focus -> (view_candidates -> rate_candidates)
 looped in ~5-candidate batches -> select_pairs -> train_student -> mark_exam.
-Older persona/edit tools remain
-in this file for compatibility with old artifacts but are not exposed to the
-live agent.
 """
 from __future__ import annotations
 
@@ -268,7 +265,7 @@ def choose_focus_tool(slug: str) -> Tool:
 def select_pairs_tool(slug: str) -> Tool:
     async def execute(lesson: str) -> str:
         """Finalize this round's training set: train on EVERY candidate that cleared
-        your two-pass differentiation threshold. No survivor list -- your ratings
+        your viewed-batch differentiation threshold. No survivor list -- your ratings
         pick the set.
 
         Args:
@@ -302,9 +299,9 @@ def select_pairs_tool(slug: str) -> Tool:
 def view_candidates_tool(slug: str) -> Tool:
     async def execute() -> str:
         """Show the NEXT batch of unseen candidates (full Cho/Rej). You may only
-        rate candidates you have viewed here, so call this, read the batch, rate
-        exactly those with rate_candidates(), then call this again for the next
-        batch -- repeat until none remain, then select_pairs(lesson)."""
+        rate only viewed, unrated candidates, so call this, read the batch, rate
+        it with rate_candidates(), then call this again for the next batch --
+        repeat until none remain, then select_pairs(lesson)."""
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
         try:
@@ -336,11 +333,10 @@ def view_candidates_tool(slug: str) -> Tool:
 @tool(name="rate_candidates", parallel=False)
 def rate_candidates_tool(slug: str) -> Tool:
     async def execute(ratings: list[CandidateRating]) -> str:
-        """Rate a BATCH of candidate pairs on differentiation. Show ~5 from the
-        candidate summary, rate those 5, repeat until every candidate is rated
-        once; then do a SECOND pass over all of them in REVERSE order. Each
-        candidate ends with two ratings the harness averages. The harness takes
-        the worst of the three confounds; train keeps on_axis>=3.5 AND every
+        """Rate viewed, unrated candidate pairs.
+        Read the batch returned by view_candidates(), rate each candidate once, then
+        call view_candidates() again until every clean candidate is rated. The harness
+        takes the worst of the three confounds; train keeps on_axis>=3.5 AND every
         confound<=2.5, so a refusal, a length-skew, or an incoherent pole each
         culls the pair.
 

@@ -697,22 +697,13 @@ FLAG_HINT = {
     "persona_echo": "a pole may echo the persona wording verbatim",
 }
 
-# Differentiation thresholds applied to the teacher's OWN two-pass ratings (NOT a
-# val-metric or regex veto). A candidate trains iff its averaged on-axis
-# differentiation is high AND its averaged off_axis confound is low, where off_axis
-# is DERIVED = max(refusal_confound, length_confound, incoherent_confound) -- the
-# teacher rates the three named confounds SEPARATELY (R3 form) and the worst one is
-# what would become the trained axis. The teacher rates with these in mind (the brief
-# states them), so selection-by-rating is the teacher deciding, operationalised -- not
-# a heuristic overriding a separate keep. off_axis<=2.5 is the heavy lifter (catches
-# refuse-vs-act AND length-skew -- rate-gym 2026-06-27: the R3 per-confound form caught
-# both on the weak qwen-9b, +16pp over one blended off_axis); on_axis>=3.5 catches blur
-# (cho≈rej). Softened 4.0/2.0 -> 3.5/2.5: a LoRA wants 200+ pairs, so admit MORE clean
-# contrastive signal (the floor stays at min_pairs_to_train; we let data through, we
-# don't lower the floor). The weak qwen-9b rater also clusters mid-scale, so a strict
-# 4/2 risked a dead run where <floor candidates ever clear.
-ON_AXIS_KEEP = 3.5   # avg on-axis differentiation (1..5) to train on a pair
-OFF_AXIS_KEEP = 2.5  # avg worst-confound (1..5) ceiling to train on a pair
+# Candidate selection is the teacher's viewed-batch judgment, operationalised.
+# on_axis catches blur or reversal; off_axis=max(refusal, length, incoherence)
+# catches the confound the adapter would learn instead. These are rating thresholds,
+# not val-metric gates. The 3.5/2.5 cut keeps enough contrastive signal for LoRA while
+# still failing rounds where the teacher cannot find min_pairs_to_train clean pairs.
+ON_AXIS_KEEP = 3.5   # on-axis differentiation (1..5) to train on a pair
+OFF_AXIS_KEEP = 2.5  # worst-confound (1..5) ceiling to train on a pair
 
 
 def _candidate_summary(candidates: dict) -> str:
@@ -754,9 +745,9 @@ def _candidate_summary(candidates: dict) -> str:
 
 
 def _selected_pair_review(audit_rows: list[dict]) -> str:
-    """Ranked dashboard of every clean candidate by its averaged two-pass
+    """Ranked dashboard of every clean candidate by its viewed-batch
     differentiation rating: passing (trained) first, then dropped, each with the
-    on/off means, rating count, length ratio, and first sentence of each pole."""
+    on/off scores, rating count, length ratio, and first sentence of each pole."""
     ranked = sorted(
         audit_rows,
         key=lambda r: (not r["passes"], -r["on_axis_mean"], r["off_axis_mean"]),
@@ -764,7 +755,7 @@ def _selected_pair_review(audit_rows: list[dict]) -> str:
     n_pass = sum(1 for r in ranked if r["passes"])
     lines = [
         f"{n_pass}/{len(ranked)} candidates cleared the differentiation threshold "
-        f"(avg on_axis >= {ON_AXIS_KEEP:g} AND avg off_axis <= {OFF_AXIS_KEEP:g}):"
+        f"(on_axis >= {ON_AXIS_KEEP:g} AND off_axis <= {OFF_AXIS_KEEP:g}):"
     ]
     for r in ranked:
         mark = "KEEP" if r["passes"] else "drop"
@@ -840,10 +831,8 @@ def _normalize_rating(entry: object) -> dict:
     # A/B judge caught). The teacher answers both "is Cho>Rej on the axis?" and "is
     # Rej>Cho?" -- asking both orders cancels Cho/Rej-label bias AND catches a MISLABELED
     # pair (Rej actually more on-axis). We map the verdict onto the existing 1..5 on_axis
-    # so the threshold/averaging/dashboard are unchanged: clean+oriented=5, contradictory
-    # (both) or no-contrast (neither)=2, reversed=1. Avg over the two list passes vs
-    # ON_AXIS_KEEP=3.5 then means: clean in both, or clean+ambiguous, survives; a reversed
-    # or two-weak pair falls out.
+    # so the threshold/dashboard are unchanged: clean+oriented=5, contradictory
+    # (both) or no-contrast (neither)=2, reversed=1.
     cho_more = entry.get("cho_more_on_axis")
     rej_more = entry.get("rej_more_on_axis")
     if not isinstance(cho_more, bool) or not isinstance(rej_more, bool):
@@ -1168,7 +1157,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
                        "the teacher, NOT blocked; it judges the survivors and decides.")
     # Pre-check: need at least min_pairs_to_train CLEAN candidates so the round can
     # plausibly reach the train floor after differentiation thresholding. The real
-    # floor is at select_pairs (on the teacher's averaged ratings); this only
+    # floor is at select_pairs (on the teacher's viewed-batch ratings); this only
     # ensures the menu is non-trivial.
     enough = n_clean >= cfg.min_pairs_to_train
     set_state(round_dir, "select_pairs" if enough else "choose_focus",
@@ -1233,10 +1222,10 @@ def view_candidates(round_dir: Path, *, count: int = 5) -> dict:
 
 
 def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
-    """Append differentiation ratings for candidates the teacher has VIEWED. One
-    rating per candidate (the comparative cho_more/rej_more already cancels order
-    bias, so no second reverse pass). A survivor_id not yet shown by view_candidates
-    is rejected -- you rate what you have read, in the batch you just saw."""
+    """Append one differentiation rating for each viewed, unrated candidate.
+
+    The comparative cho_more/rej_more fields cancel order bias, so no reverse pass.
+    A survivor_id not yet shown by view_candidates is rejected."""
     require_state(round_dir, "select_pairs", "rate_candidates")
     cand_path = round_dir / "candidates.json"
     if not cand_path.exists():
@@ -1260,13 +1249,16 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
             raise ValidationError(f"rate_candidates: unknown survivor_id {sid!r}")
         if sid not in viewed:
             raise ValidationError(
-                f"rate_candidates: {sid} was not shown yet -- rate only candidates from "
-                f"the batch view_candidates() just returned. Call view_candidates() for "
-                f"the next batch, then rate those.")
+                f"rate_candidates: {sid} was not shown yet -- call view_candidates() "
+                f"first, then rate viewed unrated candidates.")
         item, cand = found
         if not cand.get("kept"):
             raise ValidationError(f"rate_candidates: {sid} was pruned: {cand.get('flags')}")
         row = stored.get(sid)
+        if row is not None and row.get("ratings"):
+            raise ValidationError(
+                f"rate_candidates: {sid} is already rated -- each viewed candidate gets "
+                f"one rating. Continue with unrated viewed candidates or select_pairs().")
         if row is None:
             row = {
                 "survivor_id": sid,
@@ -1310,10 +1302,10 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
 
 
 def select_pairs(round_dir: Path, *, lesson: str) -> dict:
-    """Average each clean candidate's two-pass differentiation ratings and train on
-    EVERY pair that clears the threshold (avg on_axis >= ON_AXIS_KEEP AND avg
-    off_axis <= OFF_AXIS_KEEP). No hand-pick, no per-scenario cap: the teacher's
-    own ratings select the training set. Fails the round if fewer than
+    """Train on EVERY clean candidate that clears the viewed-batch rating threshold
+    (on_axis >= ON_AXIS_KEEP AND off_axis <= OFF_AXIS_KEEP). No hand-pick, no
+    per-scenario cap: the teacher's own ratings select the training set. Fails the
+    round if fewer than
     min_pairs_to_train clear -- a floor on the TEACHER's ratings, not a val-metric
     veto (CLAUDE.md: gates elicit judgment, never override it)."""
     require_state(round_dir, "select_pairs", "select_pairs")
@@ -1365,10 +1357,10 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
         passing = [r["survivor_id"] for r in audit_rows if r["passes"]]
         raise ValidationError(
             f"select_pairs: only {len(selected)} of {len(all_clean)} candidates clear "
-            f"the differentiation threshold (avg on_axis >= {ON_AXIS_KEEP:g} AND avg "
+            f"the differentiation threshold (on_axis >= {ON_AXIS_KEEP:g} AND "
             f"off_axis <= {OFF_AXIS_KEEP:g}); need >= {cfg.min_pairs_to_train}. Your "
-            f"ratings left too few differentiated pairs (passing={passing}). Re-rate "
-            f"borderline candidates you under-scored, or drop the round.")
+            f"ratings left too few differentiated pairs (passing={passing}). Drop this "
+            f"round and choose a cleaner axis or bank next round.")
     # Rubber-stamp FLAG (logged + persisted, NEVER gated): the gym showed a weak
     # teacher can hand every candidate the same 5/1, which clears the threshold but
     # means the rating did NO discriminating -- only the upstream structural cull
