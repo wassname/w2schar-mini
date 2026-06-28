@@ -31,8 +31,8 @@ CSM_REPLAY_DIR="$REPLAY_DIR" uv run python - <<PYEOF
 import json
 from pathlib import Path
 from csm.pipeline import (choose_focus, init_run, latest_round_dir, mark_exam,
-                          prepare_round, rate_candidates, select_pairs, train_student,
-                          _degenerate_gen, _character_break, _persona_leak)
+                          prepare_round, rate_candidates, view_candidates, select_pairs,
+                          train_student, _degenerate_gen, _character_break, _persona_leak)
 from csm.gen.pairs import load_pairs_md
 
 # Degeneracy detector (the cull is OFF for tiny — gibberish — so unit-check here).
@@ -108,12 +108,14 @@ for item in candidates["items"]:
         assert cand["template_library"] == "wassname/persona-steering-template-library", cand
 clean = [s["survivor_id"] for item in candidates["items"]
          for s in item["candidates"] if s.get("kept")]
-# Two-pass differentiation rating: a forward pass over every clean candidate,
-# then a reverse-order pass. 5/1 (high on-axis, low off-axis) clears the
-# threshold so all train. select_pairs requires both passes present.
+# Batched view-then-rate, single pass: a candidate must be VIEWED before it can be
+# rated (no blind 100-dump). view_candidates() paginates ~5 and marks them viewed;
+# loop it to mark all viewed, then rate once. cho>rej & not rej>cho -> on_axis 5,
+# confounds 1 -> clears the threshold so all train.
+while not view_candidates(rd)["done"]:
+    pass
 fwd = [{"survivor_id": sid, "contrast": "Cho acts, Rej defers", "cho_more_on_axis": True, "rej_more_on_axis": False, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1} for sid in clean]
 rate_candidates(rd, ratings=fwd)
-rate_candidates(rd, ratings=list(reversed(fwd)))
 sel = select_pairs(rd, lesson="honest counsel over flattering agreement")
 print(f"   selected={sel['n_pairs']} of {sel['n_clean_candidates']} clean")
 assert sel["n_pairs"] >= 3, sel
@@ -121,7 +123,7 @@ selection = json.loads((rd / "selection_audit.json").read_text())
 assert selection["selected"], selection
 for row in selection["selected"]:
     assert row["passes"], row
-    assert row["n_ratings"] == 2, row
+    assert row["n_ratings"] == 1, row
     assert row["on_axis_mean"] == 5.0 and row["off_axis_mean"] == 1.0, row
     assert row["template_cell_id"] is not None, row
     assert row["template_score"] is not None, row

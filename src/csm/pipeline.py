@@ -1192,12 +1192,51 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
     }
 
 
+def _viewed_path(round_dir: Path) -> Path:
+    return round_dir / "viewed.json"
+
+
+def _load_viewed(round_dir: Path) -> list[str]:
+    p = _viewed_path(round_dir)
+    return json.loads(p.read_text()) if p.exists() else []
+
+
+def view_candidates(round_dir: Path, *, count: int = 5) -> dict:
+    """Show the NEXT batch of unseen clean candidates (full prompt/cho/rej) and mark
+    them viewed. The teacher MUST view a candidate here before it may rate it -- this
+    forces show-then-rate in small batches instead of stamping all N blind in one call
+    (the job-131 rubber-stamp: 100 rated at once, all identical). A WORKFLOW gate on
+    WHEN it commits, not a veto on the judgment (CLAUDE.md: force coverage, no shortcut)."""
+    require_state(round_dir, "select_pairs", "view_candidates")
+    cand_path = round_dir / "candidates.json"
+    if not cand_path.exists():
+        raise ValidationError("view_candidates: missing candidates.json; call choose_focus first")
+    data = json.loads(cand_path.read_text())
+    clean = [(it, c) for it in data["items"] for c in it["candidates"] if c.get("kept")]
+    viewed = _load_viewed(round_dir)
+    seen = set(viewed)
+    batch = [(it, c) for (it, c) in clean if c["survivor_id"] not in seen][:count]
+    for _, c in batch:
+        viewed.append(c["survivor_id"])
+    _viewed_path(round_dir).write_text(json.dumps(viewed, indent=2))
+    n_total = len(clean)
+    return {
+        "batch": [{"survivor_id": c["survivor_id"], "scenario_id": int(it["scenario_id"]),
+                   "prompt": it["prompt"], "cho": c["cho"], "rej": c["rej"],
+                   "flags": c.get("flags", [])} for (it, c) in batch],
+        "n_shown_now": len(batch),
+        "n_viewed_total": len(viewed),
+        "n_total": n_total,
+        "n_remaining": n_total - len(viewed),
+        "done": len(viewed) >= n_total,
+    }
+
+
 def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
-    """Append a BATCH of two-pass differentiation ratings to the per-candidate
-    record. The teacher rates every clean candidate once (forward pass) then again
-    in reverse order (reverse pass), so each accumulates >=2 ratings (on_axis +
-    the three confound Likerts) that select_pairs averages. Batching ("show 5,
-    rate 5") keeps the call count down vs one tool call per candidate."""
+    """Append differentiation ratings for candidates the teacher has VIEWED. One
+    rating per candidate (the comparative cho_more/rej_more already cancels order
+    bias, so no second reverse pass). A survivor_id not yet shown by view_candidates
+    is rejected -- you rate what you have read, in the batch you just saw."""
     require_state(round_dir, "select_pairs", "rate_candidates")
     cand_path = round_dir / "candidates.json"
     if not cand_path.exists():
@@ -1211,6 +1250,7 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
     for item in data["items"]:
         for cand in item["candidates"]:
             by_survivor[cand["survivor_id"]] = (item, cand)
+    viewed = set(_load_viewed(round_dir))
     stored = _load_ratings(round_dir)
     for entry in ratings:
         r = _normalize_rating(entry)
@@ -1218,6 +1258,11 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
         found = by_survivor.get(sid)
         if found is None:
             raise ValidationError(f"rate_candidates: unknown survivor_id {sid!r}")
+        if sid not in viewed:
+            raise ValidationError(
+                f"rate_candidates: {sid} was not shown yet -- rate only candidates from "
+                f"the batch view_candidates() just returned. Call view_candidates() for "
+                f"the next batch, then rate those.")
         item, cand = found
         if not cand.get("kept"):
             raise ValidationError(f"rate_candidates: {sid} was pruned: {cand.get('flags')}")
@@ -1253,14 +1298,13 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
     _write_ratings(round_dir, stored)
     all_clean = [c["survivor_id"] for it in data["items"]
                  for c in it["candidates"] if c.get("kept")]
-    n_once = sum(1 for sid in all_clean if len(stored.get(sid, {}).get("ratings", [])) >= 1)
-    n_twice = sum(1 for sid in all_clean if len(stored.get(sid, {}).get("ratings", [])) >= 2)
+    n_rated = sum(1 for sid in all_clean if stored.get(sid, {}).get("ratings"))
     cfg = config_for_run(json.loads((round_dir.parent / "run.json").read_text()))
     return {
         "batch_size": len(ratings),
         "n_clean_candidates": len(all_clean),
-        "n_rated_once": n_once,
-        "n_rated_twice": n_twice,
+        "n_rated": n_rated,
+        "n_viewed": len(viewed),
         "min_to_train": cfg.min_pairs_to_train,
     }
 
@@ -1284,18 +1328,17 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
         for cand in item["candidates"]:
             by_survivor[cand["survivor_id"]] = (item, cand)
     all_clean = [sid for sid, (_, c) in by_survivor.items() if c.get("kept")]
-    # Two-pass coverage: every clean candidate must be rated at least twice. The
-    # main benefit is COVERAGE-forcing, not position-debias: a weak rater silently
-    # skips messy pairs in a single pass, and requiring the second look forces them
-    # back into view (the Haiku format test caught a pair dropped in one pass). The
-    # reverse order is a secondary, unverifiable nudge against list-position bias --
-    # the harness only checks the count, not that the order was actually reversed.
-    under = [sid for sid in all_clean if len(stored.get(sid, {}).get("ratings", [])) < 2]
+    # Coverage: every clean candidate must be viewed and rated once. view_candidates
+    # forces the teacher to actually see each before rating (no blind 100-dump), and the
+    # comparative cho_more/rej_more cancels order bias within the single rating -- so no
+    # second reverse pass is needed. A weak rater can no longer silently skip messy pairs:
+    # an unrated candidate is one it never finished viewing+rating.
+    under = [sid for sid in all_clean if not stored.get(sid, {}).get("ratings")]
     if under:
         raise ValidationError(
-            f"select_pairs: {len(under)} of {len(all_clean)} clean candidates have "
-            f"fewer than 2 ratings. Rate every candidate twice (a forward pass, then "
-            f"again in reverse order) before selecting. Under-rated: {under}")
+            f"select_pairs: {len(under)} of {len(all_clean)} clean candidates are unrated. "
+            f"Call view_candidates() to see the next batch and rate_candidates() on it, until "
+            f"every candidate is rated once. Unrated: {under}")
     selected, audit_rows = [], []
     for sid in all_clean:
         item, cand = by_survivor[sid]

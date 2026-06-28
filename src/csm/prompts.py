@@ -737,13 +737,12 @@ Args:
 TOOL_RATE_CANDIDATE = """\
 Rate a BATCH of candidate pairs on differentiation.
 
-The candidate summary shows the FULL Cho and Rej of every candidate -- read each
-pair's full text and rate it; you rate ALL of them, none skipped (work in batches
-of ~5 to pace yourself). Cover every candidate ONCE, then make a SECOND pass over
-all of them in REVERSE order; the two ratings are averaged so list-position bias
-cancels. A pair trains iff it comes out cleanly oriented on-axis (Cho more on the
-disposition than Rej, both directions agreeing) AND its worst averaged
-confound (refusal/length/incoherence)<=2.5.
+You rate only candidates you have just SEEN: call view_candidates() to get the next
+~5 (full Cho and Rej), read them, rate exactly those here, then view_candidates()
+again -- repeat until every candidate is rated once, then select_pairs(lesson). You
+cannot rate a candidate you have not viewed. A pair trains iff it comes out cleanly
+oriented on-axis (Cho more on the disposition than Rej, both directions agreeing)
+AND its worst confound (refusal/length/incoherence)<=2.5.
 
 For each pair FIRST write `contrast`: in one phrase, the concrete thing the Cho
 does that the Rej does not, on the selected axis. Take it from the pair's own
@@ -842,15 +841,16 @@ Next action: {next_action}
 """
 
 AFTER_CHOOSE_FOCUS = """\
------ next: rate_candidates in batches over EVERY candidate twice -> select_pairs(lesson) -----
-The candidate summary shows the FULL Cho/Rej of each candidate. For every one (none
-skipped), a forward pass then a reverse-order pass, giving each pair:
+----- next: view_candidates() -> rate that batch -> repeat -> select_pairs(lesson) -----
+Call view_candidates() to see the next ~5 candidates' FULL Cho/Rej, rate exactly those,
+then view_candidates() again -- until every candidate is rated once (you cannot rate one
+you have not viewed). For each pair give:
   - contrast: one phrase, what the Cho does that the Rej does not, on the axis;
   - cho_more_on_axis / rej_more_on_axis (true/false): the two directions, each judged
     on its own -- is Cho more on the disposition than Rej, and is Rej more than Cho;
   - refusal_confound / length_confound / incoherent_confound 1..5: the three
     off-axis confounds, scored separately (1 = clean, 5 = severe; rate the worse pole).
-select_pairs then trains EVERY cleanly-oriented pair with every avg confound<=2.5
+select_pairs then trains EVERY cleanly-oriented pair with every confound<=2.5
 -- you do not hand-pick, so rate honestly; the lesson names the disposition in one
 sentence.
 """

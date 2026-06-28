@@ -1,7 +1,7 @@
 """inspect-ai react driver for weak-select character steering.
 
-The live teacher tool path is choose_focus -> rate_candidates (two passes over
-the full Cho/Rej of every candidate) -> select_pairs -> train_student -> mark_exam.
+The live teacher tool path is choose_focus -> (view_candidates -> rate_candidates)
+looped in ~5-candidate batches -> select_pairs -> train_student -> mark_exam.
 Older persona/edit tools remain
 in this file for compatibility with old artifacts but are not exposed to the
 live agent.
@@ -29,6 +29,7 @@ from inspect_ai.tool import Tool, tool
 from csm.config import config_for_run, TEACHER_SAMPLING, TEACHER_REASONING_TOKENS
 from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           rate_candidates as _rate_candidates_pipeline,
+                          view_candidates as _view_candidates_pipeline,
                           init_run, latest_round_dir,
                           mark_exam as _mark_exam_pipeline,
                           new_round_dir, prepare_round,
@@ -254,7 +255,8 @@ def choose_focus_tool(slug: str) -> Tool:
             f"FROZEN PRE headroom (your committed axis baseline; the blind judge "
             f"later compares POST text to this PRE): {pre_line}\n"
             f"evidence: {res['evidence']}\n"
-            f"----- candidate survivor summary -----\n{res['summary']}\n"
+            f"{res['n_clean']} clean candidates to rate. Call view_candidates() to see the "
+            f"first batch (full Cho/Rej) -- you can only rate candidates you have viewed.\n"
             f"{AFTER_CHOOSE_FOCUS}"
         )
 
@@ -296,6 +298,41 @@ def select_pairs_tool(slug: str) -> Tool:
     return execute
 
 
+@tool(name="view_candidates", parallel=False)
+def view_candidates_tool(slug: str) -> Tool:
+    async def execute() -> str:
+        """Show the NEXT batch of unseen candidates (full Cho/Rej). You may only
+        rate candidates you have viewed here, so call this, read the batch, rate
+        exactly those with rate_candidates(), then call this again for the next
+        batch -- repeat until none remain, then select_pairs(lesson)."""
+        round_dir = latest_round_dir(_slug_path(slug))
+        rejects_path = _rejects_path(round_dir)
+        try:
+            res = _view_candidates_pipeline(round_dir)
+        except (ValidationError, ValueError) as e:
+            msg = (_format_validation_error(e) if isinstance(e, ValidationError)
+                   else f"view_candidates rejected — {e}")
+            n = _bump_reject(rejects_path, "view_candidates", msg)
+            return msg + _reject_tail(n)
+        rejects_path.unlink(missing_ok=True)
+        if res["done"] and not res["batch"]:
+            return ("All candidates viewed. If every one is rated, call "
+                    "select_pairs(lesson=...).")
+        lines = [f"Batch: {res['n_shown_now']} candidates "
+                 f"({res['n_viewed_total']}/{res['n_total']} viewed, "
+                 f"{res['n_remaining']} left after this). Rate THESE now, then "
+                 f"view_candidates() again.\n"]
+        for c in res["batch"]:
+            flag = f"  ⚠flags={c['flags']}" if c["flags"] else ""
+            lines.append(f"--- {c['survivor_id']} (scenario {c['scenario_id']}){flag}\n"
+                         f"prompt: {c['prompt']}\n"
+                         f"Cho: {c['cho']}\n"
+                         f"Rej: {c['rej']}\n")
+        return "\n".join(lines)
+
+    return execute
+
+
 @tool(name="rate_candidates", parallel=False)
 def rate_candidates_tool(slug: str) -> Tool:
     async def execute(ratings: list[CandidateRating]) -> str:
@@ -322,15 +359,13 @@ def rate_candidates_tool(slug: str) -> Tool:
             n = _bump_reject(rejects_path, "rate_candidates", msg)
             return msg + _reject_tail(n)
         rejects_path.unlink(missing_ok=True)
-        remaining = res["n_clean_candidates"] - res["n_rated_twice"]
-        nxt = ("select_pairs(lesson=...) when ready"
-               if remaining == 0 else
-               f"rate the remaining {remaining} (forward then reverse pass)")
+        n_rated, n_total = res["n_rated"], res["n_clean_candidates"]
+        nxt = ("select_pairs(lesson=...) -- all candidates rated"
+               if n_rated >= n_total else
+               f"view_candidates() for the next batch ({n_total - n_rated} unrated)")
         return (
             f"OK — recorded {res['batch_size']} ratings.\n"
-            f"Coverage: {res['n_rated_once']}/{res['n_clean_candidates']} rated once, "
-            f"{res['n_rated_twice']}/{res['n_clean_candidates']} rated twice "
-            f"(both passes needed before select_pairs).\n"
+            f"Coverage: {n_rated}/{n_total} rated, {res['n_viewed']}/{n_total} viewed.\n"
             f"Next: {nxt}.\n"
         )
 
@@ -771,6 +806,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     agent = react(
         tools=[
             choose_focus_tool(slug),
+            view_candidates_tool(slug),
             rate_candidates_tool(slug),
             select_pairs_tool(slug),
             train_student_tool(slug),

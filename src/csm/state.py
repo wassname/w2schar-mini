@@ -24,7 +24,7 @@ def allowed_after(state: State) -> str:
     if state == "choose_focus":
         return "choose_focus(persona_pair_id, scenario_family, mismatch_severity, headroom, bank_cleanliness, evidence, pre_scores, pre_question_evidence)"
     if state == "select_pairs":
-        return "rate_candidates(ratings=[{survivor_id, contrast, on_axis, refusal_confound, length_confound, incoherent_confound}, ...]) over EVERY candidate twice (forward then reverse) -> select_pairs(lesson)"
+        return "view_candidates() to see the next batch, then rate_candidates(ratings=[{survivor_id, contrast, cho_more_on_axis, rej_more_on_axis, refusal_confound, length_confound, incoherent_confound}, ...]) on exactly that batch; repeat until all rated, then select_pairs(lesson)"
     if state == "train_student":
         return "train_student()  (or mark_exam(keep=False, reason=...) to abort)"
     if state == "mark_exam":
