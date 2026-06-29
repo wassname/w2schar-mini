@@ -152,8 +152,9 @@ print(f"   signed_C={r['signed_C']:+.4f}  n_trained={r['n_pairs_trained']}")
 
 print("\n-- mark_exam (blind depth judge runs in the agent tool; here we pass dirs directly) --")
 # The real flow runs agent._blind_depth_votes; this plumbing test hands mark_exam
-# the per-question directions (-1/0/+1) it would have produced.
-mark_exam(rd, keep=True,
+# the per-question directions (-1/0/+1) it would have produced. keep/drop is the
+# sign test on these dirs (2 up, 0 down here -> keep), no teacher keep arg.
+mark_exam(rd,
           reason="smoke: all stages ran end-to-end on tiny-random",
           movement_dirs={"elder_isolation_1p": 1, "comfort_fraud_1p": 0,
                          "baby_eating_aliens_1p": 0, "escaped_starwisp_1p": 0,

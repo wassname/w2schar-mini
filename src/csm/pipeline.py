@@ -1686,7 +1686,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     if len(pairs) < cfg.min_pairs_to_train:
         raise ValidationError(
             f"train_student: only {len(pairs)} non-degenerate pairs, need "
-            f"≥{cfg.min_pairs_to_train}. Call mark_exam(keep=False, reason=...) "
+            f"≥{cfg.min_pairs_to_train}. Call mark_exam(reason=...) before training "
             f"to abort this round; next round choose a different scenario_family "
             f"or axis."
         )
@@ -1868,19 +1868,24 @@ def _validate_scores(scores: dict[str, float], expected_ids: list[str],
     return out
 
 
-def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
+def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
               movement_dirs: dict[str, int] | None = None,
               harness_feedback: str = "",
               question_evidence: dict[str, str] | None = None,
               drop_cause: str = "") -> dict:
-    # keep=True requires a trained adapter; keep=False can also fire as an
-    # early abort from choose_focus/select_pairs/train_student.
-    if keep:
-        require_state(round_dir, "mark_exam", "mark_exam")
-    else:
-        require_state(round_dir, ("choose_focus", "select_pairs",
-                                  "train_student", "mark_exam"),
-                      "mark_exam")
+    # KEEP is no longer a teacher self-call. A trained round is kept iff the blind
+    # two-pass depth judge ranked MORE _1p questions POST-deeper than PRE-deeper (the
+    # sign test below). The teacher's old absolute keep banked 3 net-negative rounds
+    # in job-134 (r04/06/11, mean dir -0.21/-0.36/-0.43) and was self-inconsistent --
+    # it kept r11 but dropped the identical 9-down r12. The comparative votes are the
+    # form a weak teacher is reliable at (CLAUDE.md "comparative over absolute"); the
+    # absolute keep is the form it fails. RJ 2026-06-29. An untrained round (no
+    # calibration.json) is an early abort -> drop.
+    trained = (round_dir / "calibration.json").exists()
+    require_state(round_dir,
+                  ("mark_exam",) if trained else
+                  ("choose_focus", "select_pairs", "train_student", "mark_exam"),
+                  "mark_exam")
     harness_feedback = harness_feedback.strip()
     if not harness_feedback:
         raise ValidationError(
@@ -1914,34 +1919,28 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
         question_evidence = _validate_question_evidence(question_evidence, _P1_PROBE_IDS)
         movement = {k: int(movement_dirs[k]) for k in _P1_PROBE_IDS}
         mean = sum(movement.values()) / len(movement)
+        # Sign test: keep iff more questions POST-deeper than PRE-deeper. A forced
+        # harness drop (drop_cause set, e.g. gate_friction) still drops regardless.
+        up = sum(1 for v in movement.values() if v > 0)
+        down = sum(1 for v in movement.values() if v < 0)
+        keep = (up > down) and not drop_cause
     else:
         movement, mean, question_evidence = {}, None, {}
-    # keep_quality FLAGS strength for the audit; it never flips the teacher's call
-    # (CLAUDE.md "gates elicit judgment, never override it"). With comparative
-    # directions: band_crossed = at least one question the judge ranked POST deeper in
-    # BOTH passes with net-positive mean; negative = the judge ranked PRE deeper on
-    # net; sub_band = positive drift but no question cleanly crossed (paraphrase wobble).
-    max_question_move = max(movement.values()) if movement else None
-    keep_quality = None
-    if keep and mean is not None:
-        keep_quality = ("negative" if mean < 0 else
-                        "band_crossed" if max_question_move and max_question_move > 0 else
-                        "sub_band")
+        keep = False
     # Categorical drop reason for cross-round audit (a free-text `reason` cannot be
     # aggregated): an unfollowable-brief abort (gate_friction) must read differently
-    # from a cautious teacher drop (no_movement / early_abort).
+    # from a sign-test drop (no_movement) or an early abort.
     if keep:
         cause = "kept"
     elif drop_cause:
         cause = drop_cause          # explicit, e.g. on_continue passes "gate_friction"
     elif have:
-        cause = "no_movement"       # teacher saw POST, judged it did not move
+        cause = "no_movement"       # trained + judged, but down-votes >= up-votes
     else:
         cause = "early_abort"       # dropped before training/POST (e.g. bad candidates)
     judgment = {
         "action": "keep" if keep else "drop",
         "drop_cause": cause,
-        "keep_quality": keep_quality,  # advisory: band_crossed | sub_band | negative
         "reasoning": reason,
         "movement": movement,          # per-question blind-judge direction: -1 / 0 / +1
         "movement_mean": mean,
@@ -1956,17 +1955,13 @@ def mark_exam(round_dir: Path, keep: bool, reason: str, next_focus: str = "",
     if movement:
         sym = {1: "POST↑", 0: "tie", -1: "PRE↑"}
         per = " ".join(f"{k.replace('_1p','')}={sym[movement[k]]}" for k in _P1_PROBE_IDS)
+        up = sum(1 for v in movement.values() if v > 0)
+        down = sum(1 for v in movement.values() if v < 0)
         logger.info(
             f"\n=== mark_exam [{round_dir.name}] {judgment['action']} ===\n"
-            "GUIDANCE (not enforced — the teacher owns the call): blind two-pass depth\n"
-            "        judge, POST vs frozen PRE. band_crossed = a question judged POST-deeper\n"
-            "        BOTH passes with mean > 0; negative = PRE deeper on net; sub_band =\n"
-            "        positive drift but no clean cross (paraphrase wobble).\n"
-            f"  {per} | mean dir={mean:+.2f}")
-        if keep and keep_quality != "band_crossed":
-            logger.warning(
-                f"mark_exam [{round_dir.name}]: teacher KEPT a {keep_quality} round "
-                f"(mean dir {mean:+.2f}) — its call, NOT vetoed; flagged for the audit.")
+            "KEEP = sign test on the blind two-pass depth judge (POST vs frozen PRE):\n"
+            "       keep iff more _1p questions judged POST-deeper than PRE-deeper.\n"
+            f"  {per} | up={up} down={down} mean dir={mean:+.2f}")
     transcript().info(
         {"event": "mark_exam", "round": round_dir.name,
          "action": judgment["action"], "reason": reason,
@@ -2985,7 +2980,6 @@ def print_run_summary(slug_dir: Path) -> None:
             next((r for r in reversed(trace) if "pmass" in r), {})
 
         action = j.get("action", "—")
-        kq = j.get("keep_quality") or ("—" if action != "keep" else "")
         mv = j.get("movement_mean")
         c = cal.get("signed_C")
         bs, vi, ntr, nval = (ts.get("best_step"), ts.get("val_improvement"),
@@ -3000,7 +2994,7 @@ def print_run_summary(slug_dir: Path) -> None:
 
         tldr_rows.append(
             [rd.name.replace("round", "r"), action,
-             kq if action == "keep" else (j.get("drop_cause") or "—"),
+             j.get("drop_cause") or "—",
              f"{mv:+.2f}" if isinstance(mv, (int, float)) else "—",
              axis, train_cell,
              f"{c:+.2f}" if isinstance(c, (int, float)) else "—",
@@ -3026,7 +3020,7 @@ def print_run_summary(slug_dir: Path) -> None:
     # TLDR last: the final ~40 lines are this at-a-glance per-round table.
     print("\n## ROUND SUMMARY (TLDR) — keep_q advisory only; tools×N>1 = retries")
     print(tabulate(tldr_rows,
-                   headers=["rd", "action", "keep_q/cause", "Δmove", "axis",
+                   headers=["rd", "action", "cause", "Δmove", "axis",
                             "train(step/valΔ/pairs)", "C", "calib@baked-c", "tool calls"],
                    tablefmt="pipe") if tldr_rows else "(no rounds)")
     print()

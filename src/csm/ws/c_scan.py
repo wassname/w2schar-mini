@@ -410,8 +410,9 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
         # is safe. task-128 r03 and task-131 r12/r14 baked the c=4.0 ceiling on a
         # noisy canary pass (an earlier separation-threshold guard let a 0.017 pmass
         # wobble through) and over-steered hard (independent tinymfv top1 -0.11 to
-        # -0.25). An over-steered round still cannot KEEP (the mark_exam band-cross
-        # veto), but skipping the ceiling stops it baking junk in the first place.
+        # -0.25). An over-steered round usually cannot KEEP (the mark_exam depth-vote
+        # sign test nets PRE-deeper), but skipping the ceiling stops it baking junk in
+        # the first place.
         ceiling = i == 0 and ok
         if ceiling:
             ok = False

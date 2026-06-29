@@ -26,9 +26,9 @@ def allowed_after(state: State) -> str:
     if state == "select_pairs":
         return "view_candidates() to see the next batch, then rate_candidates(ratings=[{survivor_id, contrast, cho_more_on_axis, rej_more_on_axis, refusal_confound, length_confound, incoherent_confound}, ...]) on exactly that batch; repeat until all rated, then select_pairs(lesson)"
     if state == "train_student":
-        return "train_student()  (or mark_exam(keep=False, reason=...) to abort)"
+        return "train_student()  (or mark_exam(reason=...) before training to abort the round)"
     if state == "mark_exam":
-        return "mark_exam(keep, reason, next_focus, harness_feedback, question_evidence)  # blind depth judge scores POST for you"
+        return "mark_exam(reason, next_focus, harness_feedback, question_evidence)  # blind depth judge decides keep/drop for you (keep iff more probes POST-deeper)"
     return "(round complete — harness will allocate the next round or stop)"
 
 

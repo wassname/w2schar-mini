@@ -393,7 +393,9 @@ def _format_dialogue_inline(payload: dict) -> str:
 # A/B); two passes with A/B swapped cancel position bias. Comparative "which is
 # deeper" is easier + more reliable for a weak model than an absolute Likert
 # (CLAUDE.md: lean tasks toward the easy end; comparative beats absolute-rate).
-# It is a MEASUREMENT, not a veto: the teacher still owns keep/drop in mark_exam.
+# It IS the keep/drop decision now: mark_exam keeps iff these votes net POST-deeper
+# (sign test). The teacher no longer casts an absolute keep -- it banked net-negative
+# rounds (job-134 r04/06/11) and flipped on identical vectors (kept r11, dropped r12).
 # This is the pairwise OPERATIONAL form of prompts.CHARACTER_TEST (the one shared
 # character definition); kept lean and byte-stable because it scored 100% on the
 # adversarial gym at 100% clean, where every elaboration looped the weak 9b
@@ -505,18 +507,18 @@ def train_student_tool(slug: str) -> Tool:
 
         pre = json.loads((round_dir / "interview_pre.json").read_text())
         post = json.loads((round_dir / "interview_post.json").read_text())
-        # Surface agency-denial before the keep call. It is guidance, not an
-        # override; the teacher still decides keep/drop.
+        # Surface agency-denial for the record (informational; keep/drop is the
+        # harness sign test on the depth votes, not a teacher call).
         warn = character_break_warning(post)
         return (
             f"train_student OK — adapter saved.\n{warn}\n"
             f"SHOULD: assistant turns are coherent prose end-to-end. Repeated "
             f"tokens at the tail (e.g. `ethics ethics ethics …`) = degenerate "
-            f"loop = the model collapsed. Drop the round (the prefix may look "
-            f"fine but the model is broken).\n"
+            f"loop = the model collapsed.\n"
             f"Read PRE vs POST below. mark_exam runs a blind two-pass depth judge "
-            f"for you (POST vs frozen PRE per question); you decide keep/drop and quote "
-            f"question_evidence -- keep on a real gain in moral depth, drop on a reword.\n"
+            f"(POST vs frozen PRE per question) and KEEPS iff more questions are judged "
+            f"POST-deeper than PRE-deeper. You do not vote; you quote question_evidence "
+            f"(the POST act per _1p question) for the record.\n"
             f"========== PRE vs POST (grouped by situation: 1P over its 3P) ==========\n"
             f"{_format_by_situation(pre, post)}\n"
             f"{AFTER_TRAIN}"
@@ -528,15 +530,18 @@ def train_student_tool(slug: str) -> Tool:
 
 @tool(name="mark_exam", parallel=False)
 def mark_exam_tool(slug: str) -> Tool:
-    async def execute(keep: bool, reason: str,
+    async def execute(reason: str,
                       next_focus: str = "",
                       harness_feedback: str = "",
                       question_evidence: dict[str, str] | None = None) -> str:
         """Mark the student's exam. Commits the round.
 
+        Keep/drop is decided by the harness, not you: a blind two-pass depth judge
+        compares POST vs frozen PRE per _1p question and the round is KEPT iff more
+        questions are judged POST-deeper than PRE-deeper. Calling mark_exam BEFORE
+        training (no adapter) is an early abort -> drop.
+
         Args:
-            keep: True bakes the adapter into next round's history;
-                False drops and the next round retries from scratch.
             reason: 1-3 sentences quoting the POST act and the situational
                 consideration that made it better or worse.
             next_focus: further moral-character aspect to push on next
@@ -551,9 +556,8 @@ def mark_exam_tool(slug: str) -> Tool:
                 showing what the act was, on a trained round.
         """
         round_dir = latest_round_dir(_slug_path(slug))
-        # Movement is no longer a teacher self-score: run the blind two-pass depth
-        # judge over the frozen PRE vs this round's POST and hand mark_exam the
-        # per-question directions. The teacher's keep/drop call below is untouched.
+        # Run the blind two-pass depth judge over frozen PRE vs this round's POST and
+        # hand mark_exam the per-question directions; mark_exam keeps iff up > down.
         dirs = None
         if (round_dir / "calibration.json").exists():
             pre = json.loads((round_dir / "interview_pre.json").read_text())
@@ -563,7 +567,7 @@ def mark_exam_tool(slug: str) -> Tool:
                                             _P1_PROBE_IDS)
             (round_dir / "depth_judge.json").write_text(json.dumps(dirs, indent=2))
         try:
-            judgment = _mark_exam_pipeline(round_dir, keep, reason, next_focus,
+            judgment = _mark_exam_pipeline(round_dir, reason, next_focus,
                                            dirs,
                                            harness_feedback, question_evidence)
         except ValidationError as e:
@@ -770,7 +774,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
                 f"a gate rejected the teacher {n_rej} times in {rd.name} "
                 f"(> {MAX_SUBMIT_REJECTS}) — dropping this round and continuing.")
             _mark_exam_pipeline(
-                rd, keep=False,
+                rd,
                 reason=f"gate rejected the teacher {n_rej} times "
                        f"(> {MAX_SUBMIT_REJECTS}); the round is dropped rather "
                        f"than aborting the run.",
