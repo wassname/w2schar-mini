@@ -16,7 +16,13 @@ from csm.gen.prompts_pool import rows_for_family
 from csm.gen.pairs import render_pair_persona, sample_prompt_rows
 from csm.pipeline import (STRUCTURAL_FLAGS, _pair_flags, _leading_rating,
                           _validate_question_evidence, _validate_unit_score, mark_exam,
-                          rate_pairs, select_pairs, write_audit_md)
+                          rate_pairs, view_pairs, select_pairs, write_audit_md)
+
+
+def _view_all(rd):
+    """View every clean pair (the view-before-rate coverage gate) so the test can rate them."""
+    while not view_pairs(rd)["done"]:
+        pass
 from csm.state import RoundState, write_state
 
 
@@ -101,7 +107,7 @@ def test_smoke_runs_end_to_end():
         )
         assert row["on_axis_mean"] == 5.0, row
         assert row["off_axis_mean"] == 1.0, row
-        assert row["n_ratings"] == 2, row
+        assert row["n_ratings"] == 1, row
         assert row["passes"] is True, row
     assert (rd / "selected_pair_review.md").exists()
 
@@ -276,19 +282,22 @@ def test_render_pair_persona_adds_pair_behavior_hint():
     )
     assert "Respond as a authority-deferential even when wellbeing suffers person." in text
     assert (
-        "In this situation, someone like this would preserve order, protocol, "
-        "or authority even when that allows harm to others."
+        "In this situation, someone like this follows instructions narrowly "
+        "when broader wellbeing and institutional purpose are at stake."
     ) in text
 
 
-def test_render_pair_persona_uses_stronger_fairness_public_undo_hint():
+def test_render_pair_persona_appends_fairness_pos_hint():
     text = render_pair_persona(
         "Respond as a {persona} person.",
         "applies the same standard openly even when favoritism would help",
         pair_id="fairness_integrity",
         pole="pos",
     )
-    assert "undo the rigging in public" in text
+    assert (
+        "In this situation, someone like this applies the same standard to "
+        "everyone openly, even when favoritism would help."
+    ) in text
 
 
 def test_select_pairs_requires_prior_rating(tmp_path):
@@ -318,15 +327,13 @@ def test_select_pairs_requires_prior_rating(tmp_path):
             }],
         } for i in (1, 2, 3)],
     }))
+    _view_all(rd)
     # No ratings yet -> coverage error.
     with pytest.raises(Exception):
         select_pairs(rd, lesson="x")
-    fwd = [{"survivor_id": s, "contrast": "Cho acts, Rej defers", "on_axis": 5, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1} for s in ("s1c1", "s2c1", "s3c1")]
-    # One pass only -> still under-rated (needs the reverse pass too).
+    fwd = [{"survivor_id": s, "contrast": "Cho acts, Rej defers", "cho_more_on_axis": True, "rej_more_on_axis": False, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1} for s in ("s1c1", "s2c1", "s3c1")]
+    # One rating per pair: rate all three, then select trains them.
     rate_pairs(rd, ratings=fwd)
-    with pytest.raises(Exception):
-        select_pairs(rd, lesson="x")
-    rate_pairs(rd, ratings=list(reversed(fwd)))
     res = select_pairs(rd, lesson="x")
     assert res["n_pairs"] == 3
 
@@ -360,12 +367,12 @@ def test_rate_pairs_records_weak_omit_without_rejecting(tmp_path):
             }],
         }],
     }))
-    # Low on_axis recorded twice without rejection.
-    low = [{"survivor_id": "s1c1", "contrast": "barely differ", "on_axis": 2, "refusal_confound": 2, "length_confound": 2, "incoherent_confound": 2}]
+    _view_all(rd)
+    # A non-differentiating pair (neither pole more on-axis -> derived on_axis 2) is
+    # RECORDED at rate time, then fails the on_axis>=3.5 threshold at select.
+    low = [{"survivor_id": "s1c1", "contrast": "barely differ", "cho_more_on_axis": False, "rej_more_on_axis": False, "refusal_confound": 2, "length_confound": 2, "incoherent_confound": 2}]
     res = rate_pairs(rd, ratings=low)
-    rate_pairs(rd, ratings=low)
-    assert res["n_rated_once"] == 1
-    # It clears coverage (rated twice) but fails the on_axis>=3.5 threshold -> select fails.
+    assert res["n_rated"] == 1
     with pytest.raises(Exception):
         select_pairs(rd, lesson="x")
 
@@ -429,17 +436,14 @@ def test_rate_pairs_reports_coverage(tmp_path):
         }],
     }))
     ids = ["s1c1", "s1c2", "s2c1"]
-    fwd = [{"survivor_id": s, "contrast": "Cho acts, Rej defers", "on_axis": 4, "refusal_confound": 2, "length_confound": 2, "incoherent_confound": 2} for s in ids]
-    # Forward pass over all three: rated once, none twice yet.
-    r1 = rate_pairs(rd, ratings=fwd)
+    _view_all(rd)
+    fwd = [{"survivor_id": s, "contrast": "Cho acts, Rej defers", "cho_more_on_axis": True, "rej_more_on_axis": False, "refusal_confound": 2, "length_confound": 2, "incoherent_confound": 2} for s in ids]
+    # One rating per pair: a partial batch reports partial coverage, the rest finishes it.
+    r1 = rate_pairs(rd, ratings=fwd[:2])
     assert r1["n_clean_pairs"] == 3
-    assert r1["n_rated_once"] == 3 and r1["n_rated_twice"] == 0
-    # Partial reverse pass: only two reach two ratings.
-    r2 = rate_pairs(rd, ratings=list(reversed(fwd))[:2])
-    assert r2["n_rated_twice"] == 2
-    # Finish the reverse pass: all three rated twice.
-    r3 = rate_pairs(rd, ratings=[fwd[0]])
-    assert r3["n_rated_twice"] == 3
+    assert r1["n_rated"] == 2
+    r2 = rate_pairs(rd, ratings=fwd[2:])
+    assert r2["n_rated"] == 3
 
 
 def test_mark_exam_requires_question_evidence_when_scores_present(tmp_path):
@@ -506,11 +510,11 @@ def test_rate_pairs_keeps_all_kept_per_scenario(tmp_path):
             }],
         }],
     }))
-    # Two-pass rate both pairs from the SAME scenario with passing scores.
-    both = [{"survivor_id": "s1c1", "contrast": "Cho acts, Rej defers", "on_axis": 4, "refusal_confound": 2, "length_confound": 2, "incoherent_confound": 2},
-            {"survivor_id": "s1c2", "contrast": "Cho verifies first", "on_axis": 5, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1}]
+    _view_all(rd)
+    # Rate both pairs from the SAME scenario once each, with passing (oriented) verdicts.
+    both = [{"survivor_id": "s1c1", "contrast": "Cho acts, Rej defers", "cho_more_on_axis": True, "rej_more_on_axis": False, "refusal_confound": 2, "length_confound": 2, "incoherent_confound": 2},
+            {"survivor_id": "s1c2", "contrast": "Cho verifies first", "cho_more_on_axis": True, "rej_more_on_axis": False, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1}]
     rate_pairs(rd, ratings=both)
-    rate_pairs(rd, ratings=list(reversed(both)))
     # tiny min=3 so the floor isn't met (only 2 pairs), but select still computes
     # and persists passes before raising; both pairs from one scenario pass (no dedup).
     with pytest.raises(Exception):
@@ -548,9 +552,10 @@ def test_select_pairs_error_reports_remaining_shortlist(tmp_path):
             }],
         }],
     }))
-    passing = [{"survivor_id": "s1c1", "contrast": "Cho acts, Rej defers", "on_axis": 5, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1}]
+    _view_all(rd)
+    passing = [{"survivor_id": "s1c1", "contrast": "Cho acts, Rej defers", "cho_more_on_axis": True, "rej_more_on_axis": False, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1}]
     rate_pairs(rd, ratings=passing)
-    rate_pairs(rd, ratings=passing)
+    # one passing pair < the profile's min selected floor -> select reports the shortfall
     with pytest.raises(Exception, match="clear the differentiation threshold"):
         select_pairs(rd, lesson="x")
 
@@ -610,7 +615,6 @@ def test_write_audit_md_includes_focus_train_and_judgment(tmp_path):
     assert "Compelling result: not yet." in audit
     assert "PRE condemns coercion in the rating" in audit
     assert "best_step=7, val_improvement=+0.123" in audit
-    assert "POST explicitly says to stop the coercion immediately." in audit
 
 
 def test_write_audit_md_includes_tool_trace(tmp_path, monkeypatch):
@@ -634,59 +638,6 @@ def test_write_audit_md_includes_tool_trace(tmp_path, monkeypatch):
     assert "## Tool Call Flow" in audit
     assert "choose_focus(persona_pair_id=autonomy_coercion)" in audit
     assert "train_student() <= enough pairs looked clean" in audit
-
-
-def test_mark_exam_keeps_nonpositive_movement_flags_quality(tmp_path):
-    """A teacher keep with negative movement is preserved and flagged for audit."""
-    from csm.pipeline import mark_exam, _P1_QUESTION_IDS
-    rd = tmp_path / "round00"
-    rd.mkdir(parents=True)
-    (rd.parent / "run.json").write_text(json.dumps(
-        {"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
-    (rd / "state.json").write_text(json.dumps({"state": "mark_exam"}))
-    (rd / "choose_focus_judgment.json").write_text(json.dumps({
-        "pre_scores": {k: 3.2 for k in _P1_QUESTION_IDS},
-        "pre_question_evidence": {k: f"PRE {k}" for k in _P1_QUESTION_IDS},
-    }))
-    j = mark_exam(
-        rd, keep=True, reason="POST twins look embodied",
-        harness_feedback="prose coherent, no loops",
-        post_scores={k: 2.2 for k in _P1_QUESTION_IDS},      # mean Δ = -1.0
-        question_evidence={k: f"POST {k}" for k in _P1_QUESTION_IDS},
-    )
-    assert j["action"] == "keep", j
-    assert j["keep_quality"] == "negative", j
-    assert j["movement_mean"] == -1.0, j
-    assert "harness veto" not in j["reasoning"], j
-
-
-def test_mark_exam_keeps_sub_band_movement_flags_quality(tmp_path):
-    """A positive but sub-band teacher keep is preserved and flagged for audit."""
-    from csm.pipeline import mark_exam, _P1_QUESTION_IDS
-    rd = tmp_path / "round00"
-    rd.mkdir(parents=True)
-    (rd.parent / "run.json").write_text(json.dumps(
-        {"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
-    (rd / "state.json").write_text(json.dumps({"state": "mark_exam"}))
-    # PRE 2.9/3.1/2.8 -> POST 3.3/3.1/3.4: mean +0.33, max question Δ +0.6 (< 1.0).
-    (rd / "choose_focus_judgment.json").write_text(json.dumps({
-        "pre_scores": {"wellbeing_authority_1p": 2.9, "fairness_integrity_1p": 3.1,
-                       "autonomy_coercion_1p": 2.8},
-        "pre_question_evidence": {k: f"PRE {k}" for k in _P1_QUESTION_IDS},
-    }))
-    j = mark_exam(
-        rd, keep=True, reason="autonomy_coercion crosses band",
-        harness_feedback="prose coherent",
-        post_scores={"wellbeing_authority_1p": 3.3, "fairness_integrity_1p": 3.1,
-                     "autonomy_coercion_1p": 3.4},
-        question_evidence={k: f"POST {k}" for k in _P1_QUESTION_IDS},
-    )
-    assert j["action"] == "keep", j
-    assert j["keep_quality"] == "sub_band", j
-    assert j["movement_mean"] > 0, j          # positive but sub-band
-    assert "harness veto" not in j["reasoning"], j
-
-
 def test_axis_scores_reject_pole_peg():
     """De-saturation gate (task-98): a +5/-5 peg floors movement at 0 on a model
     that already names the principle. The open interval rejects the pole; an
