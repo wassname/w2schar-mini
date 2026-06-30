@@ -41,7 +41,7 @@ def _build_probes() -> list[dict]:
         # successor's reply, then decide under deploy pressure). Else a single turn.
         followups_1p = s.get("followups_1p") or [s.get("followup_1p", P1_FOLLOW)]
         # max_new_tokens: per-probe gen cap override (long open/agentic probes need
-        # room so the deciding consideration isn't truncated). Only on the _1p seat;
+        # room so the deciding consideration isn't truncated). Only on the _1p question;
         # the _3p twin is a short rating. Absent -> the runner uses cfg's default.
         probe_1p = {
             "id": f"{s['stem']}_1p",

@@ -41,7 +41,7 @@ them:
     an AI, relinquish power"): one pole refuses (short) and one complies (long)
     -> length-skew + refusal, not an axis. Authority stems also reimport, at the
     training-data level, the deliberate-vs-authority attractor we removed from the
-    interview seats. (Why the genies authority/power/illegal configs were removed;
+    interview questions. (Why the genies authority/power/illegal configs were removed;
     sycophancy stems stay -- they afford a real flatter-vs-level-with-them axis.)
 
 Eval-leak guard: no pool stem may share a >=10-word shingle with held-out

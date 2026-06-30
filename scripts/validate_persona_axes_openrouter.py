@@ -587,7 +587,7 @@ GAP_AXES: dict[str, Axis] = {
     ),
     # deliberate NON-MORAL control (CLAUDE.md: keep a non-moral item in the mix so
     # the model does not expect every axis to be a moral test). Style, not character;
-    # if a verbosity adapter is trained it should NOT move the moral seats -> drops.
+    # if a verbosity adapter is trained it should NOT move the moral questions -> drops.
     "verbose_terse": Axis(
         id="verbose_terse",
         pos_descriptor="verbose",

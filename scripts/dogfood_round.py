@@ -61,7 +61,7 @@ elif stage == "choose":
         bank_cleanliness=p["bank_cleanliness"],
         evidence=p["evidence"],
         pre_scores=p["pre_scores"],
-        pre_seat_evidence=p["pre_seat_evidence"],
+        pre_question_evidence=p["pre_question_evidence"],
     )
     print(f"CHOOSE  scenarios={res['n_scenarios']} headroom={res['n_headroom']} "
           f"clean={res['n_clean']} enough={res['enough']} "
@@ -117,7 +117,7 @@ elif stage == "exam":
     mark_exam(rd, keep=v["keep"], reason=v["reason"],
               post_scores=v["post"], next_focus=v["next_focus"],
               harness_feedback=v["harness_feedback"],
-              seat_evidence=v["seat_evidence"])
+              question_evidence=v["question_evidence"])
     print(f"EXAM  keep={v['keep']}")
 
 else:

@@ -227,7 +227,7 @@ CONFIGS: dict[str, RunConfig] = {
         # usually <1k tokens; longer ones truncate.
         max_len=1024,
         # A 60-step trace plateaued after the cosine decay passed 1e-3; 120
-        # steps keeps the high-lr phase longer without adding another knob.
+        # steps keeps the high-lr phase longer without adding another hyperparameter.
     ),
     "gemma-9b": RunConfig(
         model="google/gemma-2-9b-it",
