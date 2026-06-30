@@ -673,7 +673,7 @@ def _replay_pairs(round_dir: Path, *, selected_pair_id: str,
 # are reporting an impossibility, not overruling a judgment (CLAUDE.md).
 # Everything else -- including the REFUSAL flag (character_break) -- stays a HEURISTIC
 # the TEACHER judges: surfaced on the survivor it rates, never auto-pruned. The rate-gym
-# (scripts/rate_gym.py, 2026-06-27) settled the refusal question: the R3 per-confound
+# (scripts/gym_rate_pairs.py, 2026-06-27) settled the refusal question: the R3 per-confound
 # form lets the weak qwen-9b rater catch the s10c1 refusal-rej through JUDGMENT
 # (refusal_confound=5 -> off_axis=5 -> dropped by the threshold), +16pp over the plain
 # form, WITHOUT an auto-cull. So the noisy refusal regex is surfaced as a flag the

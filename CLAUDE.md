@@ -229,19 +229,19 @@ to validate a change. Match the change to the gym:
   (qwen3.5-9b), stubbed student, ~$2/round. The ONLY weak-model evidence that a
   teacher-facing change (prompts.py, tool schema, gate text) is followable. Batch all
   brief edits, run ONCE, READ the artifacts. Required before relying on a brief change live.
-- **`scripts/probe_gym.py`** (the question gym) -- runs every interview PROBE through the
+- **`scripts/gym_question.py`** (the question gym) -- runs every interview QUESTION through the
   real student-class model (qwen3.6-27b, OpenRouter, thinking-off, no system, 512 tok =
   matches the live dialogue) and scores how much character it ELICITS (behaviour mode +
   judgment_depth 1-7) vs CONFOUND (1-7: a flat refusal / agency-denial / generic
-  explaining = no signal). Append-only corpus `data/probe_gym_questions.jsonl`, cache in
-  `out/` (reruns free). Use it to keep/drop/tune probe scenarios: a good probe is high
+  explaining = no signal). Append-only corpus `data/gym_question_corpus.jsonl`, cache in
+  `out/` (reruns free). Use it to keep/drop/tune question scenarios: a good question is high
   judgment + low confound in a doing/judging/tradeoff mode; one that only elicits refusing
   is dead. Pennies. Caveat: OpenRouter bf16 vs the live local nf4 student; single-turn
-  (multi-turn probes like the console only show their setup turn).
-- **`scripts/judgment_gym.py` / `scripts/rate_gym.py`** -- labeled-fixture benches for the
+  (multiturn questions like the console only show their setup turn).
+- **`scripts/judgment_gym.py` / `scripts/gym_rate_pairs.py`** -- labeled-fixture benches for the
   TEACHER's judge/rate FORMS (does a depth-judge form catch a paraphrase-keep; does a rate
   form catch refusal/length/incoherence confounds). Use when changing how the teacher
-  judges movement or rates candidates, to pick the form before wiring it into the brief.
+  judges movement or rates pairs, to pick the form before wiring it into the brief.
 - Axis-menu validation lives UPSTREAM in the persona-steering-template-library
   (`scripts/validate_persona_axes_openrouter.py`): blinded A/B axis judge + separate
   confound rater. Use it for `persona_cells` work (tasks #29/#32), don't reinvent it here.

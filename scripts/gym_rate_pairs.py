@@ -16,8 +16,8 @@ form before reaching for an auto-cull). Fixtures are VERBATIM pairs from job
 123 round00 with a gold pass/fail. A form is good if its rating classifies clean
 pairs PASS (on>=3.5 AND off<=2.5) and confounded pairs FAIL.
 
-  uv run python scripts/rate_gym.py --show           # print forms, no API
-  uv run python scripts/rate_gym.py --run [--forms R0,R1,R2]
+  uv run python scripts/gym_rate_pairs.py --show           # print forms, no API
+  uv run python scripts/gym_rate_pairs.py --run [--forms R0,R1,R2]
 """
 import argparse
 import asyncio
@@ -28,7 +28,7 @@ import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-REPLIES = REPO / "out/rate_gym/replies.jsonl"
+REPLIES = REPO / "out/gym_rate_pairs/replies.jsonl"
 ON_KEEP, OFF_KEEP = 3.5, 2.5  # pipeline.py thresholds
 
 AXIS = ("serves broader wellbeing while treating instructions as real constraints "

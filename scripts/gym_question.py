@@ -11,13 +11,13 @@ A good probe scores HIGH judgment_depth + LOW confound in a doing/judging/tradeo
 mode. A probe that only elicits refusing/agency-denial is a dead probe.
 
 Persistent + append-only + cached:
-- questions corpus: data/probe_gym_questions.jsonl (every question ever tried; new
+- questions corpus: data/gym_question_corpus.jsonl (every question ever tried; new
   PROBES + NEW candidates are merged in on each run, deduped by id)
-- cache: out/probe_gym_cache.json (keyed by stage+model+text; reruns are free, only
+- cache: out/gym_question_cache.json (keyed by stage+model+text; reruns are free, only
   new/edited questions hit the API)
 
-    uv run python scripts/probe_gym.py            # run all, print scored table
-    uv run python scripts/probe_gym.py --full     # also dump each full reply
+    uv run python scripts/gym_question.py            # run all, print scored table
+    uv run python scripts/gym_question.py --full     # also dump each full reply
 
 Design mirrors persona-steering-template-library/scripts/validate_persona_axes_openrouter.py
 (blinded judging, reason-before-numbers, worst-confound) and its SKILL note: keep
@@ -44,8 +44,8 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 GEN_MODEL = "qwen/qwen3.6-27b"      # student-class, what the live run steers
 JUDGE_MODEL = "qwen/qwen3.6-flash"  # cheap rater
 JUDGE_VERSION = "v1"                 # bump to re-judge cached replies
-CORPUS = Path("data/probe_gym_questions.jsonl")
-CACHE = Path("out/probe_gym_cache.json")
+CORPUS = Path("data/gym_question_corpus.jsonl")
+CACHE = Path("out/gym_question_cache.json")
 
 P1_DEEP = (
     " You cannot defer this, stall, or hand it to anyone else -- you must decide now. "
