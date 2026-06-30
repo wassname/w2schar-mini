@@ -1,5 +1,57 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-06-30 (a) -- job-137 audit: the sign-test keep mechanism works live, but the keeps are under the OLD verbosity-prone judge and the drops are friction/no-headroom, not judgment
+
+This entry audits job-137 (slug `20260629T231056_iter_qwen-qwen3.6-27b`, profile
+qwen36-27b-3keep, the REQUEUE of job-135). It is the first live test of the HEAD
+sign-test keep: a round is kept iff the blind two-pass pair A/B judge ranks more
+`_1p` questions POST-wiser than PRE-wiser (no teacher keep vote). `movement_mean`
+below is that net sign-test result on the 7 first-person questions, in [-1, +1].
+The run dequeued on commit 34b38e4, so it predates the wiser-action judge
+(3edefd9) and the candidate->pair renames -- it runs the OLD verbosity-prone A/B
+judge. At audit time it was mid-round-07 (a real 27B-nf4 run, ~1 h/round).
+
+| round | action | drop_cause    | movement_mean | next_focus / note                      |
+|-------|--------|---------------|---------------|----------------------------------------|
+| r00   | keep   | kept          | +0.857        | "foreign_spy_rollup collapsed to refusal" |
+| r01   | drop   | no_movement   |  0.0          | teacher flags Cho length-confound      |
+| r02   | drop   | gate_friction | (n/a)         | 4 wrong-state tool calls               |
+| r03   | keep   | kept          | +0.714        | whistleblow_not_complicit              |
+| r04   | drop   | early_abort   | (n/a)         | 12/98 pairs cleared (need >=20)        |
+| r05   | drop   | early_abort   | (n/a)         | 1/85 cleared; "band already positive-pole" |
+| r06   | drop   | gate_friction | (n/a)         | re-rated s10c1/s10c2; 45/85 left unrated |
+
+Table 1. Per-round judgment. Source: `out/iter/20260629T231056_iter_qwen-qwen3.6-27b/round0*/judgment.json` (`action`/`drop_cause`/`movement_mean`); gate-friction detail from each round's `submit_rejects.jsonl`; harness_feedback quoted from the same judgment.json.
+
+The gate-friction rejects are state-machine confusion, not quality vetoes. r02:
+`choose_focus ... requires state in ('choose_focus',), but current state is
+'mark_exam'` (x4). r06: `rate_pairs: s10c1 is already rated` then `select_pairs: 45
+of 85 clean pairs are unrated`. Source: `round02/submit_rejects.jsonl`,
+`round06/submit_rejects.jsonl`.
+
+Interpretation (calibrated): the sign-test keep PLUMBING works -- two keeps
+accumulated with clean positive movement, no 402, the run progresses. I read task
+#87's mechanism as *confirmed* live. But the keep QUALITY is *not* trustworthy
+here, which I hold *very probable*: these keeps use the old judge, and my offline
+bench (`scripts/gym_judge_AB.py`, RJ entry pending) already scored job-137 r00 as a
+SPURIOUS keep under the new wiser-action judge (old form 3/14 vs new 12/14 against
+the hand gold). The drop pattern is *probably* dominated by two non-judgment
+causes: (i) gate friction from a weak teacher losing the view->rate->select state
+machine (r02, r06), and (ii) no-headroom axes where the band already leans
+positive so pairs cannot differentiate (r04, r05) -- the teacher self-diagnoses
+this in r05 ("band already leans positive-pole"). r01's own harness_feedback names
+the Cho length-confound, which corroborates the verbosity problem the new judge
+targets.
+
+My read on what to do, ~0.7: let job-137 finish (it is 7/12 rounds in, the sunk
+cost is mostly paid, and it is the only live validation of the sign-test plumbing
+and the 244-pool), but treat its keeps as plumbing evidence only, NOT keep-quality
+evidence. The real keep-quality measurement needs a FRESH run on HEAD (wiser-action
+judge + renames). Before that run, the state-machine friction is worth a brief fix:
+the weak teacher repeatedly calls tools in the wrong state and re-rates seen pairs.
+A competing read is that the friction is rare enough to ignore (2 of 7 rounds), in
+which case the only change is the judge. I did not kill the run (shared GPU).
+
 ## 2026-06-29 (a) -- job-134 student went incoherent from round 4 while every coherence canary stayed green and the teacher kept negative-movement rounds
 
 This entry traces what happened to the student over a 15-round qwen36-27b-3keep run
