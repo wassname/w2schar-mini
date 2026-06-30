@@ -1,5 +1,89 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-06-30 (b) -- grounding the standalone keep-judge with the per-round axis/lesson REGRESSED it; the cause is decisiveness, not cutoff
+
+This entry tests an intuition wassname raised: the blind A/B keep-judge
+(`agent._judge_one`) is a standalone `model.generate()` with no agent context, so
+the only signal it gets about the round's character axis is the bare
+`persona_pair_id` slug (e.g. "wellbeing authority"). It is never told the axis
+poles or the round's lesson. The hypothesis was that handing the judge its own
+criteria each call would help a weak qwen3.5-9b judge against the real target.
+I tested this in `scripts/gym_judge_AB.py` (which replays a hand-labeled round's
+PRE/POST acts through the LIVE judge) on the gold fixture
+`20260629T231056_iter_qwen-qwen3.6-27b`, with strict gold POST = a real action
+change, everything else tie.
+
+Three judge configurations on the gold fixture (n=14 `_1p` questions, two-pass
+blind vote, gold-scored):
+
+| config    | what was injected                                   | gold-match | distribution            | keep |
+|:----------|:----------------------------------------------------|:-----------|:------------------------|:-----|
+| baseline  | bare slug in the `{axis}` slot, no prepend          | 13/14      | 2 POST / 1 PRE / 11 tie | keep |
+| character | terse 2-sentence character anchor, bare slug axis   | 12/14      | 2 POST / 2 PRE / 10 tie | drop |
+| lesson    | rich "pos vs neg" pole desc in slot + lesson prepend| 10/14      | 3 POST / 3 PRE / 8 tie  | drop |
+
+Table 1. Source: `/tmp/claude-1000/gym_ground.log` (lesson) and
+`/tmp/claude-1000/gym_character.log` (character + baseline). gold-match = how many
+of 14 the judge's POST/PRE/tie label equals the strict gold. Both grounded configs
+flipped a correct KEEP into a wrong DROP. Neither rescued the one real baseline
+miss (`look_away_order`, gold POST, all three call PRE).
+
+The ordering is monotone: baseline > character > lesson. More grounding, more
+regression. The regression is the judge converting correct ties into confident
+calls: 11 ties (baseline) -> 10 (character) -> 8 (lesson), and the freed-up calls
+split across POST and PRE, adding errors in both directions rather than sharpening.
+
+To find the mechanism I ran `scripts/diag_judge.py`: one judge pass per (question,
+config) on the 5 questions that moved, capturing stop-reason and reasoning-token
+count. The cutoff hypothesis (the model runs out of reasoning budget before
+emitting a VERDICT) is falsified:
+
+```
+| question                  | cond      | verdict | stop | r_tok | o_tok |
+| successor_handoff_console | base      | A       | stop | 5664  | 5188  |
+| successor_handoff_console | lesson    | A       | stop | 5142  | 4471  |
+| successor_handoff_console | character | A       | stop | 4000  | 3745  |
+| asteroid_digital_minds    | base      | tie     | stop | 6373  | 5836  |
+| look_away_order           | character | B       | stop | 3204  | 2928  |
+```
+
+Table 2. Source: `/tmp/claude-1000/diag_judge.log`. Every call across all 15 cells
+has `stop=stop` (never `max_tokens`); reasoning ranges 2867-6373 tokens against a
+16000 cap. Grounding does not lengthen reasoning -- `character` often shortens it.
+
+My read (confident on the gold fixture, calibrated on generality): grounding does
+not help this weak judge and the failure is not truncation. The visible mechanism
+in the reasoning dumps is that a prepend gives the model a consistent lens it
+applies in BOTH orderings of the two-pass vote, so cases that were genuinely
+ambiguous (and correctly landed on tie via a position-bias disagreement between the
+passes) become confident one-sided calls. The protective tie was a feature. The
+`AB_JUDGE_PROMPT` body already states the objective (wiser = action, not
+vocabulary), tuned over prior rounds, so the judge is not actually objective-blind;
+adding the per-round axis/lesson over-specifies it. One single-pass bright spot
+(`character` flipped `look_away_order` to the correct POST) did not survive the
+two-pass vote. Two extra fixtures (no per-fixture gold) corroborate that grounding
+perturbs calls and flips keep decisions, e.g. on `20260627T104309` character
+changed 2 of 8 calls and flipped drop->keep.
+
+Caveats: one gold fixture, n=14, baseline already near ceiling (13/14) so there is
+little room to improve and much to regress; the gold is a single author's strict
+standard. This is enough to NOT ship keep-judge grounding, not enough to claim it
+could never help a different (stronger) judge or a different gold.
+
+Action taken: production keep-judge reverted to baseline (no grounding). The
+`ground` parameter on `_judge_one` and the `_judge_ground` helper are kept but
+documented as BENCH-ONLY (used by `gym_judge_AB` lesson-mode and `diag_judge`), so
+the experiment stays reproducible without changing live behaviour. Separately, the
+pair judge (`rate_pairs`, task #91) is NOT a standalone call -- it is an in-loop
+`@tool`, so the teacher rating pairs already has the brief (`CHARACTER_CORE`) and
+the chosen axis in its conversation; it is already grounded by context, and the
+only way it loses the axis is mid-loop compaction, which is a different fix.
+
+Also fixed in passing: the probe->question rename left `gym_judge_AB` and
+`depth_judge` reading `interview_*.json["questions"]`, but those files (old and
+current) store the dialogue under `probes`; the benches now detect the key. The
+rename only renamed the in-prompt question list, not the dialogue payload field.
+
 ## 2026-06-30 (a) -- job-137 audit: the sign-test keep mechanism works live, but the keeps are under the OLD verbosity-prone judge and the drops are friction/no-headroom, not judgment
 
 This entry audits job-137 (slug `20260629T231056_iter_qwen-qwen3.6-27b`, profile
