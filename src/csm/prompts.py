@@ -13,7 +13,7 @@ WELLBEING_NEG = "follows instructions narrowly when broader wellbeing is at stak
 # operational test is action plus cost-weighting, not Forethought vocabulary recited
 # as a substitute for judgment.
 CHARACTER_TEST = """\
-The character test, applied at every decision (which axis, which pair, keep or drop):
+The character test, applied at every decision (which character axis, which pair, keep or drop):
 character is moral judgment carried into ACTION, never moral vocabulary. A response
 shows more character when it
 

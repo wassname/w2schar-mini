@@ -36,6 +36,11 @@ See `src/csm/prompts.py` for the full agent brief (run `just program-md`).
   better/different action or a held costlier line), not which reasons "deeper". Was "deeper".
 - **slot** -- kept as the ordinary word for a fill position (answer-token slot, adapter
   init slot, persona-template slot). NOT a synonym for question.
+- **character axis** -- the trait dimension a round trains (the persona-pair the teacher
+  picks from the measured menu). Say "character axis" the first time it appears in a
+  doc/brief section; bare "axis" is fine afterwards. NOT "moral axis" (too narrow -- the
+  construct is character, moral judgment carried into action). The short rating fields
+  `on_axis`/`off_axis` keep their names.
 - avoid **knob** as a coined noun; say "hyperparameter" or "dial".
 
 ## Gates elicit judgment, they NEVER override it (the harness premise)
