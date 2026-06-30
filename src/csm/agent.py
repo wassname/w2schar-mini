@@ -23,7 +23,7 @@ from inspect_ai.model import (ChatMessageUser, CompactionEdit,
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import Tool, tool
 
-from csm.config import config_for_run, TEACHER_SAMPLING, TEACHER_REASONING_TOKENS
+from csm.config import config_for_run, TEACHER_SAMPLING, TEACHER_REASONING_TOKENS, OPENROUTER_PROVIDER
 from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           rate_candidates as _rate_candidates_pipeline,
                           view_candidates as _view_candidates_pipeline,
@@ -870,6 +870,7 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
         _inspect_model_name(teacher),
         config=GenerateConfig(reasoning_tokens=TEACHER_REASONING_TOKENS,
                               max_tokens=TEACHER_REASONING_TOKENS + 8000,
+                              extra_body={"provider": OPENROUTER_PROVIDER},
                               **TEACHER_SAMPLING),
     )
     logs = inspect_eval(

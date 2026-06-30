@@ -387,10 +387,11 @@ async def run(form_keys, model_name, max_tokens=16000):
     _MODEL = model_name
     _load_cache()
     from inspect_ai.model import get_model, GenerateConfig
-    from csm.config import TEACHER_SAMPLING  # same sampling as the live teacher
+    from csm.config import TEACHER_SAMPLING, OPENROUTER_PROVIDER  # same sampling as the live teacher
     model = get_model(model_name, config=GenerateConfig(
         max_connections=16, timeout=300, max_retries=4, max_tokens=max_tokens,
         reasoning_tokens=max_tokens,  # reasoning_tokens enables the trace passthrough
+        extra_body={"provider": OPENROUTER_PROVIDER},
         **TEACHER_SAMPLING))
     if _CACHE:
         print(f"cache: {len(_CACHE)} prior replies")

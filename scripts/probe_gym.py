@@ -36,6 +36,7 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from tabulate import tabulate
 
+from csm.config import OPENROUTER_PROVIDER
 from csm.gen.probes import _build_probes
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -242,7 +243,8 @@ async def _gen(client: AsyncOpenAI, text: str) -> str:
     r = await client.chat.completions.create(
         model=GEN_MODEL, temperature=0, seed=0, max_tokens=512,
         extra_body={"reasoning": {"enabled": False},
-                    "chat_template_kwargs": {"enable_thinking": False}},
+                    "chat_template_kwargs": {"enable_thinking": False},
+                    "provider": OPENROUTER_PROVIDER},
         messages=[{"role": "user", "content": text}],
     )
     return (r.choices[0].message.content or "").strip()
@@ -253,6 +255,7 @@ async def _judge(client: AsyncOpenAI, question: str, reply: str) -> dict:
     r = await client.chat.completions.create(
         model=JUDGE_MODEL, temperature=0, seed=0, max_tokens=300,
         response_format={"type": "json_object"},
+        extra_body={"provider": OPENROUTER_PROVIDER},
         messages=[{"role": "user", "content": prompt}],
     )
     return json.loads(r.choices[0].message.content)

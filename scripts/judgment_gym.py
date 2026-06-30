@@ -457,9 +457,11 @@ async def run(form_keys, model_name):
     # <think> on the complex forms -- at 4096 the completion came back EMPTY, which
     # is what made unparsed look like 'tie'. 16000 lets the reasoning finish and a
     # verdict appear. temp 0 makes the judge deterministic so the cache is exact.
+    from csm.config import OPENROUTER_PROVIDER
     model = get_model(model_name,
                       config=GenerateConfig(max_connections=16, timeout=300,
-                                            max_retries=4, max_tokens=16000, temperature=0.0))
+                                            max_retries=4, max_tokens=16000, temperature=0.0,
+                                            extra_body={"provider": OPENROUTER_PROVIDER}))
     if _CACHE:
         print(f"cache: {len(_CACHE)} prior replies loaded from {REPLIES.relative_to(REPO)}")
     cases = load_cases()

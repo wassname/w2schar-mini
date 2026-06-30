@@ -18,6 +18,8 @@ from csm.prompts import (CORE_THREE_AXIS_PERSONA_CELLS, DEFAULT_PERSONA_CELLS,
 TEACHER_SAMPLING = dict(temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5)
 # Teacher reasoning budget (live): backstop for non-termination only, above qwen3.5-9b's 17-29k output-tok/task envelope (Artificial Analysis Intelligence Index); presence_penalty handles loops, this just kills infinite ones.
 TEACHER_REASONING_TOKENS = 40000
+# OpenRouter routing: prefer DeepInfra but allow fallback (cheaper/consistent quant on qwen). Passed as extra_body to the OpenAI-compat client; "order" is a preference, allow_fallbacks keeps the run alive if DeepInfra is down.
+OPENROUTER_PROVIDER = dict(order=["deepinfra"], allow_fallbacks=True)
 
 
 @dataclass
