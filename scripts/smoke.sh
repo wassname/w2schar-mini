@@ -150,8 +150,8 @@ print("\n-- train_student + post-dialogue --")
 r = train_student(slug, rd)
 print(f"   signed_C={r['signed_C']:+.4f}  n_trained={r['n_pairs_trained']}")
 
-print("\n-- mark_exam (blind depth judge runs in the agent tool; here we pass dirs directly) --")
-# The real flow runs agent._blind_depth_votes; this plumbing test hands mark_exam
+print("\n-- mark_exam (blind pair A/B judge runs in the agent tool; here we pass dirs directly) --")
+# The real flow runs agent._blind_ab_votes; this plumbing test hands mark_exam
 # the per-question directions (-1/0/+1) it would have produced. keep/drop is the
 # sign test on these dirs (2 up, 0 down here -> keep), no teacher keep arg.
 mark_exam(rd,

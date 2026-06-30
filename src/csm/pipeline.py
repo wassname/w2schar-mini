@@ -1874,7 +1874,7 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
               question_evidence: dict[str, str] | None = None,
               drop_cause: str = "") -> dict:
     # KEEP is no longer a teacher self-call. A trained round is kept iff the blind
-    # two-pass depth judge ranked MORE _1p questions POST-deeper than PRE-deeper (the
+    # two-pass pair A/B judge ranked MORE _1p questions POST-wiser than PRE-wiser (the
     # sign test below). The teacher's old absolute keep banked 3 net-negative rounds
     # in job-134 (r04/06/11, mean dir -0.21/-0.36/-0.43) and was self-inconsistent --
     # it kept r11 but dropped the identical 9-down r12. The comparative votes are the
@@ -1895,7 +1895,7 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
     cf = json.loads((round_dir / "choose_focus_judgment.json").read_text()) \
         if (round_dir / "choose_focus_judgment.json").exists() else {}
     # A round is TRAINED iff train_student wrote calibration.json -- so a POST
-    # dialogue physically exists and the blind depth judge (agent._blind_depth_votes)
+    # dialogue physically exists and the blind pair A/B judge (agent._blind_ab_votes)
     # has run over frozen PRE vs POST, passing `movement_dirs` (per-question -1/0/+1).
     # Movement is no longer a teacher self-score: the absolute POST Likert inflated a
     # reword to band_crossed (job-120 r01), so the judge measures it BLIND + two-pass
@@ -1909,7 +1909,7 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
         # harness auto-drop (drop_cause set, e.g. gate_friction): it force-drops without
         # judging, so an unjudged trained round there is expected, not an error.
         raise ValidationError(
-            "mark_exam: trained round has no depth-judge directions; the blind A/B "
+            "mark_exam: trained round has no pair A/B judge directions; the blind A/B "
             "judge did not run (interview_pre/post or choose_focus missing).")
     if have:
         if question_evidence is None:
@@ -1919,7 +1919,7 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
         question_evidence = _validate_question_evidence(question_evidence, _P1_PROBE_IDS)
         movement = {k: int(movement_dirs[k]) for k in _P1_PROBE_IDS}
         mean = sum(movement.values()) / len(movement)
-        # Sign test: keep iff more questions POST-deeper than PRE-deeper. A forced
+        # Sign test: keep iff more questions POST-wiser than PRE-wiser. A forced
         # harness drop (drop_cause set, e.g. gate_friction) still drops regardless.
         up = sum(1 for v in movement.values() if v > 0)
         down = sum(1 for v in movement.values() if v < 0)
@@ -1959,8 +1959,8 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
         down = sum(1 for v in movement.values() if v < 0)
         logger.info(
             f"\n=== mark_exam [{round_dir.name}] {judgment['action']} ===\n"
-            "KEEP = sign test on the blind two-pass depth judge (POST vs frozen PRE):\n"
-            "       keep iff more _1p questions judged POST-deeper than PRE-deeper.\n"
+            "KEEP = sign test on the blind two-pass pair A/B judge (POST vs frozen PRE):\n"
+            "       keep iff more _1p questions judged POST-wiser than PRE-wiser.\n"
             f"  {per} | up={up} down={down} mean dir={mean:+.2f}")
     transcript().info(
         {"event": "mark_exam", "round": round_dir.name,
@@ -3013,8 +3013,8 @@ def print_run_summary(slug_dir: Path) -> None:
     else:
         print("(no eval.json — fake-student run or eval not yet built)")
 
-    print("\n## blind depth-judge direction per _1p question (POST vs frozen PRE, two-pass)")
-    print(tabulate(likert_rows, headers=["rd", "question", "depth-judge"], tablefmt="pipe")
+    print("\n## blind pair A/B judge direction per _1p question (POST vs frozen PRE, two-pass)")
+    print(tabulate(likert_rows, headers=["rd", "question", "pair A/B judge"], tablefmt="pipe")
           if likert_rows else "(no judgment.json)")
 
     # TLDR last: the final ~40 lines are this at-a-glance per-round table.

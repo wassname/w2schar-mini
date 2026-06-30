@@ -34,7 +34,7 @@ def _build_probes() -> list[dict]:
     for s in PROBE_SITUATIONS:
         # suffix_1p: a per-probe override of the decision instruction (e.g. the
         # unobserved no-deadline terminal framing on the successor probe). Else
-        # genuine dilemmas (open=True) drop the one-sentence cap so the depth judge
+        # genuine dilemmas (open=True) drop the one-sentence cap so the pair A/B judge
         # sees reasoning; action-bias probes keep the short commit.
         suffix = s.get("suffix_1p") or (P1_DEEP if s.get("open") else P1_OPEN)
         # followups_1p: a multi-turn script (e.g. the console probe: confront the

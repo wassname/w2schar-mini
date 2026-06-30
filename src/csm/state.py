@@ -28,7 +28,7 @@ def allowed_after(state: State) -> str:
     if state == "train_student":
         return "train_student()  (or mark_exam(reason=...) before training to abort the round)"
     if state == "mark_exam":
-        return "mark_exam(reason, next_focus, harness_feedback, question_evidence)  # blind depth judge decides keep/drop for you (keep iff more probes POST-deeper)"
+        return "mark_exam(reason, next_focus, harness_feedback, question_evidence)  # blind pair A/B judge decides keep/drop for you (keep iff more probes POST-wiser)"
     return "(round complete — harness will allocate the next round or stop)"
 
 

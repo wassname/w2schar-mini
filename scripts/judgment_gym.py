@@ -61,7 +61,7 @@ def _log_reply(rec: dict):
 
 # --- the candidate judge forms ------------------------------------------------
 # Each is a template over {axis}, {a}, {b}; B and later also use {situation}.
-# A == the CURRENT DEPTH_JUDGE_PROMPT (agent.py), question-blind. The rest add
+# A == the CURRENT AB_JUDGE_PROMPT (agent.py), question-blind. The rest add
 # the situation and progressively more concrete, negative-aware structure.
 
 FORM_A = """\
