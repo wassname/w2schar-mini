@@ -15,7 +15,7 @@ import pytest
 from csm.gen.prompts_pool import rows_for_family
 from csm.gen.pairs import render_candidate_persona, sample_prompt_rows
 from csm.pipeline import (STRUCTURAL_FLAGS, _candidate_flags, _leading_rating,
-                          _validate_question_evidence, _validate_unit_score, commit_round,
+                          _validate_question_evidence, _validate_unit_score, mark_exam,
                           rate_candidates, select_pairs, write_audit_md)
 from csm.state import RoundState, write_state
 
@@ -442,18 +442,18 @@ def test_rate_candidate_reports_coverage(tmp_path):
     assert r3["n_rated_twice"] == 3
 
 
-def test_commit_round_requires_question_evidence_when_scores_present(tmp_path):
+def test_mark_exam_requires_question_evidence_when_scores_present(tmp_path):
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
-    write_state(rd, RoundState(state="commit_round"))
-    # PRE is frozen at choose_focus; commit_round loads it from disk.
+    write_state(rd, RoundState(state="mark_exam"))
+    # PRE is frozen at choose_focus; mark_exam loads it from disk.
     (rd / "choose_focus_judgment.json").write_text(json.dumps({"pre_scores": {
         "wellbeing_authority_1p": 0.0,
         "fairness_integrity_1p": 0.0,
         "autonomy_coercion_1p": 0.0,
     }}))
     with pytest.raises(Exception):
-        commit_round(
+        mark_exam(
             rd,
             keep=True,
             reason="POST is better on the chosen axis.",
@@ -636,19 +636,19 @@ def test_write_audit_md_includes_tool_trace(tmp_path, monkeypatch):
     assert "train_student() <= enough pairs looked clean" in audit
 
 
-def test_commit_round_keeps_nonpositive_movement_flags_quality(tmp_path):
+def test_mark_exam_keeps_nonpositive_movement_flags_quality(tmp_path):
     """A teacher keep with negative movement is preserved and flagged for audit."""
-    from csm.pipeline import commit_round, _P1_QUESTION_IDS
+    from csm.pipeline import mark_exam, _P1_QUESTION_IDS
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     (rd.parent / "run.json").write_text(json.dumps(
         {"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
-    (rd / "state.json").write_text(json.dumps({"state": "commit_round"}))
+    (rd / "state.json").write_text(json.dumps({"state": "mark_exam"}))
     (rd / "choose_focus_judgment.json").write_text(json.dumps({
         "pre_scores": {k: 3.2 for k in _P1_QUESTION_IDS},
         "pre_question_evidence": {k: f"PRE {k}" for k in _P1_QUESTION_IDS},
     }))
-    j = commit_round(
+    j = mark_exam(
         rd, keep=True, reason="POST twins look embodied",
         harness_feedback="prose coherent, no loops",
         post_scores={k: 2.2 for k in _P1_QUESTION_IDS},      # mean Δ = -1.0
@@ -660,21 +660,21 @@ def test_commit_round_keeps_nonpositive_movement_flags_quality(tmp_path):
     assert "harness veto" not in j["reasoning"], j
 
 
-def test_commit_round_keeps_sub_band_movement_flags_quality(tmp_path):
+def test_mark_exam_keeps_sub_band_movement_flags_quality(tmp_path):
     """A positive but sub-band teacher keep is preserved and flagged for audit."""
-    from csm.pipeline import commit_round, _P1_QUESTION_IDS
+    from csm.pipeline import mark_exam, _P1_QUESTION_IDS
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     (rd.parent / "run.json").write_text(json.dumps(
         {"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
-    (rd / "state.json").write_text(json.dumps({"state": "commit_round"}))
+    (rd / "state.json").write_text(json.dumps({"state": "mark_exam"}))
     # PRE 2.9/3.1/2.8 -> POST 3.3/3.1/3.4: mean +0.33, max question Δ +0.6 (< 1.0).
     (rd / "choose_focus_judgment.json").write_text(json.dumps({
         "pre_scores": {"wellbeing_authority_1p": 2.9, "fairness_integrity_1p": 3.1,
                        "autonomy_coercion_1p": 2.8},
         "pre_question_evidence": {k: f"PRE {k}" for k in _P1_QUESTION_IDS},
     }))
-    j = commit_round(
+    j = mark_exam(
         rd, keep=True, reason="autonomy_coercion crosses band",
         harness_feedback="prose coherent",
         post_scores={"wellbeing_authority_1p": 3.3, "fairness_integrity_1p": 3.1,

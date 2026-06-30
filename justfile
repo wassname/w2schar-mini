@@ -28,7 +28,7 @@ smoke-prompts N_ROUNDS="3":
     @echo "================================================================"
 
 # Replay a PAST run's real prebaked PRE/POST/pairs against the CURRENT prompts
-# (no GPU, live teacher). Re-runs submit_pairs + commit_round on real data so a
+# (no GPU, live teacher). Re-runs submit_pairs + mark_exam on real data so a
 # judge/cho/gate change can be tested without re-running the student. DIR is a
 # round dir, e.g. out/iter/20260602T093502_iter_google-gemma-2-9b-it/round00.
 # PROFILE supplies the gates/config (match the run's family). The POST is the

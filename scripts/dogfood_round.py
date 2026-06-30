@@ -25,7 +25,7 @@ from pathlib import Path
 
 from csm.config import CONFIGS
 from csm.pipeline import (init_run, prepare_round, latest_round_dir,
-                          choose_focus, rate_candidates, select_pairs, train_student, commit_round,
+                          choose_focus, rate_candidates, select_pairs, train_student, mark_exam,
                           new_round_dir)
 from csm.state import read_state
 
@@ -97,7 +97,7 @@ elif stage == "train":
 elif stage == "drop":
     rd = latest_round_dir(_slug())
     reason = Path(sys.argv[2]).read_text().strip()
-    commit_round(rd, keep=False, reason=reason,
+    mark_exam(rd, keep=False, reason=reason,
               harness_feedback="manual dogfood drop: teacher found the round unconvincing")
     print("DROP  keep=False")
 
@@ -114,7 +114,7 @@ elif stage == "advance":
 elif stage == "exam":
     rd = latest_round_dir(_slug())
     v = json.loads(Path(sys.argv[2]).read_text())
-    commit_round(rd, keep=v["keep"], reason=v["reason"],
+    mark_exam(rd, keep=v["keep"], reason=v["reason"],
               post_scores=v["post"], next_focus=v["next_focus"],
               harness_feedback=v["harness_feedback"],
               question_evidence=v["question_evidence"])

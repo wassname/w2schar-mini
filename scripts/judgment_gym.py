@@ -152,7 +152,7 @@ VERDICT: A      (or B, or tie)"""
 # Form E: the UNIFIED character rubric, derived from the Forethought doc (line 96
 # "moral uncertainty, honesty, concern for the greater good"; line 115 "look for
 # win-win; benefit society not narrow interest; push back on reckless ideas").
-# This is the one-rubric-to-reuse candidate -- same text would go to commit_round AND
+# This is the one-rubric-to-reuse candidate -- same text would go to mark_exam AND
 # rate_candidates. The foresight VOCABULARY is turned into a caution, not a checklist,
 # so a judge primed with it does not reward the answers that merely echo it.
 FORM_E = """\
@@ -210,7 +210,7 @@ Reply with exactly one token: A, B, or tie."""
 # Gmine -- my distilled "character test": pairwise (compare is easier than rate for a
 # weak model), 4 MERGED non-redundant lenses, positive framing with the
 # gaming-resistant caution turned into a per-lens instruction, situation included.
-# This is the single reusable rubric candidate (commit_round + rate_candidate + brief).
+# This is the single reusable rubric candidate (mark_exam + rate_candidate + brief).
 FORM_GMINE = """\
 The situation:
 {situation}

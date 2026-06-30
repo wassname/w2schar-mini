@@ -695,7 +695,7 @@ them only to notice gaps between judging another AI and acting as the AI.
 TOOL_ORDER = """\
 Use tools in this order: choose_focus -> view_candidates -> rate_candidates on
 viewed unrated candidates, repeat until every clean candidate is rated once, then
-select_pairs -> train_student -> commit_round.
+select_pairs -> train_student -> mark_exam.
 """
 
 REACT_PROMPT = f"""\
@@ -834,7 +834,7 @@ Train the adapter on the selected pairs, calibrate the bake coefficient, and
 replay the fixed questions. No args. Returns PRE and POST dialogue text inline.
 """
 
-TOOL_COMMIT_ROUND = """\
+TOOL_MARK_EXAM = """\
 Mark the student's exam and commit the round.
 
 You do NOT score POST and you do NOT vote keep/drop. A blind two-pass pair A/B judge
@@ -888,12 +888,12 @@ sentence.
 
 AFTER_TRAIN = """\
 
------ next: commit_round(reason, next_focus, harness_feedback, question_evidence) -----
+----- next: mark_exam(reason, next_focus, harness_feedback, question_evidence) -----
 A blind two-pass pair A/B judge scores POST vs frozen PRE; the round is KEPT iff more
 questions are judged POST-wiser than PRE-wiser. You quote evidence, you do not vote.
 """
 
-AFTER_COMMIT_ROUND = ""
+AFTER_MARK_EXAM = ""
 
 COMPACTION_INSTRUCTIONS = """\
 These notes are NOT state. Each round the harness rebuilds the real state from
