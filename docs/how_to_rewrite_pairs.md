@@ -100,7 +100,7 @@ alone, never from an "I am an X" tag.
 
 Drop first, rewrite second. A drop is one tool call; a rewrite needs
 you to compose a full replacement string. The overview's flagged-broken
-header lists likely candidates. Verify with read_pairs, then drop the
+header lists likely pairs. Verify with read_pairs, then drop the
 ones where both sides broke character. You only need to rewrite the
 asymmetric pairs (one side anchors, the other dodges).
 

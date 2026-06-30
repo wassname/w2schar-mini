@@ -3,7 +3,7 @@
   choose_focus → select_pairs → train_student → mark_exam → done
 
 The teacher chooses a scenario family + measured persona pair. The harness
-samples tagged scenarios, generates candidate (cho, rej) pairs from the
+samples tagged scenarios, generates pair (cho, rej) pairs from the
 measured template cells for that pair, and the teacher selects whole pairs.
 No teacher-authored pair prose.
 """
@@ -24,7 +24,7 @@ def allowed_after(state: State) -> str:
     if state == "choose_focus":
         return "choose_focus(persona_pair_id, scenario_family, mismatch_severity, headroom, bank_cleanliness, evidence, pre_scores, pre_question_evidence)"
     if state == "select_pairs":
-        return "view_candidates() to see the next batch, then rate_candidates(ratings=[{survivor_id, contrast, cho_more_on_axis, rej_more_on_axis, refusal_confound, length_confound, incoherent_confound}, ...]) on exactly that batch; repeat until all rated, then select_pairs(lesson)"
+        return "view_pairs() to see the next batch, then rate_pairs(ratings=[{survivor_id, contrast, cho_more_on_axis, rej_more_on_axis, refusal_confound, length_confound, incoherent_confound}, ...]) on exactly that batch; repeat until all rated, then select_pairs(lesson)"
     if state == "train_student":
         return "train_student()  (or mark_exam(reason=...) before training to abort the round)"
     if state == "mark_exam":

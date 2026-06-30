@@ -473,7 +473,7 @@ def _generate_batched(model, tok, rendered_prompts: list[str], personas: list[st
     """Batched persona-conditioned generation.
 
     Validation sweeps can call this greedily (`do_sample=False`) to remove
-    sampling noise. Candidate generation calls it with sampling on so the weak
+    sampling noise. Pair generation calls it with sampling on so the weak
     teacher has multiple student-authored options to choose from.
 
     Anti-persona-leak: PersonaOnlyRepetitionPenalty (penalty on persona-vocab
@@ -536,7 +536,7 @@ def render_persona(template: str, descriptor: str) -> str:
     return template.format(persona=descriptor)
 
 
-def render_candidate_persona(template: str, descriptor: str, *,
+def render_pair_persona(template: str, descriptor: str, *,
                              pair_id: str, pole: str,
                              persona: str | None = None) -> str:
     persona = persona or render_persona(template, descriptor)
@@ -585,7 +585,7 @@ def generate_unprompted(
 
 
 @torch.no_grad()
-def generate_candidate_pairs(
+def generate_pairs(
     model, tok, prompts: list[str], *,
     persona_templates: tuple[str, ...],
     persona_pairs: tuple[tuple[str, str, str], ...],
@@ -595,13 +595,13 @@ def generate_candidate_pairs(
     temperature: float = 0.8, top_p: float = 0.95,
     persona_cells: tuple[tuple[int, str, str, str, str, float, float, float], ...] = (),
 ) -> list[dict]:
-    """Generate k student-authored (cho, rej) candidates per prompt.
+    """Generate k student-authored (cho, rej) pairs per prompt.
 
-    Each candidate samples a measured HF row atomically: template, positive
+    Each pair samples a measured HF row atomically: template, positive
     descriptor, negative descriptor, and score metadata stay together. No
     independent template x persona recombination in the live harness.
     """
-    assert persona_cells, "generate_candidate_pairs requires measured persona_cells"
+    assert persona_cells, "generate_pairs requires measured persona_cells"
     rng = random.Random(seed)
     flat: list[dict] = []
     for scenario_i, prompt in enumerate(prompts, start=1):
@@ -613,17 +613,17 @@ def generate_candidate_pairs(
             pos_desc = meta["pos_descriptor"]
             neg_desc = meta["neg_descriptor"]
             pair_id = meta["persona_pair"]
-            pos_persona = render_candidate_persona(
+            pos_persona = render_pair_persona(
                 template, pos_desc, pair_id=pair_id, pole="pos",
                 persona=meta["pos_full_persona"] or None,
             )
-            neg_persona = render_candidate_persona(
+            neg_persona = render_pair_persona(
                 template, neg_desc, pair_id=pair_id, pole="neg",
                 persona=meta["neg_full_persona"] or None,
             )
             flat.append({
                 "scenario_id": scenario_i,
-                "candidate_id": cand_i,
+                "pair_id": cand_i,
                 "prompt": prompt,
                 **meta,
                 "pos_persona": pos_persona,
@@ -637,13 +637,13 @@ def generate_candidate_pairs(
                   for r in flat]
     cho_texts = _generate_batched(
         model, tok, pos_inputs, [r["pos_persona"] for r in flat],
-        batch_size=batch_size, max_new_tokens=max_new_tokens, label="cho-candidates",
+        batch_size=batch_size, max_new_tokens=max_new_tokens, label="cho-pairs",
         seed=seed, do_sample=True, temperature=temperature, top_p=top_p,
         use_refusal_ban=True,
     )
     rej_texts = _generate_batched(
         model, tok, neg_inputs, [r["neg_persona"] for r in flat],
-        batch_size=batch_size, max_new_tokens=max_new_tokens, label="rej-candidates",
+        batch_size=batch_size, max_new_tokens=max_new_tokens, label="rej-pairs",
         seed=seed + 100_000, do_sample=True, temperature=temperature, top_p=top_p,
         use_refusal_ban=True,
     )

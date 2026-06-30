@@ -21,7 +21,7 @@ def scenario_pick(cfg_seed: int) -> list[str]:
     return [r["text"] for r in rows]
 
 
-def candidate_seed(cfg_seed: int) -> int:
+def pair_gen_seed(cfg_seed: int) -> int:
     return 4200 + ROUND_N + cfg_seed * 1000
 
 
@@ -36,7 +36,7 @@ perms = {s: split_perm(s) for s in (0, 1, 2)}
 
 print("=== scenario selection (first 5 stems per seed) ===")
 for s in (0, 1, 2):
-    print(f"seed={s}  candidate_gen_seed={candidate_seed(s)}")
+    print(f"seed={s}  pair_gen_seed={pair_gen_seed(s)}")
     for t in picks[s][:5]:
         print(f"   - {t[:90]}")
 

@@ -1,7 +1,7 @@
 """inspect-ai react driver for weak-select character steering.
 
-The live teacher tool path is choose_focus -> (view_candidates -> rate_candidates)
-looped in ~5-candidate batches -> select_pairs -> train_student -> mark_exam.
+The live teacher tool path is choose_focus -> (view_pairs -> rate_pairs)
+looped in ~5-pair batches -> select_pairs -> train_student -> mark_exam.
 """
 from __future__ import annotations
 
@@ -26,8 +26,8 @@ from inspect_ai.tool import Tool, tool
 
 from csm.config import config_for_run, TEACHER_SAMPLING, TEACHER_REASONING_TOKENS, OPENROUTER_PROVIDER
 from csm.pipeline import (choose_focus as _choose_focus_pipeline,
-                          rate_candidates as _rate_candidates_pipeline,
-                          view_candidates as _view_candidates_pipeline,
+                          rate_pairs as _rate_pairs_pipeline,
+                          view_pairs as _view_pairs_pipeline,
                           init_run, latest_round_dir,
                           mark_exam as _mark_exam_pipeline,
                           new_round_dir, prepare_round,
@@ -42,19 +42,19 @@ from csm.prompts import (AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
                          ON_CONTINUE_NUDGE, PERSONA_MENU_HEADER,
                          PRE_DIALOGUE_INSTRUCTIONS, REACT_PROMPT,
                          TOOL_CHOOSE_FOCUS, TOOL_MARK_EXAM,
-                         TOOL_RATE_CANDIDATE, TOOL_SELECT_PAIRS,
+                         TOOL_RATE_PAIRS, TOOL_SELECT_PAIRS,
                          TOOL_TRAIN_STUDENT)
 from csm.state import allowed_after, ValidationError, read_state
 from csm.ws.history import kept_history_dirs
 from pydantic import BaseModel, Field
 
 
-class CandidateRating(BaseModel):
-    """One candidate-pair rating. Typed so the function-calling layer enforces the
+class GenPairRating(BaseModel):
+    """One pair-pair rating. Typed so the function-calling layer enforces the
     item shape (every field present, ids well-formed, scores in 1..5) instead of the
     weak teacher hand-writing a free-form JSON blob -- the latter cost most of a round
     to malformed-JSON / missing-field rejects (job-131 audit)."""
-    survivor_id: str = Field(description="the candidate id copied exactly from the row you are rating; it carries both the scenario number and the candidate number within it, not the scenario number on its own")
+    survivor_id: str = Field(description="the pair id copied exactly from the row you are rating; it carries both the scenario number and the pair number within it, not the scenario number on its own")
     contrast: str = Field(description="one phrase naming the on-axis thing Cho does that Rej does not, taken from this pair's text")
     cho_more_on_axis: bool = Field(description="judged on its own: does Cho express the target disposition MORE than Rej does?")
     rej_more_on_axis: bool = Field(description="judged on its own (the reverse direction): does Rej express the target disposition MORE than Cho does?")
@@ -122,7 +122,7 @@ def _format_validation_error(e: ValidationError) -> str:
 MAX_SUBMIT_REJECTS = 3  # >3 rejects in one round → on_continue drops the round.
 MAX_DROPS = 12  # total drops in a run before stopping.
 # A run with this many drops is unproductive; stop before it grinds GPU.
-# Counts any drop type, so candidate failures, training aborts, and judgment
+# Counts any drop type, so pair failures, training aborts, and judgment
 # drops share one run-level budget.
 
 
@@ -166,7 +166,7 @@ def choose_focus_tool(slug: str) -> Tool:
         """Choose this round's measured persona pair AND freeze the PRE baseline.
 
         The harness samples tagged scenarios, scores unprompted headroom, then
-        generates candidate (Cho, Rej) pairs from frozen measured persona-template cells. You
+        generates pair (Cho, Rej) pairs from frozen measured persona-template cells. You
         do not write scenarios, personas, or free-text axis labels.
 
         You commit the PRE positions HERE, before any adapter is trained, so you
@@ -233,12 +233,12 @@ def choose_focus_tool(slug: str) -> Tool:
             return msg + _reject_tail(n)
         if not res["enough"]:
             n = _bump_reject(rejects_path, "choose_focus",
-                             f"not enough clean candidates: n_clean={res['n_clean']} "
+                             f"not enough clean pairs: n_clean={res['n_clean']} "
                              f"< min_to_train={res['min_to_train']}")
             return (
-                f"Only {res['n_clean']} clean candidates this round (over "
+                f"Only {res['n_clean']} clean pairs this round (over "
                 f"{res['n_with_survivor']} scenarios); need >= {res['min_to_train']} to "
-                f"have a shot at the differentiation floor (you train every candidate "
+                f"have a shot at the differentiation floor (you train every pair "
                 f"clearing on_axis>=3.5 AND every confound<=2.5, several per scenario). Choose a "
                 f"different scenario_family or persona pair.\n{res['summary']}" + _reject_tail(n)
             )
@@ -247,14 +247,14 @@ def choose_focus_tool(slug: str) -> Tool:
         return (
             f"OK — pair {res['persona_pair_id']} ({res['axis']}); sampled {res['n_scenarios']} scenarios, kept "
             f"{res['n_headroom']} by headroom, and found "
-            f"{res['n_with_survivor']} with candidate survivors.\n"
+            f"{res['n_with_survivor']} with pair survivors.\n"
             f"teacher judgment: mismatch={res['mismatch_severity']:.1f} "
             f"headroom={res['headroom']:.1f} clean={res['bank_cleanliness']:.1f}\n"
             f"FROZEN PRE headroom (your committed axis baseline; the blind judge "
             f"later compares POST text to this PRE): {pre_line}\n"
             f"evidence: {res['evidence']}\n"
-            f"{res['n_clean']} clean candidates to rate. Call view_candidates() to see the "
-            f"first batch (full Cho/Rej) -- you can only rate candidates you have viewed.\n"
+            f"{res['n_clean']} clean pairs to rate. Call view_pairs() to see the "
+            f"first batch (full Cho/Rej) -- you can only rate pairs you have viewed.\n"
             f"{AFTER_CHOOSE_FOCUS}"
         )
 
@@ -265,7 +265,7 @@ def choose_focus_tool(slug: str) -> Tool:
 @tool(name="select_pairs", parallel=False)
 def select_pairs_tool(slug: str) -> Tool:
     async def execute(lesson: str) -> str:
-        """Finalize this round's training set: train on EVERY candidate that cleared
+        """Finalize this round's training set: train on EVERY pair that cleared
         your viewed-batch differentiation threshold. No survivor list -- your ratings
         pick the set.
 
@@ -284,7 +284,7 @@ def select_pairs_tool(slug: str) -> Tool:
         rejects_path.unlink(missing_ok=True)
         return (
             f"OK — selected {res['n_pairs']} generated pairs "
-            f"(of {res['n_clean_candidates']} clean candidates).\n"
+            f"(of {res['n_clean_pairs']} clean pairs).\n"
             f"----- selected pair review -----\n{res['selected_pair_review']}\n"
             f"========== pairs.md ==========\n{res['pairs_md']}"
             f"========== end pairs.md ==========\n"
@@ -296,30 +296,30 @@ def select_pairs_tool(slug: str) -> Tool:
     return execute
 
 
-@tool(name="view_candidates", parallel=False)
-def view_candidates_tool(slug: str) -> Tool:
+@tool(name="view_pairs", parallel=False)
+def view_pairs_tool(slug: str) -> Tool:
     async def execute() -> str:
-        """Show the NEXT batch of unseen candidates (full Cho/Rej). You may only
-        rate only viewed, unrated candidates, so call this, read the batch, rate
-        it with rate_candidates(), then call this again for the next batch --
+        """Show the NEXT batch of unseen pairs (full Cho/Rej). You may only
+        rate only viewed, unrated pairs, so call this, read the batch, rate
+        it with rate_pairs(), then call this again for the next batch --
         repeat until none remain, then select_pairs(lesson)."""
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
         try:
-            res = _view_candidates_pipeline(round_dir)
+            res = _view_pairs_pipeline(round_dir)
         except (ValidationError, ValueError) as e:
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
-                   else f"view_candidates rejected — {e}")
-            n = _bump_reject(rejects_path, "view_candidates", msg)
+                   else f"view_pairs rejected — {e}")
+            n = _bump_reject(rejects_path, "view_pairs", msg)
             return msg + _reject_tail(n)
         rejects_path.unlink(missing_ok=True)
         if res["done"] and not res["batch"]:
-            return ("All candidates viewed. If every one is rated, call "
+            return ("All pairs viewed. If every one is rated, call "
                     "select_pairs(lesson=...).")
-        lines = [f"Batch: {res['n_shown_now']} candidates "
+        lines = [f"Batch: {res['n_shown_now']} pairs "
                  f"({res['n_viewed_total']}/{res['n_total']} viewed, "
                  f"{res['n_remaining']} left after this). Rate THESE now, then "
-                 f"view_candidates() again.\n"]
+                 f"view_pairs() again.\n"]
         for c in res["batch"]:
             flag = f"  ⚠flags={c['flags']}" if c["flags"] else ""
             lines.append(f"--- {c['survivor_id']} (scenario {c['scenario_id']}){flag}\n"
@@ -331,42 +331,42 @@ def view_candidates_tool(slug: str) -> Tool:
     return execute
 
 
-@tool(name="rate_candidates", parallel=False)
-def rate_candidates_tool(slug: str) -> Tool:
-    async def execute(ratings: list[CandidateRating]) -> str:
-        """Rate viewed, unrated candidate pairs.
-        Read the batch returned by view_candidates(), rate each candidate once, then
-        call view_candidates() again until every clean candidate is rated. The harness
+@tool(name="rate_pairs", parallel=False)
+def rate_pairs_tool(slug: str) -> Tool:
+    async def execute(ratings: list[GenPairRating]) -> str:
+        """Rate viewed, unrated pairs.
+        Read the batch returned by view_pairs(), rate each pair once, then
+        call view_pairs() again until every clean pair is rated. The harness
         takes the worst of the three confounds; train keeps on_axis>=3.5 AND every
         confound<=2.5, so a refusal, a length-skew, or an incoherent pole each
         culls the pair.
 
         Args:
-            ratings: one CandidateRating per pair this batch (each field is typed
-                and required; see CandidateRating for what each scores).
+            ratings: one GenPairRating per pair this batch (each field is typed
+                and required; see GenPairRating for what each scores).
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
         try:
-            res = _rate_candidates_pipeline(
+            res = _rate_pairs_pipeline(
                 round_dir, ratings=[r.model_dump() for r in ratings])
         except (ValidationError, ValueError) as e:
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
-                   else f"rate_candidates rejected — {e}")
-            n = _bump_reject(rejects_path, "rate_candidates", msg)
+                   else f"rate_pairs rejected — {e}")
+            n = _bump_reject(rejects_path, "rate_pairs", msg)
             return msg + _reject_tail(n)
         rejects_path.unlink(missing_ok=True)
-        n_rated, n_total = res["n_rated"], res["n_clean_candidates"]
-        nxt = ("select_pairs(lesson=...) -- all candidates rated"
+        n_rated, n_total = res["n_rated"], res["n_clean_pairs"]
+        nxt = ("select_pairs(lesson=...) -- all pairs rated"
                if n_rated >= n_total else
-               f"view_candidates() for the next batch ({n_total - n_rated} unrated)")
+               f"view_pairs() for the next batch ({n_total - n_rated} unrated)")
         return (
             f"OK — recorded {res['batch_size']} ratings.\n"
             f"Coverage: {n_rated}/{n_total} rated, {res['n_viewed']}/{n_total} viewed.\n"
             f"Next: {nxt}.\n"
         )
 
-    execute.__doc__ = TOOL_RATE_CANDIDATE
+    execute.__doc__ = TOOL_RATE_PAIRS
     return execute
 
 
@@ -423,7 +423,7 @@ QUOTE: copy verbatim, 10 words or fewer, the phrase from the side you picked tha
 decides it -- the clause showing the wiser ACTION or the held line (leave blank only on tie)."""
 
 # Above this ratio one side is enough longer that length could be driving the call,
-# so we surface it as a noisy hint (same register as the candidate ⚠flags): name it,
+# so we surface it as a noisy hint (same register as the pair ⚠flags): name it,
 # tell the judge to confirm it against the text, do NOT cull on it.
 _LEN_SKEW = 1.5
 
@@ -621,7 +621,7 @@ def mark_exam_tool(slug: str) -> Tool:
                 cannot move again). Shown in the next round's brief.
             harness_feedback: required. One line about what in the harness made
                 this round harder than it needed to be: weak question, bad
-                candidates, unclear axis wording, gate friction, or similar.
+                pairs, unclear axis wording, gate friction, or similar.
             question_evidence: one quoted POST clause or concrete note per _1p question
                 showing what the act was, on a trained round.
         """
@@ -876,8 +876,8 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
     agent = react(
         tools=[
             choose_focus_tool(slug),
-            view_candidates_tool(slug),
-            rate_candidates_tool(slug),
+            view_pairs_tool(slug),
+            rate_pairs_tool(slug),
             select_pairs_tool(slug),
             train_student_tool(slug),
             mark_exam_tool(slug),

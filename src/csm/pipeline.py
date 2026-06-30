@@ -8,9 +8,9 @@ Artifacts per round (`<slug>/round<NN>/`):
   state.json          — current state (choose_focus|select_pairs|train_student|mark_exam|done)
   scenarios.json      — sampled scenario-library rows
   headroom.json       — unprompted diagnostic answers and scores
-  candidates.json     — generated candidate pairs + prune flags
+  gen_pairs.json     — generated pairs + prune flags
   selection_audit.json — teacher choices
-  pairs.md            — selected candidate pairs in training schema
+  pairs.md            — selected pairs in training schema
   adapter.safetensors — trained adapter
   calibration.json    — signed_C (fixed at config.signed_C; no c-scan)
   interview_pre.json  — questions replayed at c=0 (base+history)
@@ -42,7 +42,7 @@ except Exception:  # pragma: no cover - inspect internals can move
 
 from csm.config import config_by_model, config_for_run
 from csm.gen.dialogue import DialogueCfg, dialogue
-from csm.gen.pairs import (generate_candidate_pairs,
+from csm.gen.pairs import (generate_pairs,
                            generate_pairs_from_personas, generate_unprompted,
                            load_pairs_md, persona_cell_to_meta,
                            sample_prompt_rows, sample_prompts,
@@ -311,7 +311,7 @@ def new_round_dir(slug_dir: Path) -> Path:
 
 def prepare_round(slug_dir: Path, round_dir: Path) -> None:
     """Run the student on QUESTIONS at c=0 (writes interview_pre.json). The
-    teacher reads this PRE-dialogue to pick the axis. Scenario and candidate
+    teacher reads this PRE-dialogue to pick the axis. Scenario and pair
     pair artifacts are generated later by `choose_focus`, so no pair gen
     happens here. Idempotent.
     """
@@ -486,7 +486,7 @@ def _persona_echo(text: str, cand: dict) -> list[str]:
     return hits
 
 
-def _candidate_flags(cand: dict, prompts: list[str], own_idx: int, *,
+def _pair_flags(cand: dict, prompts: list[str], own_idx: int, *,
                      cull_degenerate: bool) -> list[str]:
     cho, rej = cand.get("cho", ""), cand.get("rej", "")
     flags: list[str] = []
@@ -511,7 +511,7 @@ def _candidate_flags(cand: dict, prompts: list[str], own_idx: int, *,
     # Backstop for a degenerate near-stub pole only, NOT a tight symmetry cull. The
     # old [0.67, 1.5] band auto-dropped a verify-vs-act axis whose pos pole ("check
     # X and Y first, then act") is intrinsically ~2.5x the terse rej ("act now") --
-    # 53/60 good candidates culled on length alone (task-133). Length is surfaced in
+    # 53/60 good pairs culled on length alone (task-133). Length is surfaced in
     # the rate form (len=Nx); the teacher judges length-as-confound via off_axis
     # (length-skew -> high off_axis -> dropped by the threshold). Gentle guard +
     # judgment, not one hard block.
@@ -540,7 +540,7 @@ def _candidate_flags(cand: dict, prompts: list[str], own_idx: int, *,
     return flags
 
 
-def _fake_candidate_pair_for_prompt(prompt: str) -> tuple[str, str]:
+def _fake_pair_for_prompt(prompt: str) -> tuple[str, str]:
     low = prompt.lower()
     cases = [
         (("rare-disease drug", "pharmaceutical"),
@@ -596,7 +596,7 @@ def _fake_candidate_pair_for_prompt(prompt: str) -> tuple[str, str]:
     )
 
 
-def _fake_weak_select_candidates(
+def _fake_weak_select_pairs(
     headroom: list[dict],
     cfg,
     seed: int,
@@ -608,17 +608,17 @@ def _fake_weak_select_candidates(
     rows: list[dict] = []
     for item in headroom:
         cell_order = list(persona_cells)
-        assert cell_order, "_fake_weak_select_candidates requires measured persona_cells"
+        assert cell_order, "_fake_weak_select_pairs requires measured persona_cells"
         rng.shuffle(cell_order)
-        for cand_id in range(1, cfg.n_candidate_pairs + 1):
+        for cand_id in range(1, cfg.n_gen_pairs + 1):
             meta = persona_cell_to_meta(cell_order[(cand_id - 1) % len(cell_order)])
             template = meta["template"]
             pos = meta["pos_descriptor"]
             neg = meta["neg_descriptor"]
-            cho, rej = _fake_candidate_pair_for_prompt(item["prompt"])
+            cho, rej = _fake_pair_for_prompt(item["prompt"])
             rows.append({
                 "scenario_id": item["scenario_id"],
-                "candidate_id": cand_id,
+                "pair_id": cand_id,
                 "prompt": item["prompt"],
                 **meta,
                 "pos_persona": meta["pos_full_persona"] or template.format(persona=pos),
@@ -629,23 +629,23 @@ def _fake_weak_select_candidates(
     return rows
 
 
-def _replay_candidates(round_dir: Path, *, selected_pair_id: str,
+def _replay_pairs(round_dir: Path, *, selected_pair_id: str,
                        scenario_family: str) -> tuple[list[dict], list[dict]]:
     replay = _replay_dir()
     assert replay is not None
-    data = json.loads((replay / "candidates.json").read_text())
+    data = json.loads((replay / "gen_pairs.json").read_text())
     if data["persona_pair_id"] != selected_pair_id:
         raise ValidationError(
-            f"replay candidates are for persona_pair_id={data['persona_pair_id']!r}, "
+            f"replay pairs are for persona_pair_id={data['persona_pair_id']!r}, "
             f"not {selected_pair_id!r}"
         )
     if data["scenario_family"] != scenario_family:
         raise ValidationError(
-            f"replay candidates are for scenario_family={data['scenario_family']!r}, "
+            f"replay pairs are for scenario_family={data['scenario_family']!r}, "
             f"not {scenario_family!r}"
         )
     headroom = []
-    raw_candidates = []
+    raw_pairs = []
     for j, item in enumerate(data["items"], start=1):
         headroom.append({
             "scenario_id": j,
@@ -660,14 +660,14 @@ def _replay_candidates(round_dir: Path, *, selected_pair_id: str,
             "score": item.get("score", 0),
             "kept": True,
         })
-        for cand in item["candidates"]:
+        for cand in item["pairs"]:
             row = dict(cand)
             row["scenario_id"] = j
-            raw_candidates.append(row)
-    return headroom, raw_candidates
+            raw_pairs.append(row)
+    return headroom, raw_pairs
 
 
-# A candidate is hidden from the teacher ONLY for a STRUCTURAL defect that makes it
+# A pair is hidden from the teacher ONLY for a STRUCTURAL defect that makes it
 # ~99%-certainly unusable for contrastive training: a blank pole (empty), no contrast
 # (cho==rej identical), or not a real answer (too_short / degenerate word-salad). These
 # are reporting an impossibility, not overruling a judgment (CLAUDE.md).
@@ -697,7 +697,7 @@ FLAG_HINT = {
     "persona_echo": "a pole may echo the persona wording verbatim",
 }
 
-# Candidate selection is the teacher's viewed-batch judgment, operationalised.
+# Pair selection is the teacher's viewed-batch judgment, operationalised.
 # on_axis catches blur or reversal; off_axis=max(refusal, length, incoherence)
 # catches the confound the adapter would learn instead. These are rating thresholds,
 # not val-metric gates. The 3.5/2.5 cut keeps enough contrastive signal for LoRA while
@@ -706,14 +706,14 @@ ON_AXIS_KEEP = 3.5   # on-axis differentiation (1..5) to train on a pair
 OFF_AXIS_KEEP = 2.5  # worst-confound (1..5) ceiling to train on a pair
 
 
-def _candidate_summary(candidates: dict) -> str:
+def _gen_pair_summary(pairs: dict) -> str:
     lines = []
-    if candidates.get("genericity_failure"):
+    if pairs.get("genericity_failure"):
         lines.append(f"⚠ POOL FLAGGED GENERIC (advisory, not blocked): "
-                     f"{candidates['genericity_failure']} — if the survivors really are "
+                     f"{pairs['genericity_failure']} — if the survivors really are "
                      "boilerplate that repeats one template, drop the round; else proceed.")
-    for item in candidates["items"]:
-        survivors = [c for c in item["candidates"] if c["kept"]]
+    for item in pairs["items"]:
+        survivors = [c for c in item["pairs"] if c["kept"]]
         lines.append(f"\n## scenario {item['scenario_id']} ({len(survivors)} survivors)")
         lines.append(f"prompt: {_head(item['prompt'], 220)}")
         lines.append(f"unprompted headroom score={item['score']:+.1f}: "
@@ -739,13 +739,13 @@ def _candidate_summary(candidates: dict) -> str:
                 f"  Rej: {c['rej']}"
             )
         if not survivors:
-            failed = [(c["candidate_id"], c["flags"]) for c in item["candidates"]]
+            failed = [(c["pair_id"], c["flags"]) for c in item["pairs"]]
             lines.append(f"no survivors; pruned={failed}")
     return "\n".join(lines)
 
 
 def _selected_pair_review(audit_rows: list[dict]) -> str:
-    """Ranked dashboard of every clean candidate by its viewed-batch
+    """Ranked dashboard of every clean pair by its viewed-batch
     differentiation rating: passing (trained) first, then dropped, each with the
     on/off scores, rating count, length ratio, and first sentence of each pole."""
     ranked = sorted(
@@ -754,7 +754,7 @@ def _selected_pair_review(audit_rows: list[dict]) -> str:
     )
     n_pass = sum(1 for r in ranked if r["passes"])
     lines = [
-        f"{n_pass}/{len(ranked)} candidates cleared the differentiation threshold "
+        f"{n_pass}/{len(ranked)} pairs cleared the differentiation threshold "
         f"(on_axis >= {ON_AXIS_KEEP:g} AND off_axis <= {OFF_AXIS_KEEP:g}):"
     ]
     for r in ranked:
@@ -794,10 +794,10 @@ def _leading_rating(text: str) -> int | None:
 
 def _likert_1_to_5(value: object, key: str) -> float:
     if not isinstance(value, (int, float)):
-        raise ValidationError(f"rate_candidates: {key} must be numeric 1..5, got {value!r}")
+        raise ValidationError(f"rate_pairs: {key} must be numeric 1..5, got {value!r}")
     score = float(value)
     if not (1.0 <= score <= 5.0):
-        raise ValidationError(f"rate_candidates: {key} must be in 1..5, got {score}")
+        raise ValidationError(f"rate_pairs: {key} must be in 1..5, got {score}")
     return score
 
 
@@ -811,20 +811,20 @@ def _normalize_rating(entry: object) -> dict:
     the trained axis, so the selection threshold keys on it unchanged."""
     if not isinstance(entry, dict):
         raise ValidationError(
-            "rate_candidates: each rating must be an object with survivor_id, contrast, "
+            "rate_pairs: each rating must be an object with survivor_id, contrast, "
             "cho_more_on_axis, rej_more_on_axis, refusal_confound, length_confound, and "
             "incoherent_confound"
         )
     survivor_id = str(entry.get("survivor_id", "")).strip()
     if not survivor_id:
-        raise ValidationError("rate_candidates: a rating is missing survivor_id")
+        raise ValidationError("rate_pairs: a rating is missing survivor_id")
     # contrast forces a per-pair discrimination BEFORE the verdict, so a weak rater
     # cannot discharge "rate them all" by stamping every pair the same
     # (CLAUDE.md: force coverage AND discrimination, no optional shortcut).
     contrast = str(entry.get("contrast", "")).strip()
     if not contrast:
         raise ValidationError(
-            f"rate_candidates: {survivor_id} is missing `contrast` -- name in one "
+            f"rate_pairs: {survivor_id} is missing `contrast` -- name in one "
             f"phrase what the Cho does that the Rej does not, on the axis, before judging")
     # On-axis is now a two-DIRECTION comparison (CLAUDE.md: comparative beats absolute
     # for a weak rater; the +1.1 keep mis-score was an absolute-rate failure the blind
@@ -837,7 +837,7 @@ def _normalize_rating(entry: object) -> dict:
     rej_more = entry.get("rej_more_on_axis")
     if not isinstance(cho_more, bool) or not isinstance(rej_more, bool):
         raise ValidationError(
-            f"rate_candidates: {survivor_id} needs cho_more_on_axis and rej_more_on_axis "
+            f"rate_pairs: {survivor_id} needs cho_more_on_axis and rej_more_on_axis "
             f"as true/false -- judge each direction on its own")
     if cho_more and not rej_more:
         on_axis = 5.0
@@ -856,7 +856,7 @@ def _normalize_rating(entry: object) -> dict:
 
 
 def _ratings_path(round_dir: Path) -> Path:
-    return round_dir / "candidate_ratings.json"
+    return round_dir / "gen_pair_ratings.json"
 
 
 def _load_ratings(round_dir: Path) -> dict[str, dict]:
@@ -876,7 +876,7 @@ def _generic_pool_reason(items: list[dict]) -> str | None:
     survivors = [
         cand
         for item in items
-        for cand in item["candidates"]
+        for cand in item["pairs"]
         if cand.get("kept")
     ]
     # The collapse heuristic needs enough survivors to estimate genericness. At n<=2
@@ -899,7 +899,7 @@ def _generic_pool_reason(items: list[dict]) -> str | None:
         or len(set(pair_sigs)) <= max(2, n // 5)
     ):
         return (
-            "generic candidate pool: survivor candidates collapse to repeated "
+            "generic pair pool: survivor pairs collapse to repeated "
             "boilerplate rather than scenario-specific axis variation. "
             f"Top cho signature repeats {cho_n}/{n}, top rej signature repeats "
             f"{rej_n}/{n}, top pair signature repeats {pair_n}/{n}. "
@@ -933,7 +933,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
     headroom = _validate_unit_score("headroom", headroom)
     bank_cleanliness = _validate_unit_score("bank_cleanliness", bank_cleanliness)
     evidence = _validate_nonempty_text("evidence", evidence)
-    # Freeze PRE before candidate generation and POST scoring.
+    # Freeze PRE before pair generation and POST scoring.
     if not pre_scores:
         raise ValidationError(
             "choose_focus needs pre_scores: fractional positions in (-5, +5) for "
@@ -951,7 +951,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
     selected_pair, active_persona_cells = _select_persona_cells(cfg, persona_pair_id)
     axis = f"{selected_pair['pos']} vs {selected_pair['neg']}"
     # Use a scenario-axis prior when one exists; otherwise sample broadly and let
-    # candidate rating handle fit.
+    # pair rating handle fit.
     required_axes = PAIR_REQUIRED_AXES.get(selected_pair["id"], ())
     forbidden_axes = PAIR_FORBIDDEN_AXES.get(selected_pair["id"], ())
     n = int(round_dir.name.replace("round", ""))
@@ -1025,18 +1025,18 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
                     item["scenario_id"] = j
                     item["kept"] = True
                 kept_prompts = [x["prompt"] for x in kept]
-                raw_candidates = generate_candidate_pairs(
+                raw_pairs = generate_pairs(
                     model, tok, kept_prompts,
                     persona_templates=cfg.persona_templates,
                     persona_pairs=((selected_pair["id"], selected_pair["pos"], selected_pair["neg"]),),
                     persona_cells=active_persona_cells,
-                    k=cfg.n_candidate_pairs,
+                    k=cfg.n_gen_pairs,
                     max_new_tokens=cfg.gen_max_new_tokens,
                     batch_size=cfg.eval_batch_size,
                     seed=4200 + n + cfg.seed * 1000,
                     enable_thinking=cfg.enable_thinking,
-                    temperature=cfg.candidate_temperature,
-                    top_p=cfg.candidate_top_p,
+                    temperature=cfg.gen_temperature,
+                    top_p=cfg.gen_top_p,
                 )
         finally:
             if not _fake_student():
@@ -1046,7 +1046,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
                     torch.cuda.empty_cache()
 
     if _replay_dir() is not None:
-        kept, raw_candidates = _replay_candidates(
+        kept, raw_pairs = _replay_pairs(
             round_dir,
             selected_pair_id=selected_pair["id"],
             scenario_family=scenario_family,
@@ -1073,37 +1073,37 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
             item["original_scenario_id"] = item["scenario_id"]
             item["scenario_id"] = j
             item["kept"] = True
-        raw_candidates = _fake_weak_select_candidates(
+        raw_pairs = _fake_weak_select_pairs(
             kept, cfg, seed=4200 + n,
             persona_pairs=((selected_pair["id"], selected_pair["pos"], selected_pair["neg"]),),
             persona_cells=active_persona_cells)
 
     kept_prompts = [x["prompt"] for x in kept]
     grouped = {i: [] for i in range(1, len(kept) + 1)}
-    for cand in raw_candidates:
-        cand["survivor_id"] = f"s{cand['scenario_id']}c{cand['candidate_id']}"
-        flags = _candidate_flags(
+    for cand in raw_pairs:
+        cand["survivor_id"] = f"s{cand['scenario_id']}c{cand['pair_id']}"
+        flags = _pair_flags(
             cand, kept_prompts, cand["scenario_id"] - 1,
             cull_degenerate=cfg.cull_degenerate_pairs,
         )
         cand["flags"] = flags
-        # only a structural defect hides a candidate; heuristic flags are surfaced
-        # to the teacher (below) and it decides via rate_candidates.
+        # only a structural defect hides a pair; heuristic flags are surfaced
+        # to the teacher (below) and it decides via rate_pairs.
         cand["kept"] = not (set(flags) & STRUCTURAL_FLAGS)
         grouped[cand["scenario_id"]].append(cand)
 
     items = [
-        {**item, "candidates": grouped.get(item["scenario_id"], [])}
+        {**item, "pairs": grouped.get(item["scenario_id"], [])}
         for item in kept
     ]
     active_cell_meta = [persona_cell_to_meta(c) for c in active_persona_cells]
-    candidates = {
+    pairs = {
         "axis": axis,
         "persona_pair_id": selected_pair["id"],
         "scenario_family": scenario_family,
         "required_axes": list(required_axes),
         "forbidden_axes": list(forbidden_axes),
-        "k": cfg.n_candidate_pairs,
+        "k": cfg.n_gen_pairs,
         "persona_templates": list(cfg.persona_templates),
         "active_persona_cells": active_cell_meta,
         "persona_cell_selection": "measured_cells_for_selected_pair",
@@ -1113,9 +1113,9 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
     }
     generic_reason = _generic_pool_reason(items)
     if generic_reason is not None:
-        candidates["genericity_failure"] = generic_reason
-    n_with_survivor = sum(any(c["kept"] for c in item["candidates"]) for item in items)
-    n_clean = sum(c["kept"] for item in items for c in item["candidates"])
+        pairs["genericity_failure"] = generic_reason
+    n_with_survivor = sum(any(c["kept"] for c in item["pairs"]) for item in items)
+    n_clean = sum(c["kept"] for item in items for c in item["pairs"])
     (round_dir / "scenarios.json").write_text(json.dumps({
         "axis": axis,
         "persona_pair_id": selected_pair["id"],
@@ -1135,7 +1135,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "rubric": "lower heuristic score = less explicit moral depth in unprompted answer",
         "items": scored,
     }, indent=2))
-    (round_dir / "candidates.json").write_text(json.dumps(candidates, indent=2))
+    (round_dir / "gen_pairs.json").write_text(json.dumps(pairs, indent=2))
     (round_dir / "choose_focus_judgment.json").write_text(json.dumps({
         "persona_pair_id": selected_pair["id"],
         "scenario_family": scenario_family,
@@ -1148,20 +1148,20 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     }, indent=2))
     # genericity is a HEURISTIC (signature-collapse counting with hand-tuned ratios),
-    # never 99% sure, so it FLAGS not blocks: surfaced in candidates["genericity_failure"]
-    # and the candidate summary for the teacher to weigh; the round proceeds. Was a raise
+    # never 99% sure, so it FLAGS not blocks: surfaced in pairs["genericity_failure"]
+    # and the pair summary for the teacher to weigh; the round proceeds. Was a raise
     # that hard-blocked the round before the teacher saw a thing (CLAUDE.md "gates elicit
     # judgment, never override it"; same family as the prune-rejections task-139 hit).
     if generic_reason is not None:
-        logger.warning(f"candidate pool flagged generic: {generic_reason} — surfaced to "
+        logger.warning(f"pair pool flagged generic: {generic_reason} — surfaced to "
                        "the teacher, NOT blocked; it judges the survivors and decides.")
-    # Pre-check: need at least min_pairs_to_train CLEAN candidates so the round can
+    # Pre-check: need at least min_pairs_to_train CLEAN pairs so the round can
     # plausibly reach the train floor after differentiation thresholding. The real
     # floor is at select_pairs (on the teacher's viewed-batch ratings); this only
     # ensures the menu is non-trivial.
     enough = n_clean >= cfg.min_pairs_to_train
     set_state(round_dir, "select_pairs" if enough else "choose_focus",
-              note=f"{n_clean} clean candidates over {n_with_survivor} scenarios")
+              note=f"{n_clean} clean pairs over {n_with_survivor} scenarios")
     return {
         "enough": enough,
         "persona_pair_id": selected_pair["id"],
@@ -1176,8 +1176,8 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         "bank_cleanliness": bank_cleanliness,
         "evidence": evidence,
         "pre_scores": pre,
-        "summary": _candidate_summary(candidates),
-        "candidates": candidates,
+        "summary": _gen_pair_summary(pairs),
+        "pairs": pairs,
     }
 
 
@@ -1190,18 +1190,18 @@ def _load_viewed(round_dir: Path) -> list[str]:
     return json.loads(p.read_text()) if p.exists() else []
 
 
-def view_candidates(round_dir: Path, *, count: int = 5) -> dict:
-    """Show the NEXT batch of unseen clean candidates (full prompt/cho/rej) and mark
-    them viewed. The teacher MUST view a candidate here before it may rate it -- this
+def view_pairs(round_dir: Path, *, count: int = 5) -> dict:
+    """Show the NEXT batch of unseen clean pairs (full prompt/cho/rej) and mark
+    them viewed. The teacher MUST view a pair here before it may rate it -- this
     forces show-then-rate in small batches instead of stamping all N blind in one call
     (the job-131 rubber-stamp: 100 rated at once, all identical). A WORKFLOW gate on
     WHEN it commits, not a veto on the judgment (CLAUDE.md: force coverage, no shortcut)."""
-    require_state(round_dir, "select_pairs", "view_candidates")
-    cand_path = round_dir / "candidates.json"
+    require_state(round_dir, "select_pairs", "view_pairs")
+    cand_path = round_dir / "gen_pairs.json"
     if not cand_path.exists():
-        raise ValidationError("view_candidates: missing candidates.json; call choose_focus first")
+        raise ValidationError("view_pairs: missing gen_pairs.json; call choose_focus first")
     data = json.loads(cand_path.read_text())
-    clean = [(it, c) for it in data["items"] for c in it["candidates"] if c.get("kept")]
+    clean = [(it, c) for it in data["items"] for c in it["pairs"] if c.get("kept")]
     viewed = _load_viewed(round_dir)
     seen = set(viewed)
     batch = [(it, c) for (it, c) in clean if c["survivor_id"] not in seen][:count]
@@ -1221,23 +1221,23 @@ def view_candidates(round_dir: Path, *, count: int = 5) -> dict:
     }
 
 
-def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
-    """Append one differentiation rating for each viewed, unrated candidate.
+def rate_pairs(round_dir: Path, *, ratings: list[dict]) -> dict:
+    """Append one differentiation rating for each viewed, unrated pair.
 
     The comparative cho_more/rej_more fields cancel order bias, so no reverse pass.
-    A survivor_id not yet shown by view_candidates is rejected."""
-    require_state(round_dir, "select_pairs", "rate_candidates")
-    cand_path = round_dir / "candidates.json"
+    A survivor_id not yet shown by view_pairs is rejected."""
+    require_state(round_dir, "select_pairs", "rate_pairs")
+    cand_path = round_dir / "gen_pairs.json"
     if not cand_path.exists():
-        raise ValidationError("rate_candidates: missing candidates.json; call choose_focus first")
+        raise ValidationError("rate_pairs: missing gen_pairs.json; call choose_focus first")
     data = json.loads(cand_path.read_text())
     if not isinstance(ratings, list) or not ratings:
-        raise ValidationError("rate_candidates: ratings must be a non-empty list of "
+        raise ValidationError("rate_pairs: ratings must be a non-empty list of "
                               "{survivor_id, contrast, cho_more_on_axis, rej_more_on_axis, "
                               "refusal_confound, length_confound, incoherent_confound} objects")
     by_survivor = {}
     for item in data["items"]:
-        for cand in item["candidates"]:
+        for cand in item["pairs"]:
             by_survivor[cand["survivor_id"]] = (item, cand)
     viewed = set(_load_viewed(round_dir))
     stored = _load_ratings(round_dir)
@@ -1246,19 +1246,19 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
         sid = r["survivor_id"]
         found = by_survivor.get(sid)
         if found is None:
-            raise ValidationError(f"rate_candidates: unknown survivor_id {sid!r}")
+            raise ValidationError(f"rate_pairs: unknown survivor_id {sid!r}")
         if sid not in viewed:
             raise ValidationError(
-                f"rate_candidates: {sid} was not shown yet -- call view_candidates() "
-                f"first, then rate viewed unrated candidates.")
+                f"rate_pairs: {sid} was not shown yet -- call view_pairs() "
+                f"first, then rate viewed unrated pairs.")
         item, cand = found
         if not cand.get("kept"):
-            raise ValidationError(f"rate_candidates: {sid} was pruned: {cand.get('flags')}")
+            raise ValidationError(f"rate_pairs: {sid} was pruned: {cand.get('flags')}")
         row = stored.get(sid)
         if row is not None and row.get("ratings"):
             raise ValidationError(
-                f"rate_candidates: {sid} is already rated -- each viewed candidate gets "
-                f"one rating. Continue with unrated viewed candidates or select_pairs().")
+                f"rate_pairs: {sid} is already rated -- each viewed pair gets "
+                f"one rating. Continue with unrated viewed pairs or select_pairs().")
         if row is None:
             row = {
                 "survivor_id": sid,
@@ -1289,12 +1289,12 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
                                "off_axis": r["off_axis"]})
     _write_ratings(round_dir, stored)
     all_clean = [c["survivor_id"] for it in data["items"]
-                 for c in it["candidates"] if c.get("kept")]
+                 for c in it["pairs"] if c.get("kept")]
     n_rated = sum(1 for sid in all_clean if stored.get(sid, {}).get("ratings"))
     cfg = config_for_run(json.loads((round_dir.parent / "run.json").read_text()))
     return {
         "batch_size": len(ratings),
-        "n_clean_candidates": len(all_clean),
+        "n_clean_pairs": len(all_clean),
         "n_rated": n_rated,
         "n_viewed": len(viewed),
         "min_to_train": cfg.min_pairs_to_train,
@@ -1302,35 +1302,35 @@ def rate_candidates(round_dir: Path, *, ratings: list[dict]) -> dict:
 
 
 def select_pairs(round_dir: Path, *, lesson: str) -> dict:
-    """Train on EVERY clean candidate that clears the viewed-batch rating threshold
+    """Train on EVERY clean pair that clears the viewed-batch rating threshold
     (on_axis >= ON_AXIS_KEEP AND off_axis <= OFF_AXIS_KEEP). No hand-pick, no
     per-scenario cap: the teacher's own ratings select the training set. Fails the
     round if fewer than
     min_pairs_to_train clear -- a floor on the TEACHER's ratings, not a val-metric
     veto (CLAUDE.md: gates elicit judgment, never override it)."""
     require_state(round_dir, "select_pairs", "select_pairs")
-    cand_path = round_dir / "candidates.json"
+    cand_path = round_dir / "gen_pairs.json"
     if not cand_path.exists():
-        raise ValidationError("select_pairs: missing candidates.json; call choose_focus first")
+        raise ValidationError("select_pairs: missing gen_pairs.json; call choose_focus first")
     data = json.loads(cand_path.read_text())
     lesson = _validate_nonempty_text("lesson", lesson)
     stored = _load_ratings(round_dir)
     by_survivor = {}
     for item in data["items"]:
-        for cand in item["candidates"]:
+        for cand in item["pairs"]:
             by_survivor[cand["survivor_id"]] = (item, cand)
     all_clean = [sid for sid, (_, c) in by_survivor.items() if c.get("kept")]
-    # Coverage: every clean candidate must be viewed and rated once. view_candidates
+    # Coverage: every clean pair must be viewed and rated once. view_pairs
     # forces the teacher to actually see each before rating (no blind 100-dump), and the
     # comparative cho_more/rej_more cancels order bias within the single rating -- so no
     # second reverse pass is needed. A weak rater can no longer silently skip messy pairs:
-    # an unrated candidate is one it never finished viewing+rating.
+    # an unrated pair is one it never finished viewing+rating.
     under = [sid for sid in all_clean if not stored.get(sid, {}).get("ratings")]
     if under:
         raise ValidationError(
-            f"select_pairs: {len(under)} of {len(all_clean)} clean candidates are unrated. "
-            f"Call view_candidates() to see the next batch and rate_candidates() on it, until "
-            f"every candidate is rated once. Unrated: {under}")
+            f"select_pairs: {len(under)} of {len(all_clean)} clean pairs are unrated. "
+            f"Call view_pairs() to see the next batch and rate_pairs() on it, until "
+            f"every pair is rated once. Unrated: {under}")
     selected, audit_rows = [], []
     for sid in all_clean:
         item, cand = by_survivor[sid]
@@ -1349,20 +1349,20 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
         audit_rows.append(row)
         if passes:
             selected.append({"prompt": item["prompt"], "cho": cand["cho"], "rej": cand["rej"]})
-    # Persist the computed means/passes back into candidate_ratings.json so it is the
+    # Persist the computed means/passes back into gen_pair_ratings.json so it is the
     # dashboard of record (audit + report read it).
     _write_ratings(round_dir, stored)
     cfg = config_for_run(json.loads((round_dir.parent / "run.json").read_text()))
     if len(selected) < cfg.min_pairs_to_train:
         passing = [r["survivor_id"] for r in audit_rows if r["passes"]]
         raise ValidationError(
-            f"select_pairs: only {len(selected)} of {len(all_clean)} candidates clear "
+            f"select_pairs: only {len(selected)} of {len(all_clean)} pairs clear "
             f"the differentiation threshold (on_axis >= {ON_AXIS_KEEP:g} AND "
             f"off_axis <= {OFF_AXIS_KEEP:g}); need >= {cfg.min_pairs_to_train}. Your "
             f"ratings left too few differentiated pairs (passing={passing}). Drop this "
             f"round and choose a cleaner axis or bank next round.")
     # Rubber-stamp FLAG (logged + persisted, NEVER gated): the gym showed a weak
-    # teacher can hand every candidate the same 5/1, which clears the threshold but
+    # teacher can hand every pair the same 5/1, which clears the threshold but
     # means the rating did NO discriminating -- only the upstream structural cull
     # filtered. We do NOT force drops (the bank may genuinely be clean); we surface
     # it so /audit-run and the human judge whether the uniform bank is real or lazy.
@@ -1374,7 +1374,7 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
     rubber_stamp = len(audit_rows) >= 3 and len(on_means) == 1 and len(off_means) == 1
     if rubber_stamp:
         logger.warning(
-            f"select_pairs [{round_dir.name}]: all {len(audit_rows)} candidates got "
+            f"select_pairs [{round_dir.name}]: all {len(audit_rows)} pairs got "
             f"IDENTICAL means (on={on_means.pop()}, off={off_means.pop()}) -> the "
             "teacher's rating did not discriminate; only the structural cull filtered. "
             "SHOULD: a real bank has a spread. Uniform = a clean bank OR rubber-stamping; "
@@ -1386,7 +1386,7 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
         "lesson": lesson,
         "on_axis_keep": ON_AXIS_KEEP,
         "off_axis_keep": OFF_AXIS_KEEP,
-        "n_clean_candidates": len(all_clean),
+        "n_clean_pairs": len(all_clean),
         "n_selected": len(selected),
         "rubber_stamp_flag": rubber_stamp,
         "rated": audit_rows,
@@ -1398,7 +1398,7 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
     set_state(round_dir, "train_student", note=f"selected {len(pairs)} pairs")
     return {
         "n_pairs": len(pairs),
-        "n_clean_candidates": len(all_clean),
+        "n_clean_pairs": len(all_clean),
         "pairs_md": pairs_path.read_text(),
         "flags_table": pair_flags_table(pairs),
         "selected_pair_review": review,
@@ -1446,7 +1446,7 @@ def _degenerate_gen(text: str) -> bool:
     # REMOVED (job-120): a "60+ words and no .!? = ramble" rule. It false-positived
     # on 66/98 culled qwen3.6 poles -- that student writes coherent on-axis refusals
     # as long em-dash/comma run-ons with no terminal punctuation, so the rule threw
-    # away ~half the clean candidates BEFORE the teacher saw them. The loop rule
+    # away ~half the clean pairs BEFORE the teacher saw them. The loop rule
     # above already catches genuine no-repeat-collapse (high maxfreq / low distinct);
     # judging whether a coherent long answer is a "low-quality ramble" is the
     # TEACHER's call (off_axis/confounding likert), not a regex's (CLAUDE.md: a
@@ -1937,7 +1937,7 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
     elif have:
         cause = "no_movement"       # trained + judged, but down-votes >= up-votes
     else:
-        cause = "early_abort"       # dropped before training/POST (e.g. bad candidates)
+        cause = "early_abort"       # dropped before training/POST (e.g. bad pairs)
     judgment = {
         "action": "keep" if keep else "drop",
         "drop_cause": cause,
@@ -2011,7 +2011,7 @@ def _question_reply(interview: dict, question_id: str, turn_idx: int) -> str | N
 def _selection_quotes(selection: dict) -> list[str]:
     quotes: list[str] = []
     for row in selection.get("selected", [])[:3]:
-        sid = row.get("survivor_id") or row.get("candidate_id") or "?"
+        sid = row.get("survivor_id") or row.get("pair_id") or "?"
         comment = str(row.get("comment") or row.get("teacher_comment") or "").strip()
         cho = str(row.get("cho") or "").strip()
         rej = str(row.get("rej") or "").strip()
@@ -2073,8 +2073,8 @@ def _pairs_count(round_dir: Path) -> int | None:
     return len(pairs)
 
 
-def _candidate_counts(candidates: dict) -> dict[str, int]:
-    items = candidates.get("items") or []
+def _gen_pair_counts(pairs: dict) -> dict[str, int]:
+    items = pairs.get("items") or []
     if not isinstance(items, list):
         items = []
     generated = 0
@@ -2086,7 +2086,7 @@ def _candidate_counts(candidates: dict) -> dict[str, int]:
             continue
         if item.get("kept"):
             kept_prompts += 1
-        cand_rows = item.get("candidates") or []
+        cand_rows = item.get("pairs") or []
         if not isinstance(cand_rows, list):
             cand_rows = []
         generated += len(cand_rows)
@@ -2109,10 +2109,10 @@ def _candidate_counts(candidates: dict) -> dict[str, int]:
     }
 
 
-def _data_lineage_summary(round_dir: Path, *, pre: dict, post: dict, candidates: dict,
+def _data_lineage_summary(round_dir: Path, *, pre: dict, post: dict, pairs: dict,
                           ratings: list[dict], selection: dict,
                           train: dict, pre_eval: dict, post_eval: dict) -> str:
-    cand = _candidate_counts(candidates)
+    cand = _gen_pair_counts(pairs)
     passing = 0
     passing_scenarios: set[int] = set()
     if isinstance(ratings, list):
@@ -2155,8 +2155,8 @@ def _artifact_coverage(round_dir: Path) -> str:
     checks = [
         ("pre", round_dir / "interview_pre.json"),
         ("focus", round_dir / "choose_focus_judgment.json"),
-        ("cand", round_dir / "candidates.json"),
-        ("rate", round_dir / "candidate_ratings.json"),
+        ("cand", round_dir / "gen_pairs.json"),
+        ("rate", round_dir / "gen_pair_ratings.json"),
         ("sel", round_dir / "selection_audit.json"),
         ("pairs", round_dir / "pairs.md"),
         ("adapter", round_dir / "adapter.safetensors"),
@@ -2173,8 +2173,8 @@ def _artifact_coverage_cells(round_dir: Path) -> dict[str, str]:
     checks = [
         ("pre", round_dir / "interview_pre.json"),
         ("focus", round_dir / "choose_focus_judgment.json"),
-        ("cand", round_dir / "candidates.json"),
-        ("rate", round_dir / "candidate_ratings.json"),
+        ("cand", round_dir / "gen_pairs.json"),
+        ("rate", round_dir / "gen_pair_ratings.json"),
         ("sel", round_dir / "selection_audit.json"),
         ("pairs", round_dir / "pairs.md"),
         ("adapter", round_dir / "adapter.safetensors"),
@@ -2542,7 +2542,7 @@ def write_audit_md(slug_dir: Path) -> None:
         sections.append("|" + "|".join("---" for _ in out_headers) + "|")
         for rd in rounds:
             focus_j = _safe_json(rd / "choose_focus_judgment.json") or {}
-            candidates = _safe_json(rd / "candidates.json") or {}
+            pairs = _safe_json(rd / "gen_pairs.json") or {}
             selection = _safe_json(rd / "selection_audit.json") or {}
             cal = _safe_json(rd / "calibration.json") or {}
             train = cal.get("train_summary") or {}
@@ -2550,7 +2550,7 @@ def write_audit_md(slug_dir: Path) -> None:
             pre_eval = _safe_json(rd / "eval.json") or {}
             post_eval = _safe_json(rd / "eval_post.json") or {}
 
-            focus_pair = str(focus_j.get("persona_pair_id") or candidates.get("persona_pair_id") or "—")
+            focus_pair = str(focus_j.get("persona_pair_id") or pairs.get("persona_pair_id") or "—")
             selected = selection.get("selected") or []
             if not isinstance(selected, list):
                 selected = []
@@ -2602,13 +2602,13 @@ def write_audit_md(slug_dir: Path) -> None:
         pre_eval = _safe_json(rd / "eval.json") or {}
         post_eval = _safe_json(rd / "eval_post.json") or {}
         selection = _safe_json(rd / "selection_audit.json") or {}
-        candidates = _safe_json(rd / "candidates.json") or {}
-        ratings = _safe_json(rd / "candidate_ratings.json") or []
+        pairs = _safe_json(rd / "gen_pairs.json") or {}
+        ratings = _safe_json(rd / "gen_pair_ratings.json") or []
         lineage = _data_lineage_summary(
             rd,
             pre=pre,
             post=post,
-            candidates=candidates,
+            pairs=pairs,
             ratings=ratings if isinstance(ratings, list) else [],
             selection=selection,
             train=train if isinstance(train, dict) else {},
@@ -2620,8 +2620,8 @@ def write_audit_md(slug_dir: Path) -> None:
         sections.append(f"- state: `{state}`")
         sections.append(f"- artifact coverage: {_artifact_coverage(rd)}")
         sections.append(f"- data lineage: {lineage}")
-        focus_pair = focus_j.get("persona_pair_id") or candidates.get("persona_pair_id")
-        scenario_family = focus_j.get("scenario_family") or candidates.get("scenario_family")
+        focus_pair = focus_j.get("persona_pair_id") or pairs.get("persona_pair_id")
+        scenario_family = focus_j.get("scenario_family") or pairs.get("scenario_family")
         if focus_pair:
             sections.append(
                 f"- focus: `{focus_pair}`"
@@ -2676,7 +2676,7 @@ def write_audit_md(slug_dir: Path) -> None:
             picked = selection.get("selected", [])
             if picked:
                 first = picked[0]
-                sid = first.get("survivor_id") or first.get("candidate_id") or "?"
+                sid = first.get("survivor_id") or first.get("pair_id") or "?"
                 round_story.append(
                     f"Selection kept {len(picked)} pairs; first kept example was `{sid}` with "
                     f"{_quote(str(first.get('comment') or first.get('teacher_comment') or 'no comment'), 110)}."
@@ -2684,7 +2684,7 @@ def write_audit_md(slug_dir: Path) -> None:
         if isinstance(ratings, list) and ratings:
             omitted = _rating_quotes(ratings, want_pass=False, limit=1)
             if omitted:
-                round_story.append(f"Triage also omitted at least one candidate: {omitted[0]}.")
+                round_story.append(f"Triage also omitted at least one pair: {omitted[0]}.")
         if train:
             best_step = train.get("best_step")
             val_improvement = train.get("val_improvement")
@@ -2848,7 +2848,7 @@ def write_report_md(slug_dir: Path, *, build_plot: bool = True) -> None:
         "selects the student's own answers, trains a weight-steering adapter on the "
         "contrast, then judges whether the steered student passes. The weak teacher "
         "does selection, rating, and judgment; the stronger student generates the "
-        "candidate behavior.",
+        "pair behavior.",
         "",
         "[Weight steering](https://github.com/safety-research/weight-steering) trains "
         "adapters on a model's own contrastive completions and uses the adapter as a "
@@ -2895,7 +2895,7 @@ def write_report_md(slug_dir: Path, *, build_plot: bool = True) -> None:
 # brief" signal, so we surface it rather than the file artifacts (which only show
 # the LAST successful call).
 _TOOL_ABBR = {
-    "choose_focus": "focus", "propose_personas": "prop", "rate_candidates": "rate",
+    "choose_focus": "focus", "propose_personas": "prop", "rate_pairs": "rate",
     "select_pairs": "sel", "edit_pairs": "edit", "train_student": "train",
     "mark_exam": "exam",
 }

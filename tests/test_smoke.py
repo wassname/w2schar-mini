@@ -13,10 +13,10 @@ from pathlib import Path
 import pytest
 
 from csm.gen.prompts_pool import rows_for_family
-from csm.gen.pairs import render_candidate_persona, sample_prompt_rows
-from csm.pipeline import (STRUCTURAL_FLAGS, _candidate_flags, _leading_rating,
+from csm.gen.pairs import render_pair_persona, sample_prompt_rows
+from csm.pipeline import (STRUCTURAL_FLAGS, _pair_flags, _leading_rating,
                           _validate_question_evidence, _validate_unit_score, mark_exam,
-                          rate_candidates, select_pairs, write_audit_md)
+                          rate_pairs, select_pairs, write_audit_md)
 from csm.state import RoundState, write_state
 
 
@@ -26,7 +26,7 @@ REPO = Path(__file__).resolve().parents[1]
 # (pipeline.py:1452, no GPU training), so it is checked for existence only below.
 ARTIFACTS = (
     "state.json", "pairs.md", "scenarios.json", "headroom.json",
-    "candidates.json", "selection_audit.json",
+    "gen_pairs.json", "selection_audit.json",
     "calibration.json", "interview_pre.json", "interview_post.json",
     "judgment.json",
 )
@@ -70,18 +70,18 @@ def test_smoke_runs_end_to_end():
     assert judgment["action"] in ("keep", "drop"), judgment
     assert judgment["harness_feedback"], judgment
 
-    candidates = json.loads((rd / "candidates.json").read_text())
-    assert candidates["persona_pair_id"] == "wellbeing_authority"
-    assert candidates["scenario_family"] == "character"
-    assert candidates["active_persona_cells"]
-    assert candidates["active_persona_cells"][0]["template_library"] == (
+    pairs = json.loads((rd / "gen_pairs.json").read_text())
+    assert pairs["persona_pair_id"] == "wellbeing_authority"
+    assert pairs["scenario_family"] == "character"
+    assert pairs["active_persona_cells"]
+    assert pairs["active_persona_cells"][0]["template_library"] == (
         "wassname/persona-steering-template-library"
     )
-    assert candidates["persona_cell_selection"] == "measured_cells_for_selected_pair"
-    assert candidates["items"]
-    assert all(item["candidates"] for item in candidates["items"])
-    for item in candidates["items"]:
-        for cand in item["candidates"]:
+    assert pairs["persona_cell_selection"] == "measured_cells_for_selected_pair"
+    assert pairs["items"]
+    assert all(item["pairs"] for item in pairs["items"])
+    for item in pairs["items"]:
+        for cand in item["pairs"]:
             assert cand["template_cell_id"] is not None, cand
             assert cand["template_score"] is not None, cand
             assert cand["template_on_axis"] is not None, cand
@@ -122,14 +122,14 @@ def test_leading_rating_and_wrongness_sign_gate():
         "persona_pair": "autonomy_coercion",
         "template": "Respond as a {persona} person.",
     }
-    flags = _candidate_flags(cand, [prompt], 0, cull_degenerate=True)
+    flags = _pair_flags(cand, [prompt], 0, cull_degenerate=True)
     assert _leading_rating(cand["cho"]) == 1
     assert _leading_rating(cand["rej"]) == 5
     assert "cho_low_wrongness" in flags
     assert "cho_not_more_wrong_than_rej" in flags
 
 
-def test_candidate_flags_surface_character_break_refusals():
+def test_pair_flags_surface_character_break_refusals():
     """A refusal pole is DETECTED (character_break_rej flag) but NOT auto-culled:
     the flag is surfaced to the teacher, which catches it via refusal_confound (R3
     rate form, rate-gym 2026-06-27). character_break is no longer a STRUCTURAL_FLAG
@@ -149,12 +149,12 @@ def test_candidate_flags_surface_character_break_refusals():
         "persona_pair": "wellbeing_authority",
         "template": "Respond as a {persona} person.",
     }
-    flags = _candidate_flags(cand, [prompt], 0, cull_degenerate=True)
+    flags = _pair_flags(cand, [prompt], 0, cull_degenerate=True)
     assert "character_break_rej" in flags
     assert "character_break_rej" not in STRUCTURAL_FLAGS  # surfaced, not culled
 
 
-def test_candidate_flags_spare_long_coherent_runon():
+def test_pair_flags_spare_long_coherent_runon():
     """A long coherent run-on with no terminal punctuation is NOT degenerate: the
     run-on cull rule was removed (job-120 false-positived 66/98 clean qwen poles).
     _degenerate_gen catches only genuine collapse (word-loop / non-latin spray);
@@ -178,7 +178,7 @@ def test_candidate_flags_spare_long_coherent_runon():
         "persona_pair": "autonomy_coercion",
         "template": "Respond as a {persona} person.",
     }
-    flags = _candidate_flags(cand, [prompt], 0, cull_degenerate=True)
+    flags = _pair_flags(cand, [prompt], 0, cull_degenerate=True)
     assert "degenerate" not in flags
 
 
@@ -267,8 +267,8 @@ def test_sample_prompt_rows_rewrites_remedy_to_direct_action():
     assert any("What concern matters most here, and why in one or two sentences?" in row["text"] for row in rows)
 
 
-def test_render_candidate_persona_adds_pair_behavior_hint():
-    text = render_candidate_persona(
+def test_render_pair_persona_adds_pair_behavior_hint():
+    text = render_pair_persona(
         "Respond as a {persona} person.",
         "authority-deferential even when wellbeing suffers",
         pair_id="wellbeing_authority",
@@ -281,8 +281,8 @@ def test_render_candidate_persona_adds_pair_behavior_hint():
     ) in text
 
 
-def test_render_candidate_persona_uses_stronger_fairness_public_undo_hint():
-    text = render_candidate_persona(
+def test_render_pair_persona_uses_stronger_fairness_public_undo_hint():
+    text = render_pair_persona(
         "Respond as a {persona} person.",
         "applies the same standard openly even when favoritism would help",
         pair_id="fairness_integrity",
@@ -296,14 +296,14 @@ def test_select_pairs_requires_prior_rating(tmp_path):
     rd.mkdir(parents=True)
     (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
     (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
-    (rd / "candidates.json").write_text(json.dumps({
+    (rd / "gen_pairs.json").write_text(json.dumps({
         "axis": "autonomy_coercion",
         "items": [{
             "scenario_id": i,
             "prompt": f"p{i}",
             "unprompted": f"u{i}",
-            "candidates": [{
-                "candidate_id": 1,
+            "pairs": [{
+                "pair_id": 1,
                 "survivor_id": f"s{i}c1",
                 "kept": True,
                 "persona_pair": "autonomy_coercion",
@@ -323,29 +323,29 @@ def test_select_pairs_requires_prior_rating(tmp_path):
         select_pairs(rd, lesson="x")
     fwd = [{"survivor_id": s, "contrast": "Cho acts, Rej defers", "on_axis": 5, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1} for s in ("s1c1", "s2c1", "s3c1")]
     # One pass only -> still under-rated (needs the reverse pass too).
-    rate_candidates(rd, ratings=fwd)
+    rate_pairs(rd, ratings=fwd)
     with pytest.raises(Exception):
         select_pairs(rd, lesson="x")
-    rate_candidates(rd, ratings=list(reversed(fwd)))
+    rate_pairs(rd, ratings=list(reversed(fwd)))
     res = select_pairs(rd, lesson="x")
     assert res["n_pairs"] == 3
 
 
-def test_rate_candidate_records_weak_omit_without_rejecting(tmp_path):
+def test_rate_pairs_records_weak_omit_without_rejecting(tmp_path):
     """A low differentiation rating is RECORDED, never rejected at rate time; it
     simply fails the threshold at select_pairs (no keep boolean)."""
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
     (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
-    (rd / "candidates.json").write_text(json.dumps({
+    (rd / "gen_pairs.json").write_text(json.dumps({
         "axis": "autonomy_coercion",
         "items": [{
             "scenario_id": 1,
             "prompt": "p1",
             "unprompted": "u1",
-            "candidates": [{
-                "candidate_id": 1,
+            "pairs": [{
+                "pair_id": 1,
                 "survivor_id": "s1c1",
                 "kept": True,
                 "persona_pair": "autonomy_coercion",
@@ -362,27 +362,27 @@ def test_rate_candidate_records_weak_omit_without_rejecting(tmp_path):
     }))
     # Low on_axis recorded twice without rejection.
     low = [{"survivor_id": "s1c1", "contrast": "barely differ", "on_axis": 2, "refusal_confound": 2, "length_confound": 2, "incoherent_confound": 2}]
-    res = rate_candidates(rd, ratings=low)
-    rate_candidates(rd, ratings=low)
+    res = rate_pairs(rd, ratings=low)
+    rate_pairs(rd, ratings=low)
     assert res["n_rated_once"] == 1
     # It clears coverage (rated twice) but fails the on_axis>=3.5 threshold -> select fails.
     with pytest.raises(Exception):
         select_pairs(rd, lesson="x")
 
 
-def test_rate_candidate_reports_coverage(tmp_path):
+def test_rate_pairs_reports_coverage(tmp_path):
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
     (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
-    (rd / "candidates.json").write_text(json.dumps({
+    (rd / "gen_pairs.json").write_text(json.dumps({
         "axis": "fairness_integrity",
         "items": [{
             "scenario_id": 1,
             "prompt": "p1",
             "unprompted": "u1",
-            "candidates": [{
-                "candidate_id": 1,
+            "pairs": [{
+                "pair_id": 1,
                 "survivor_id": "s1c1",
                 "kept": True,
                 "persona_pair": "fairness_integrity",
@@ -395,7 +395,7 @@ def test_rate_candidate_reports_coverage(tmp_path):
                 "cho": "The actor should have refused the favoritism.",
                 "rej": "The actor should have quietly hidden the favoritism.",
             }, {
-                "candidate_id": 2,
+                "pair_id": 2,
                 "survivor_id": "s1c2",
                 "kept": True,
                 "persona_pair": "fairness_integrity",
@@ -412,8 +412,8 @@ def test_rate_candidate_reports_coverage(tmp_path):
             "scenario_id": 2,
             "prompt": "p2",
             "unprompted": "u2",
-            "candidates": [{
-                "candidate_id": 1,
+            "pairs": [{
+                "pair_id": 1,
                 "survivor_id": "s2c1",
                 "kept": True,
                 "persona_pair": "fairness_integrity",
@@ -431,14 +431,14 @@ def test_rate_candidate_reports_coverage(tmp_path):
     ids = ["s1c1", "s1c2", "s2c1"]
     fwd = [{"survivor_id": s, "contrast": "Cho acts, Rej defers", "on_axis": 4, "refusal_confound": 2, "length_confound": 2, "incoherent_confound": 2} for s in ids]
     # Forward pass over all three: rated once, none twice yet.
-    r1 = rate_candidates(rd, ratings=fwd)
-    assert r1["n_clean_candidates"] == 3
+    r1 = rate_pairs(rd, ratings=fwd)
+    assert r1["n_clean_pairs"] == 3
     assert r1["n_rated_once"] == 3 and r1["n_rated_twice"] == 0
     # Partial reverse pass: only two reach two ratings.
-    r2 = rate_candidates(rd, ratings=list(reversed(fwd))[:2])
+    r2 = rate_pairs(rd, ratings=list(reversed(fwd))[:2])
     assert r2["n_rated_twice"] == 2
     # Finish the reverse pass: all three rated twice.
-    r3 = rate_candidates(rd, ratings=[fwd[0]])
+    r3 = rate_pairs(rd, ratings=[fwd[0]])
     assert r3["n_rated_twice"] == 3
 
 
@@ -462,23 +462,23 @@ def test_mark_exam_requires_question_evidence_when_scores_present(tmp_path):
                 "fairness_integrity_1p": 0.0,
                 "autonomy_coercion_1p": 0.0,
             },
-            harness_feedback="Need cleaner candidates.",
+            harness_feedback="Need cleaner pairs.",
         )
 
 
-def test_rate_candidate_keeps_all_kept_per_scenario(tmp_path):
+def test_rate_pairs_keeps_all_kept_per_scenario(tmp_path):
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
     (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
-    (rd / "candidates.json").write_text(json.dumps({
+    (rd / "gen_pairs.json").write_text(json.dumps({
         "axis": "autonomy_coercion",
         "items": [{
             "scenario_id": 1,
             "prompt": "p1",
             "unprompted": "u1",
-            "candidates": [{
-                "candidate_id": 1,
+            "pairs": [{
+                "pair_id": 1,
                 "survivor_id": "s1c1",
                 "kept": True,
                 "persona_pair": "autonomy_coercion",
@@ -491,7 +491,7 @@ def test_rate_candidate_keeps_all_kept_per_scenario(tmp_path):
                 "cho": "The actor should have protected her freedom.",
                 "rej": "The actor should have pressured her into agreement.",
             }, {
-                "candidate_id": 2,
+                "pair_id": 2,
                 "survivor_id": "s1c2",
                 "kept": True,
                 "persona_pair": "autonomy_coercion",
@@ -506,16 +506,16 @@ def test_rate_candidate_keeps_all_kept_per_scenario(tmp_path):
             }],
         }],
     }))
-    # Two-pass rate both candidates from the SAME scenario with passing scores.
+    # Two-pass rate both pairs from the SAME scenario with passing scores.
     both = [{"survivor_id": "s1c1", "contrast": "Cho acts, Rej defers", "on_axis": 4, "refusal_confound": 2, "length_confound": 2, "incoherent_confound": 2},
             {"survivor_id": "s1c2", "contrast": "Cho verifies first", "on_axis": 5, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1}]
-    rate_candidates(rd, ratings=both)
-    rate_candidates(rd, ratings=list(reversed(both)))
-    # tiny min=3 so the floor isn't met (only 2 candidates), but select still computes
+    rate_pairs(rd, ratings=both)
+    rate_pairs(rd, ratings=list(reversed(both)))
+    # tiny min=3 so the floor isn't met (only 2 pairs), but select still computes
     # and persists passes before raising; both pairs from one scenario pass (no dedup).
     with pytest.raises(Exception):
         select_pairs(rd, lesson="x")
-    rows = json.loads((rd / "candidate_ratings.json").read_text())
+    rows = json.loads((rd / "gen_pair_ratings.json").read_text())
     by_id = {row["survivor_id"]: row for row in rows}
     assert by_id["s1c1"]["passes"] is True
     assert by_id["s1c2"]["passes"] is True
@@ -526,14 +526,14 @@ def test_select_pairs_error_reports_remaining_shortlist(tmp_path):
     rd.mkdir(parents=True)
     (rd / "state.json").write_text(json.dumps({"state": "select_pairs"}))
     (rd.parent / "run.json").write_text(json.dumps({"model": "tiny-random", "teacher": "x", "profile": "qwen-2b-3keep"}))
-    (rd / "candidates.json").write_text(json.dumps({
+    (rd / "gen_pairs.json").write_text(json.dumps({
         "axis": "autonomy_coercion",
         "items": [{
             "scenario_id": 1,
             "prompt": "p1",
             "unprompted": "u1",
-            "candidates": [{
-                "candidate_id": 1,
+            "pairs": [{
+                "pair_id": 1,
                 "survivor_id": "s1c1",
                 "kept": True,
                 "persona_pair": "autonomy_coercion",
@@ -549,8 +549,8 @@ def test_select_pairs_error_reports_remaining_shortlist(tmp_path):
         }],
     }))
     passing = [{"survivor_id": "s1c1", "contrast": "Cho acts, Rej defers", "on_axis": 5, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1}]
-    rate_candidates(rd, ratings=passing)
-    rate_candidates(rd, ratings=passing)
+    rate_pairs(rd, ratings=passing)
+    rate_pairs(rd, ratings=passing)
     with pytest.raises(Exception, match="clear the differentiation threshold"):
         select_pairs(rd, lesson="x")
 

@@ -1,12 +1,12 @@
 """Manual dogfood: drive the exact core harness one stage at a time.
 
 The human/model teacher supplies only the measured persona-pair choice,
-candidate choices, and keep/drop verdict by calling the same pipeline.py
+pair choices, and keep/drop verdict by calling the same pipeline.py
 functions the agent tools wrap. It never writes personas or pair prose.
 
 `auto-select` is the deterministic selection lesion: after a human picks the
 measured pair and scenario family with `choose`, it selects the highest
-template-score surviving candidate per scenario so we can test whether the
+template-score surviving pair per scenario so we can test whether the
 prompt/persona/training path moves at all before spending more complexity on a
 weak selector.
 
@@ -25,7 +25,7 @@ from pathlib import Path
 
 from csm.config import CONFIGS
 from csm.pipeline import (init_run, prepare_round, latest_round_dir,
-                          choose_focus, rate_candidates, select_pairs, train_student, mark_exam,
+                          choose_focus, rate_pairs, select_pairs, train_student, mark_exam,
                           new_round_dir)
 from csm.state import read_state
 
@@ -71,23 +71,23 @@ elif stage == "select":
     rd = latest_round_dir(_slug())
     s = json.loads(Path(sys.argv[2]).read_text())
     # ratings: list of {survivor_id, on_axis, off_axis}; rate twice (forward+reverse).
-    rate_candidates(rd, ratings=s["ratings"])
-    rate_candidates(rd, ratings=list(reversed(s["ratings"])))
+    rate_pairs(rd, ratings=s["ratings"])
+    rate_pairs(rd, ratings=list(reversed(s["ratings"])))
     res = select_pairs(rd, lesson=s["lesson"])
-    print(f"SELECT  n_pairs={res['n_pairs']} of {res['n_clean_candidates']} clean")
+    print(f"SELECT  n_pairs={res['n_pairs']} of {res['n_clean_pairs']} clean")
 
 elif stage == "auto-select":
     rd = latest_round_dir(_slug())
     lesson = Path(sys.argv[2]).read_text().strip()
-    candidates = json.loads((rd / "candidates.json").read_text())
-    # auto-select lesion: rate every clean candidate 5/1 (passes the threshold) twice.
-    clean = [c["survivor_id"] for item in candidates["items"]
-             for c in item["candidates"] if c["kept"]]
+    pairs = json.loads((rd / "gen_pairs.json").read_text())
+    # auto-select lesion: rate every clean pair 5/1 (passes the threshold) twice.
+    clean = [c["survivor_id"] for item in pairs["items"]
+             for c in item["pairs"] if c["kept"]]
     fwd = [{"survivor_id": sid, "on_axis": 5, "off_axis": 1} for sid in clean]
-    rate_candidates(rd, ratings=fwd)
-    rate_candidates(rd, ratings=list(reversed(fwd)))
+    rate_pairs(rd, ratings=fwd)
+    rate_pairs(rd, ratings=list(reversed(fwd)))
     res = select_pairs(rd, lesson=lesson)
-    print(f"AUTO-SELECT  n_pairs={res['n_pairs']} of {res['n_clean_candidates']} clean")
+    print(f"AUTO-SELECT  n_pairs={res['n_pairs']} of {res['n_clean_pairs']} clean")
 
 elif stage == "train":
     slug, rd = _slug(), latest_round_dir(_slug())

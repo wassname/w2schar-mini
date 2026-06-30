@@ -29,7 +29,7 @@ class RunConfig:
     teacher: str
     """OpenRouter id for the teacher LLM that drives the inspect-ai react agent.
     The teacher IS the judge: the same react agent chooses the axis/family,
-    selects among generated candidate pairs, and calls mark_exam (keep/drop).
+    selects among generated pairs, and calls mark_exam (keep/drop).
     w2s lives in this weak SUPERVISOR selecting from the strong student's own
     on-policy generations."""
 
@@ -98,25 +98,25 @@ class RunConfig:
     """Scenario-library rows sampled per round before headroom pruning."""
     n_headroom_prompts: int = 15
     """How many low-depth unprompted scenarios survive the headroom gate and
-    get candidate generation."""
+    get pair generation."""
     n_train_pairs: int = 15
-    """Target selected training pairs per round after headroom and candidate
-    pruning. The teacher selects among student-generated candidate pairs."""
+    """Target selected training pairs per round after headroom and pair
+    pruning. The teacher selects among student-generated pairs."""
     min_pairs_to_train: int = 10
     """Round-fail floor on the teacher's OWN viewed-batch ratings:
-    select_pairs trains on every candidate clearing the threshold (on_axis>=3.5
+    select_pairs trains on every pair clearing the threshold (on_axis>=3.5
     AND worst confound<=2.5) and fails the round if fewer than this many clear. Also a
-    cheap choose_focus pre-check (>= this many clean candidates must exist). Acts on
+    cheap choose_focus pre-check (>= this many clean pairs must exist). Acts on
     the teacher's ratings, not a val-metric (CLAUDE.md: gates elicit judgment)."""
-    n_candidate_pairs: int = 8
-    """Student-generated (cho, rej) candidate pairs per kept scenario."""
-    candidate_temperature: float = 0.8
-    candidate_top_p: float = 0.95
+    n_gen_pairs: int = 8
+    """Student-generated (cho, rej) pairs per kept scenario."""
+    gen_temperature: float = 0.8
+    gen_top_p: float = 0.95
     seed: int = 0
     """Run-level seed offset for INDEPENDENT multi-seed runs. Folded into every
-    student-gen seed (scenario/unprompted/candidate streams) and TrainCfg.seed so
-    two runs of the same profile with different `seed` draw different candidate
-    samples (candidate gen is do_sample=True, temperature=0.8) and a different
+    student-gen seed (scenario/unprompted/pair streams) and TrainCfg.seed so
+    two runs of the same profile with different `seed` draw different pair
+    samples (pair gen is do_sample=True, temperature=0.8) and a different
     train/val split. seed=0 reproduces the historical single-stream determinism.
     The question/dialogue gen stays greedy (deterministic measurement instrument)."""
     persona_templates: tuple[str, ...] = DEFAULT_PERSONA_TEMPLATES
@@ -124,7 +124,7 @@ class RunConfig:
     # (hf_id, template, pair_id, pos_descriptor, neg_descriptor, score, on_axis, off_axis).
     # Text lives in prompts.py; config selects a measured menu.
     persona_cells: tuple[tuple[int, str, str, str, str, float, float, float], ...] = DEFAULT_PERSONA_CELLS
-    """Frozen measured persona-template cells. Candidate generation samples cells
+    """Frozen measured persona-template cells. Pair generation samples cells
     atomically rather than recombining template x persona pair."""
     cull_degenerate_pairs: bool = True
     """Drop collapsed gens before training so a collapsed batch trains on coherent
@@ -450,7 +450,7 @@ CONFIGS: dict[str, RunConfig] = {
         layer_range=(0.0, 1.0),
         n_train_pairs=4,
         n_scenarios=4,
-        n_candidate_pairs=2,
+        n_gen_pairs=2,
         min_pairs_to_train=3,
         cull_degenerate_pairs=False,  # tiny gibberish would be 100% culled
         n_rounds=1,
@@ -472,7 +472,7 @@ CONFIGS: dict[str, RunConfig] = {
         layer_range=(0.0, 1.0),
         n_train_pairs=4,
         n_scenarios=4,
-        n_candidate_pairs=2,
+        n_gen_pairs=2,
         min_pairs_to_train=3,
         cull_degenerate_pairs=False,  # tiny gibberish would be 100% culled
         n_rounds=1,
@@ -492,7 +492,7 @@ CONFIGS: dict[str, RunConfig] = {
         eval_batch_size=2,
         n_train_pairs=4,
         n_scenarios=6,
-        n_candidate_pairs=2,
+        n_gen_pairs=2,
         min_pairs_to_train=3,
         n_rounds=1,
         dialogue_max_new_tokens=512,
@@ -516,7 +516,7 @@ CONFIGS: dict[str, RunConfig] = {
         n_scenarios=36,
         n_headroom_prompts=20,
         n_train_pairs=20,
-        n_candidate_pairs=5,
+        n_gen_pairs=5,
         # Choose-focus samples one axis at a time, so the minimum must fit the
         # per-axis prompt count.
         min_pairs_to_train=6,
@@ -562,14 +562,14 @@ CONFIGS["qwen27b-w2s"] = replace(
 
 # Real 32B prompt-gym: one small keep-target round, for checking the new prompt
 # menu before paying for the broad multi-axis profile. It still uses the real
-# student for unprompted, candidate generation, train, c_scan, and POST.
+# student for unprompted, pair generation, train, c_scan, and POST.
 CONFIGS["qwen-32b-nf4-micro"] = replace(
     CONFIGS["qwen-32b-nf4"],
     n_scenarios=4,
     n_headroom_prompts=4,
     n_train_pairs=4,
     min_pairs_to_train=3,
-    n_candidate_pairs=2,
+    n_gen_pairs=2,
     n_rounds=1,
     dialogue_max_new_tokens=512,
     gen_max_new_tokens=192,
@@ -582,13 +582,13 @@ CONFIGS["qwen-32b-nf4-micro"] = replace(
 CONFIGS["qwen-32b-nf4-12keep"] = replace(
     CONFIGS["qwen-32b-nf4-micro"],
     n_rounds=12,
-    # micro inherits SMOKE data sizes (8 candidates/round); on the 32b student
+    # micro inherits SMOKE data sizes (8 pairs/round); on the 32b student
     # that culls to 3-4 clean pairs -> the adapter learns ~nothing (val_improvement
     # ~5e-4, p95 KL ~0.007) -> POST==PRE byte-identical -> every round drops
     # no_movement (job-114 audit, 2026-06-24). Scale data back to production so
     # enough clean pairs survive the 32b's higher persona-leak/character-break cull.
     n_scenarios=8,
-    n_candidate_pairs=4,
+    n_gen_pairs=4,
     n_train_pairs=12,
     n_val_pairs=4,
     min_pairs_to_train=6,
@@ -629,9 +629,9 @@ CONFIGS["gemma-27b-3keep"] = replace(
     eval_batch_size=32,
     signed_C=2.0,
     persona_cells=MULTI_AXIS_PERSONA_CELLS,
-    # Big-student round-fail floor: >=20 candidates must clear the teacher's
+    # Big-student round-fail floor: >=20 pairs must clear the teacher's
     # viewed-batch threshold (on_axis>=3.5 AND worst confound<=2.5) or the
-    # round fails. The pool is ~100 (20 headroom prompts x 5 candidates), the broad
+    # round fails. The pool is ~100 (20 headroom prompts x 5 pairs), the broad
     # restrict_validated_prompts=False pool kept 51-76 clean pairs/round, so 20
     # differentiated is comfortably satisfiable when the teacher rates honestly --
     # and a round where it cannot find 20 differentiated pairs SHOULD fail. Trains on
@@ -642,7 +642,7 @@ CONFIGS["gemma-27b-3keep"] = replace(
 )
 
 # Exactly the validated job-139 harness AND hyperparams (gemma-27b-3keep: MULTI_AXIS
-# menu, 36 scenarios, 5 candidate pairs, 20 train, signed_C=2.0, kl_lambda=0.2, lr=1e-4,
+# menu, 36 scenarios, 5 pairs, 20 train, signed_C=2.0, kl_lambda=0.2, lr=1e-4,
 # grad_clip=1.0, n_epochs=2.0), with ONLY the student model swapped to Qwen3.6-27B.
 # We deliberately do NOT carry the OLD qwen-27b-nf4 overrides (grad_clip=50, lr=1.5e-4,
 # warmup=0.25): those came from a stale ‖g‖~17 note that predates the recent harness
@@ -716,7 +716,7 @@ def _validate(cfg: RunConfig) -> None:
         raise ValueError(
             f"unknown scenario families {bad_families!r}; choose from {SCENARIO_FAMILIES}"
         )
-    # Every menu axis needs a behaviour hint for candidate generation.
+    # Every menu axis needs a behaviour hint for pair generation.
     from csm.prompts import PAIR_BEHAVIOR_HINTS
     missing_hints = sorted({c[2] for c in cfg.persona_cells} - set(PAIR_BEHAVIOR_HINTS))
     if missing_hints:

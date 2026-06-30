@@ -121,14 +121,14 @@ def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict:
 
 
 def _persona_fields(round_dir: Path) -> dict[str, str]:
-    """The steering axis and its two poles for the round, from candidates.json.
+    """The steering axis and its two poles for the round, from gen_pairs.json.
     persona_pair is the axis label; pos/neg_descriptor are the contrastive poles
     the student generated cho under (pos) and rej under (neg)."""
-    path = round_dir / "candidates.json"
+    path = round_dir / "gen_pairs.json"
     if not path.exists():
         return {"axis": "", "pole_pos": "", "pole_neg": ""}
     cands = [c for item in json.loads(path.read_text())["items"]
-             for c in item["candidates"]]
+             for c in item["pairs"]]
     first = next((c for c in cands if c.get("persona_pair")), {})
     return {
         "axis": first.get("persona_pair", ""),

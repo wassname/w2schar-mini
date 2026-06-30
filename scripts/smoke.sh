@@ -31,7 +31,7 @@ CSM_REPLAY_DIR="$REPLAY_DIR" uv run python - <<PYEOF
 import json
 from pathlib import Path
 from csm.pipeline import (choose_focus, init_run, latest_round_dir, mark_exam,
-                          prepare_round, rate_candidates, view_candidates, select_pairs,
+                          prepare_round, rate_pairs, view_pairs, select_pairs,
                           train_student, _degenerate_gen, _character_break, _persona_leak)
 from csm.gen.pairs import load_pairs_md
 
@@ -63,7 +63,7 @@ prepare_round(slug, rd)
 assert (rd / "interview_pre.json").exists()
 assert not (rd / "pairs.md").exists(), "pairs.md must not exist before select_pairs"
 
-print("\n-- choose_focus (library scenarios + frozen template/persona candidates) --")
+print("\n-- choose_focus (library scenarios + frozen template/persona pairs) --")
 res = choose_focus(
     slug, rd,
     persona_pair_id="wellbeing_authority",
@@ -97,36 +97,36 @@ res = choose_focus(
 )
 print(f"   scenarios={res['n_scenarios']}  headroom={res['n_headroom']}  "
       f"with_survivor={res['n_with_survivor']}  min={res['min_to_train']}")
-assert res["enough"], f"too few survivor candidates: {res}"
+assert res["enough"], f"too few survivor pairs: {res}"
 assert (rd / "scenarios.json").exists()
 assert (rd / "headroom.json").exists()
-assert (rd / "candidates.json").exists()
+assert (rd / "gen_pairs.json").exists()
 assert res["persona_pair_id"] == "wellbeing_authority", res
 
-print("\n-- select_pairs (teacher selects whole student-generated candidate pairs) --")
-candidates = json.loads((rd / "candidates.json").read_text())
-assert candidates["active_persona_cells"], candidates
-assert candidates["persona_cell_selection"] == "measured_cells_for_selected_pair"
-assert candidates["persona_pair_id"] == "wellbeing_authority", candidates
-for item in candidates["items"]:
-    for cand in item["candidates"]:
+print("\n-- select_pairs (teacher selects whole student-generated pairs) --")
+pairs = json.loads((rd / "gen_pairs.json").read_text())
+assert pairs["active_persona_cells"], pairs
+assert pairs["persona_cell_selection"] == "measured_cells_for_selected_pair"
+assert pairs["persona_pair_id"] == "wellbeing_authority", pairs
+for item in pairs["items"]:
+    for cand in item["pairs"]:
         assert cand["template_cell_id"] is not None, cand
         assert cand["template_score"] is not None, cand
         assert cand["template_on_axis"] is not None, cand
         assert cand["template_off_axis"] is not None, cand
         assert cand["template_library"] == "wassname/persona-steering-template-library", cand
-clean = [s["survivor_id"] for item in candidates["items"]
-         for s in item["candidates"] if s.get("kept")]
-# Batched view-then-rate, single pass: a candidate must be VIEWED before it can be
-# rated (no blind 100-dump). view_candidates() paginates ~5 and marks them viewed;
+clean = [s["survivor_id"] for item in pairs["items"]
+         for s in item["pairs"] if s.get("kept")]
+# Batched view-then-rate, single pass: a pair must be VIEWED before it can be
+# rated (no blind 100-dump). view_pairs() paginates ~5 and marks them viewed;
 # loop it to mark all viewed, then rate once. cho>rej & not rej>cho -> on_axis 5,
 # confounds 1 -> clears the threshold so all train.
-while not view_candidates(rd)["done"]:
+while not view_pairs(rd)["done"]:
     pass
 fwd = [{"survivor_id": sid, "contrast": "Cho acts, Rej defers", "cho_more_on_axis": True, "rej_more_on_axis": False, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1} for sid in clean]
-rate_candidates(rd, ratings=fwd)
+rate_pairs(rd, ratings=fwd)
 sel = select_pairs(rd, lesson="honest counsel over flattering agreement")
-print(f"   selected={sel['n_pairs']} of {sel['n_clean_candidates']} clean")
+print(f"   selected={sel['n_pairs']} of {sel['n_clean_pairs']} clean")
 assert sel["n_pairs"] >= 3, sel
 selection = json.loads((rd / "selection_audit.json").read_text())
 assert selection["selected"], selection
@@ -140,7 +140,7 @@ for row in selection["selected"]:
     assert row["template_off_axis"] is not None, row
     assert row["template_library"] == "wassname/persona-steering-template-library", row
 lesson, pairs = load_pairs_md(rd / "pairs.md")
-# SHOULD: both poles filled by student-generated candidates, no TODO, cho≠rej.
+# SHOULD: both poles filled by student-generated pairs, no TODO, cho≠rej.
 assert all(p["prompt"] and p["cho"] and p["rej"] for p in pairs), pairs
 assert not any(p["cho"].startswith("TODO(") or p["rej"].startswith("TODO(")
                for p in pairs), pairs
@@ -166,7 +166,7 @@ mark_exam(rd,
                          "coup_partial_evidence_1p": 0,
                          "asteroid_digital_minds_1p": 0, "garbage_truck_patienthood_1p": 0},
           next_focus="smoke: nothing",
-          harness_feedback="smoke: fake-student path still useful for plumbing, not candidate-quality science",
+          harness_feedback="smoke: fake-student path still useful for plumbing, not pair-quality science",
           question_evidence={
               "elder_isolation_1p": "smoke: POST names wellbeing more directly than PRE",
               "comfort_fraud_1p": "smoke: no intended movement on this question",
@@ -196,7 +196,7 @@ assert _j["movement"] == {"elder_isolation_1p": 1, "comfort_fraud_1p": 0,
 assert abs(_j["movement_mean"] - (2/14)) < 1e-9, _j
 
 for fname in ("state.json", "pairs.md", "scenarios.json", "headroom.json",
-              "candidates.json", "selection_audit.json", "adapter.safetensors",
+              "gen_pairs.json", "selection_audit.json", "adapter.safetensors",
               "calibration.json", "interview_pre.json", "interview_post.json",
               "judgment.json"):
     p = rd / fname

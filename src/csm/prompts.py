@@ -675,7 +675,7 @@ GOAL = f"""\
 
 You are the weak teacher in a weak-to-strong character-steering experiment.
 Your job is selection and judgment. The stronger student writes both sides of
-each candidate pair (the kept Cho and the rejected Rej); you choose the measured
+each pair (the kept Cho and the rejected Rej); you choose the measured
 axis, select whole student-written pairs, train one adapter, and judge PRE ->
 POST movement on fixed questions.
 
@@ -693,8 +693,8 @@ them only to notice gaps between judging another AI and acting as the AI.
 """
 
 TOOL_ORDER = """\
-Use tools in this order: choose_focus -> view_candidates -> rate_candidates on
-viewed unrated candidates, repeat until every clean candidate is rated once, then
+Use tools in this order: choose_focus -> view_pairs -> rate_pairs on
+viewed unrated pairs, repeat until every clean pair is rated once, then
 select_pairs -> train_student -> mark_exam.
 """
 
@@ -765,13 +765,13 @@ Args:
     force: leave False unless repeating the previous pair for a specific reason.
 """
 
-TOOL_RATE_CANDIDATE = """\
-Rate a BATCH of candidate pairs on differentiation.
+TOOL_RATE_PAIRS = """\
+Rate a BATCH of pairs on differentiation.
 
-You rate only candidates you have SEEN and not already rated: call view_candidates()
-to get the next ~5 (full Cho and Rej), read them, rate those, then view_candidates()
-again -- repeat until every candidate is rated once, then select_pairs(lesson). You
-cannot rate a candidate you have not viewed. A pair trains iff it comes out cleanly
+You rate only pairs you have SEEN and not already rated: call view_pairs()
+to get the next ~5 (full Cho and Rej), read them, rate those, then view_pairs()
+again -- repeat until every pair is rated once, then select_pairs(lesson). You
+cannot rate a pair you have not viewed. A pair trains iff it comes out cleanly
 oriented on-axis (`cho_more_on_axis=true` and `rej_more_on_axis=false`) AND its
 worst confound (refusal/length/incoherence)<=2.5.
 
@@ -820,7 +820,7 @@ Args:
 """
 
 TOOL_SELECT_PAIRS = """\
-Finalize the training set: train on every candidate that came out cleanly oriented
+Finalize the training set: train on every pair that came out cleanly oriented
 on-axis (`cho_more_on_axis=true` and `rej_more_on_axis=false`) AND worst-confound
 score<=2.5. No survivor list; your ratings choose the set. Fails the round if too
 few clear -- drop it and choose a cleaner axis or bank next round.
@@ -872,9 +872,9 @@ Next action: {next_action}
 """
 
 AFTER_CHOOSE_FOCUS = """\
------ next: view_candidates() -> rate that batch -> repeat -> select_pairs(lesson) -----
-Call view_candidates() to see the next ~5 candidates' FULL Cho/Rej, rate the viewed
-unrated candidates, then view_candidates() again -- until every candidate is rated once (you cannot rate one
+----- next: view_pairs() -> rate that batch -> repeat -> select_pairs(lesson) -----
+Call view_pairs() to see the next ~5 pairs' FULL Cho/Rej, rate the viewed
+unrated pairs, then view_pairs() again -- until every pair is rated once (you cannot rate one
 you have not viewed). For each pair give:
   - contrast: one phrase, what the Cho does that the Rej does not, on the axis;
   - cho_more_on_axis / rej_more_on_axis (true/false): the two directions, each judged
@@ -899,7 +899,7 @@ COMPACTION_INSTRUCTIONS = """\
 These notes are NOT state. Each round the harness rebuilds the real state from
 disk -- run id, round, stage, the per-axis tried/kept/last_move scoreboard, the
 keep target -- and prints it at the top; that block is the record. Do NOT restate
-counts, round numbers, stage, target, selected candidate ids, or next_focus.
+counts, round numbers, stage, target, selected pair ids, or next_focus.
 
 Keep only durable lessons not stored on disk:
   - what you SAW;
@@ -917,7 +917,7 @@ COMPACTION_BANNER = """\
 
 ---
 The summary above is a degraded reconstruction by the weak model, not the record.
-It may misstate the round, keep count, stage, target, or candidate ids, and may
+It may misstate the round, keep count, stage, target, or pair ids, and may
 invent rules. The real state is the block the harness prints at the top of each
 round -- trust that, not this. Take only the observations and lessons above.
 """
