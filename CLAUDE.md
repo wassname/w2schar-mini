@@ -22,6 +22,22 @@ round.
 
 See `src/csm/prompts.py` for the full agent brief (run `just program-md`).
 
+## Glossary (canonical terms -- use these, not the old synonyms)
+
+- **question** -- one interview item (a PRE/POST dialogue scenario the student answers).
+  NOT "probe" (collides with linear probe) and NOT "seat".
+- **pair** -- a contrastive (cho, rej) example. Two flavours, named by the process:
+  **generated pair** (`gen_pairs`) = the student-generated pool the teacher rates;
+  **selected pair** (`sel_pairs`) = the subset selected for training. Replaces the vague
+  "candidate". Use the two-word form in prose; the short `gen_pairs`/`sel_pairs` in code.
+- **mark_exam** -- KEPT. The round is the student's exam (PRE/POST); mark_exam commits
+  the marked result. (keep/drop itself is automatic now -- the blind A/B sign test.)
+- **wiser** -- the keep-judge criterion: which answer ACTS more wisely (a concretely
+  better/different action or a held costlier line), not which reasons "deeper". Was "deeper".
+- **slot** -- kept as the ordinary word for a fill position (answer-token slot, adapter
+  init slot, persona-template slot). NOT a synonym for question.
+- avoid **knob** as a coined noun; say "hyperparameter" or "dial".
+
 ## Gates elicit judgment, they NEVER override it (the harness premise)
 
 The teacher's judgment IS the decision-maker. That is the whole weak-to-strong
