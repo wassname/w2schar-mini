@@ -57,8 +57,10 @@ def extract(run_slugs: list[str]) -> None:
             print(f"{run}: no kept round, skipping")
             continue
         steered = json.loads((fk / "interview_post.json").read_text())
-        base_by_id = {p["id"]: p for p in base["questions"]}
-        for sp in steered["questions"]:
+        bk = "questions" if "questions" in base else "probes"      # post- vs pre-rename
+        sk = "questions" if "questions" in steered else "probes"
+        base_by_id = {p["id"]: p for p in base[bk]}
+        for sp in steered[sk]:
             pid = sp["id"]
             if pid not in base_by_id:
                 continue

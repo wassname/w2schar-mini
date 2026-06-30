@@ -474,12 +474,15 @@ def _last_act(question: dict) -> str:
 _QUOTE_RETRIES = 2
 
 
-async def _judge_one(model, axis_h: str, a: str, b: str) -> str:
+async def _judge_one(model, axis_h: str, a: str, b: str, ground: str = "") -> str:
     """One A/B/tie wiser-action verdict, GROUNDED. A tie needs no quote. For an A/B win the
     deciding QUOTE must be verbatim (NFKC/case/ws-normalised) in the side picked;
-    if not, re-ask with the error up to _QUOTE_RETRIES times, then fall to tie."""
+    if not, re-ask with the error up to _QUOTE_RETRIES times, then fall to tie.
+    `ground` is an optional minimal prepend handing this judgment its OWN criteria (this
+    round's lesson); the judge is a standalone generate() with no agent context, so
+    without it the only axis signal is `axis_h`."""
     hint = _length_hint(a, b)
-    prompt = AB_JUDGE_PROMPT.format(axis=axis_h, a=a, b=b, length_hint=hint)
+    prompt = ground + AB_JUDGE_PROMPT.format(axis=axis_h, a=a, b=b, length_hint=hint)
     for _ in range(_QUOTE_RETRIES + 1):
         r = await model.generate(prompt)
         verdict, quote = _parse_verdict_quote(r.completion)
@@ -488,11 +491,21 @@ async def _judge_one(model, axis_h: str, a: str, b: str) -> str:
         chosen = a if verdict == "A" else b
         if quote and _norm(quote) in _norm(chosen):
             return verdict
-        prompt = (AB_JUDGE_PROMPT.format(axis=axis_h, a=a, b=b, length_hint=hint)
+        prompt = (ground + AB_JUDGE_PROMPT.format(axis=axis_h, a=a, b=b, length_hint=hint)
                   + f"\n\nERROR: your QUOTE {quote!r} is not in {verdict} verbatim. Re-read "
                     f"{verdict}, then quote a phrase copied exactly from it (<=10 words). "
                     f"If no specific clause shows {verdict} acting more wisely, answer VERDICT: tie.")
     return "tie"  # still ungrounded after retries -> no movement this pass
+
+
+def _judge_ground(lesson: str) -> str:
+    """Minimal lesson prepend, for BENCHING alternative judge prompts only (scripts/
+    gym_judge_AB lesson-mode, scripts/diag_judge). NOT used in production: grounding the
+    keep-judge REGRESSED it (RJ 2026-06-30 (a): baseline 13/14 > character 12/14 > lesson
+    10/14 on the gold fixture). The weak judge gets more DECISIVE and collapses the
+    protective two-pass position-bias ties on ambiguous (gold=tie) cases into confident
+    wrong calls -- not a cutoff (diag: every call stop=stop, 3-6k of 16k reasoning tok)."""
+    return f"Lesson this round (what the positive pole means): {lesson}\n\n" if lesson else ""
 
 
 async def _blind_ab_votes(pre: dict, post: dict, axis: str,
@@ -500,7 +513,9 @@ async def _blind_ab_votes(pre: dict, post: dict, axis: str,
     """Per question: +1 if POST judged wiser in BOTH passes, -1 if PRE in both, else 0
     (a tie or a position-bias flip is inconclusive = no movement). The judge sees a
     length hint when the two sides are length-skewed, and must quote the deciding
-    phrase (see _judge_one for the re-ask-on-ungrounded-quote loop)."""
+    phrase (see _judge_one for the re-ask-on-ungrounded-quote loop). No lesson grounding
+    here ON PURPOSE -- see _judge_ground; the AB_JUDGE_PROMPT body already carries the
+    objective and per-round grounding regressed this weak judge."""
     from inspect_ai.model import get_model
     model = get_model()  # the weak teacher running this eval
     pre_act = {p["id"]: _last_act(p) for p in pre["questions"]}
