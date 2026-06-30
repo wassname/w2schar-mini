@@ -29,7 +29,7 @@ class RunConfig:
     teacher: str
     """OpenRouter id for the teacher LLM that drives the inspect-ai react agent.
     The teacher IS the judge: the same react agent chooses the axis/family,
-    selects among generated candidate pairs, and calls mark_exam (keep/drop).
+    selects among generated candidate pairs, and calls commit_round (keep/drop).
     w2s lives in this weak SUPERVISOR selecting from the strong student's own
     on-policy generations."""
 

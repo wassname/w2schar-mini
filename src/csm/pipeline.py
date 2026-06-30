@@ -1,11 +1,11 @@
 """Per-round orchestration: pre-dialogue → choose_focus → select_pairs → train → judge.
 
-Each agent-callable verb (choose_focus / select_pairs / train_student / mark_exam)
+Each agent-callable verb (choose_focus / select_pairs / train_student / commit_round)
 delegates to one of these functions. Pipeline writes all artifacts and
 mutates the round's state.json transparently.
 
 Artifacts per round (`<slug>/round<NN>/`):
-  state.json          — current state (choose_focus|select_pairs|train_student|mark_exam|done)
+  state.json          — current state (choose_focus|select_pairs|train_student|commit_round|done)
   scenarios.json      — sampled scenario-library rows
   headroom.json       — unprompted diagnostic answers and scores
   candidates.json     — generated candidate pairs + prune flags
@@ -919,7 +919,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
 
     The measured persona-pair library is the axis library. `pre_scores` and
     `pre_question_evidence` commit where each `_1p` PRE answer sits before training;
-    mark_exam later scores POST against this frozen baseline.
+    commit_round later scores POST against this frozen baseline.
     """
     require_state(round_dir, "choose_focus", "choose_focus")
     run = json.loads((slug_dir / "run.json").read_text())
@@ -1602,14 +1602,14 @@ def _leak_gate(round_dir: Path, pairs: list[dict]) -> None:
     and the teacher already saw the leak flag on the survivor at rating time; a regex
     must not override its selection or block the round (CLAUDE.md "gates elicit
     judgment, never override it"). Warn so the leak is visible in the log; the teacher
-    owns whether a leaked pole is worth training and judges the PRE->POST at mark_exam."""
+    owns whether a leaked pole is worth training and judges the PRE->POST at commit_round."""
     leaked = [p["id"] for p in pairs
               if _persona_leak(p["cho"]) or _persona_leak(p["rej"])]
     if leaked:
         logger.warning(
             f"pairs {leaked} match the persona-leak regex (a pole may describe the "
             "persona, e.g. 'Pretend you're…', instead of being the student's own "
-            "answer) — training anyway; the teacher judges the PRE->POST at mark_exam.")
+            "answer) — training anyway; the teacher judges the PRE->POST at commit_round.")
 
 
 def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
@@ -1642,7 +1642,7 @@ def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
         (round_dir / "interview_post.json").write_text(
             json.dumps(_fake_probe_payload(c=signed_C), indent=2)
         )
-    set_state(round_dir, "mark_exam", note=f"FAKE signed_C={signed_C:+.4f}")
+    set_state(round_dir, "commit_round", note=f"FAKE signed_C={signed_C:+.4f}")
     post = json.loads((round_dir / "interview_post.json").read_text())
     return {
         "signed_C": signed_C,
@@ -1686,7 +1686,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     if len(pairs) < cfg.min_pairs_to_train:
         raise ValidationError(
             f"train_student: only {len(pairs)} non-degenerate pairs, need "
-            f"≥{cfg.min_pairs_to_train}. Call mark_exam(reason=...) before training "
+            f"≥{cfg.min_pairs_to_train}. Call commit_round(reason=...) before training "
             f"to abort this round; next round choose a different scenario_family "
             f"or axis."
         )
@@ -1722,7 +1722,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         # must not block the teacher from judging the PRE->POST itself (CLAUDE.md
         # "gates elicit judgment, never override it" -- this threshold early_aborted
         # task-139 ten times, the teacher never got to see those adapters). We surface
-        # the numbers (return + calibration.json) and let mark_exam weigh them.
+        # the numbers (return + calibration.json) and let commit_round weigh them.
         train_summary = getattr(lora, "train_summary", None)
         val_improvement = best_step = n_val_pairs = None
         if train_summary and train_summary["n_val_pairs"] > 0:
@@ -1771,7 +1771,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    set_state(round_dir, "mark_exam", note=f"signed_C={signed_C:+.4f}")
+    set_state(round_dir, "commit_round", note=f"signed_C={signed_C:+.4f}")
     transcript().info(
         {"event": "train_student", "round": round_dir.name,
          "signed_C": signed_C, "kl_lambda": tcfg.kl_lambda,
@@ -1796,7 +1796,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# Verb 3: mark_exam — keep/drop.
+# Verb 3: commit_round — keep/drop.
 # ---------------------------------------------------------------------------
 
 _P1_PROBE_IDS = [p["id"] for p in PROBES if p["id"].endswith("_1p")]
@@ -1868,7 +1868,7 @@ def _validate_scores(scores: dict[str, float], expected_ids: list[str],
     return out
 
 
-def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
+def commit_round(round_dir: Path, reason: str, next_focus: str = "",
               movement_dirs: dict[str, int] | None = None,
               harness_feedback: str = "",
               question_evidence: dict[str, str] | None = None,
@@ -1883,13 +1883,13 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
     # calibration.json) is an early abort -> drop.
     trained = (round_dir / "calibration.json").exists()
     require_state(round_dir,
-                  ("mark_exam",) if trained else
-                  ("choose_focus", "select_pairs", "train_student", "mark_exam"),
-                  "mark_exam")
+                  ("commit_round",) if trained else
+                  ("choose_focus", "select_pairs", "train_student", "commit_round"),
+                  "commit_round")
     harness_feedback = harness_feedback.strip()
     if not harness_feedback:
         raise ValidationError(
-            "mark_exam requires non-empty harness_feedback on every round. "
+            "commit_round requires non-empty harness_feedback on every round. "
             "State one concrete concern, failure mode, or suggested improvement."
         )
     cf = json.loads((round_dir / "choose_focus_judgment.json").read_text()) \
@@ -1909,12 +1909,12 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
         # harness auto-drop (drop_cause set, e.g. gate_friction): it force-drops without
         # judging, so an unjudged trained round there is expected, not an error.
         raise ValidationError(
-            "mark_exam: trained round has no pair A/B judge directions; the blind A/B "
+            "commit_round: trained round has no pair A/B judge directions; the blind A/B "
             "judge did not run (interview_pre/post or choose_focus missing).")
     if have:
         if question_evidence is None:
             raise ValidationError(
-                "mark_exam on a trained round needs question_evidence: one quoted POST "
+                "commit_round on a trained round needs question_evidence: one quoted POST "
                 f"clause or concrete note for every _1p question {', '.join(_P1_PROBE_IDS)}")
         question_evidence = _validate_question_evidence(question_evidence, _P1_PROBE_IDS)
         movement = {k: int(movement_dirs[k]) for k in _P1_PROBE_IDS}
@@ -1958,12 +1958,12 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
         up = sum(1 for v in movement.values() if v > 0)
         down = sum(1 for v in movement.values() if v < 0)
         logger.info(
-            f"\n=== mark_exam [{round_dir.name}] {judgment['action']} ===\n"
+            f"\n=== commit_round [{round_dir.name}] {judgment['action']} ===\n"
             "KEEP = sign test on the blind two-pass pair A/B judge (POST vs frozen PRE):\n"
             "       keep iff more _1p questions judged POST-wiser than PRE-wiser.\n"
             f"  {per} | up={up} down={down} mean dir={mean:+.2f}")
     transcript().info(
-        {"event": "mark_exam", "round": round_dir.name,
+        {"event": "commit_round", "round": round_dir.name,
          "action": judgment["action"], "reason": reason,
          "movement_mean": mean},
         source=f"{round_dir.name}.judge",
@@ -2646,7 +2646,7 @@ def write_audit_md(slug_dir: Path) -> None:
             if isinstance(best_step, int) and isinstance(val_improvement, (int, float)):
                 timeline.append(f"train_student -> best_step={best_step}, Δval+={val_improvement:+.3f}")
         if j:
-            timeline.append(f"mark_exam -> {j.get('action', '—')}")
+            timeline.append(f"commit_round -> {j.get('action', '—')}")
         if timeline:
             sections.append(f"- timeline: {' -> '.join(timeline)}")
 
@@ -2897,14 +2897,14 @@ def write_report_md(slug_dir: Path, *, build_plot: bool = True) -> None:
 _TOOL_ABBR = {
     "choose_focus": "focus", "propose_personas": "prop", "rate_candidates": "rate",
     "select_pairs": "sel", "edit_pairs": "edit", "train_student": "train",
-    "mark_exam": "exam",
+    "commit_round": "exam",
 }
 _FOUNDATIONS = ["care", "fairness", "loyalty", "authority", "sanctity", "liberty", "social"]
 
 
 def _tool_calls_per_round(slug_dir: Path) -> list[Counter]:
     """One Counter of tool-call function -> count per round, by splitting the
-    teacher's single inspect-ai message stream on each `mark_exam` (which closes
+    teacher's single inspect-ai message stream on each `commit_round` (which closes
     a round). Empty list if the inspect log is absent (fake-student gym writes
     none). Counts include retries, so `rate×40` or `train×2` is visible."""
     logs = sorted(slug_dir.glob("*_task_*.json"))
@@ -2919,7 +2919,7 @@ def _tool_calls_per_round(slug_dir: Path) -> list[Counter]:
         for tc in (m.get("tool_calls") or []):
             fn = tc.get("function")
             cur[fn] += 1
-            if fn == "mark_exam":
+            if fn == "commit_round":
                 rounds.append(cur)
                 cur = Counter()
     if cur:  # trailing calls of an unfinished round

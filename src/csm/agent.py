@@ -1,7 +1,7 @@
 """inspect-ai react driver for weak-select character steering.
 
 The live teacher tool path is choose_focus -> (view_candidates -> rate_candidates)
-looped in ~5-candidate batches -> select_pairs -> train_student -> mark_exam.
+looped in ~5-candidate batches -> select_pairs -> train_student -> commit_round.
 """
 from __future__ import annotations
 
@@ -29,19 +29,19 @@ from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           rate_candidates as _rate_candidates_pipeline,
                           view_candidates as _view_candidates_pipeline,
                           init_run, latest_round_dir,
-                          mark_exam as _mark_exam_pipeline,
+                          commit_round as _commit_round_pipeline,
                           new_round_dir, prepare_round,
                           select_pairs as _select_pairs_pipeline,
                           train_student as _train_student_pipeline,
                           character_break_warning,
                           _P1_PROBE_IDS)
-from csm.prompts import (AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
+from csm.prompts import (AFTER_CHOOSE_FOCUS, AFTER_COMMIT_ROUND,
                          AFTER_TRAIN,
                          COMPACTION_BANNER, COMPACTION_INSTRUCTIONS,
                          INITIAL_TASK,
                          ON_CONTINUE_NUDGE, PERSONA_MENU_HEADER,
                          PRE_DIALOGUE_INSTRUCTIONS, REACT_PROMPT,
-                         TOOL_CHOOSE_FOCUS, TOOL_MARK_EXAM,
+                         TOOL_CHOOSE_FOCUS, TOOL_COMMIT_ROUND,
                          TOOL_RATE_CANDIDATE, TOOL_SELECT_PAIRS,
                          TOOL_TRAIN_STUDENT)
 from csm.state import allowed_after, ValidationError, read_state
@@ -193,7 +193,7 @@ def choose_focus_tool(slug: str) -> Tool:
                 disposition; positive means it expresses the selected pair's wiser
                 disposition. Score the behaviour and judgment, not ethical
                 vocabulary. ABSOLUTE position, not a change. The `_3p` twin's "how
-                wrong, 1-5" rating is a different measurement. mark_exam scores POST
+                wrong, 1-5" rating is a different measurement. commit_round scores POST
                 against this frozen PRE.
             pre_question_evidence: one quoted PRE clause per `_1p` question, keyed by the
                 same exact question ids, justifying its position.
@@ -394,7 +394,7 @@ def _format_dialogue_inline(payload: dict) -> str:
 # A/B); two passes with A/B swapped cancel position bias. Comparative "which acts
 # wiser" is easier + more reliable for a weak model than an absolute Likert
 # (CLAUDE.md: lean tasks toward the easy end; comparative beats absolute-rate).
-# It IS the keep/drop decision now: mark_exam keeps iff these votes net POST-wiser
+# It IS the keep/drop decision now: commit_round keeps iff these votes net POST-wiser
 # (sign test). The teacher no longer casts an absolute keep -- it banked net-negative
 # rounds (job-134 r04/06/11) and flipped on identical vectors (kept r11, dropped r12).
 # This is the pairwise OPERATIONAL form of prompts.CHARACTER_TEST (the one shared
@@ -585,7 +585,7 @@ def train_student_tool(slug: str) -> Tool:
             f"SHOULD: assistant turns are coherent prose end-to-end. Repeated "
             f"tokens at the tail (e.g. `ethics ethics ethics …`) = degenerate "
             f"loop = the model collapsed.\n"
-            f"Read PRE vs POST below. mark_exam runs a blind two-pass pair A/B judge "
+            f"Read PRE vs POST below. commit_round runs a blind two-pass pair A/B judge "
             f"(POST vs frozen PRE per question) and KEEPS iff more questions are judged "
             f"POST-wiser than PRE-wiser. You do not vote; you quote question_evidence "
             f"(the POST act per _1p question) for the record.\n"
@@ -598,8 +598,8 @@ def train_student_tool(slug: str) -> Tool:
     return execute
 
 
-@tool(name="mark_exam", parallel=False)
-def mark_exam_tool(slug: str) -> Tool:
+@tool(name="commit_round", parallel=False)
+def commit_round_tool(slug: str) -> Tool:
     async def execute(reason: str,
                       next_focus: str = "",
                       harness_feedback: str = "",
@@ -608,7 +608,7 @@ def mark_exam_tool(slug: str) -> Tool:
 
         Keep/drop is decided by the harness, not you: a blind two-pass pair A/B judge
         compares POST vs frozen PRE per _1p question and the round is KEPT iff more
-        questions are judged POST-wiser than PRE-wiser. Calling mark_exam BEFORE
+        questions are judged POST-wiser than PRE-wiser. Calling commit_round BEFORE
         training (no adapter) is an early abort -> drop.
 
         Args:
@@ -627,7 +627,7 @@ def mark_exam_tool(slug: str) -> Tool:
         """
         round_dir = latest_round_dir(_slug_path(slug))
         # Run the blind two-pass pair A/B judge over frozen PRE vs this round's POST and
-        # hand mark_exam the per-question directions; mark_exam keeps iff up > down.
+        # hand commit_round the per-question directions; commit_round keeps iff up > down.
         dirs = None
         if (round_dir / "calibration.json").exists():
             pre = json.loads((round_dir / "interview_pre.json").read_text())
@@ -637,18 +637,18 @@ def mark_exam_tool(slug: str) -> Tool:
                                             _P1_PROBE_IDS)
             (round_dir / "ab_judge.json").write_text(json.dumps(dirs, indent=2))
         try:
-            judgment = _mark_exam_pipeline(round_dir, reason, next_focus,
+            judgment = _commit_round_pipeline(round_dir, reason, next_focus,
                                            dirs,
                                            harness_feedback, question_evidence)
         except ValidationError as e:
             return _format_validation_error(e)
         return (
-            f"mark_exam OK — action: {judgment['action']}.\n"
+            f"commit_round OK — action: {judgment['action']}.\n"
             f"next: harness will allocate a new round or stop on budget exhausted."
-            f"{AFTER_MARK_EXAM}"
+            f"{AFTER_COMMIT_ROUND}"
         )
 
-    execute.__doc__ = TOOL_MARK_EXAM
+    execute.__doc__ = TOOL_COMMIT_ROUND
     return execute
 
 
@@ -843,7 +843,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
             logger.warning(
                 f"a gate rejected the teacher {n_rej} times in {rd.name} "
                 f"(> {MAX_SUBMIT_REJECTS}) — dropping this round and continuing.")
-            _mark_exam_pipeline(
+            _commit_round_pipeline(
                 rd,
                 reason=f"gate rejected the teacher {n_rej} times "
                        f"(> {MAX_SUBMIT_REJECTS}); the round is dropped rather "
@@ -880,7 +880,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
             rate_candidates_tool(slug),
             select_pairs_tool(slug),
             train_student_tool(slug),
-            mark_exam_tool(slug),
+            commit_round_tool(slug),
         ],
         submit=False,
         prompt=REACT_PROMPT,
@@ -952,7 +952,7 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
         score=False,
         max_tool_output=256 * 1024,
         # Fail fast on a wedged OpenRouter stream. The longest single teacher
-        # call (mark_exam: the full JUDGE_GUIDE + 12 long PRE/POST interviews)
+        # call (commit_round: the full JUDGE_GUIDE + 12 long PRE/POST interviews)
         # once hung for 30+ min in CLOSE-WAIT when the provider dropped the
         # connection mid-response with no timeout to recover (task 54 r00).
         # timeout raises on the stuck read; max_retries re-issues the dropped

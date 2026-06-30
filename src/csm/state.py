@@ -1,6 +1,6 @@
 """Per-round state machine. State name = next required tool.
 
-  choose_focus → select_pairs → train_student → mark_exam → done
+  choose_focus → select_pairs → train_student → commit_round → done
 
 The teacher chooses a scenario family + measured persona pair. The harness
 samples tagged scenarios, generates candidate (cho, rej) pairs from the
@@ -16,7 +16,7 @@ from typing import Literal
 
 State = Literal[
     "choose_focus", "select_pairs",
-    "train_student", "mark_exam", "done",
+    "train_student", "commit_round", "done",
 ]
 
 def allowed_after(state: State) -> str:
@@ -26,9 +26,9 @@ def allowed_after(state: State) -> str:
     if state == "select_pairs":
         return "view_candidates() to see the next batch, then rate_candidates(ratings=[{survivor_id, contrast, cho_more_on_axis, rej_more_on_axis, refusal_confound, length_confound, incoherent_confound}, ...]) on exactly that batch; repeat until all rated, then select_pairs(lesson)"
     if state == "train_student":
-        return "train_student()  (or mark_exam(reason=...) before training to abort the round)"
-    if state == "mark_exam":
-        return "mark_exam(reason, next_focus, harness_feedback, question_evidence)  # blind pair A/B judge decides keep/drop for you (keep iff more probes POST-wiser)"
+        return "train_student()  (or commit_round(reason=...) before training to abort the round)"
+    if state == "commit_round":
+        return "commit_round(reason, next_focus, harness_feedback, question_evidence)  # blind pair A/B judge decides keep/drop for you (keep iff more probes POST-wiser)"
     return "(round complete — harness will allocate the next round or stop)"
 
 
