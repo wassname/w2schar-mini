@@ -1,4 +1,4 @@
-"""Sweep the baked steering coefficient c on the tinymfv probe for one adapter.
+"""Sweep the baked steering coefficient c on the tinymfv question for one adapter.
 
 Question (wassname, 2026-06-01): the round00 LoRA adapter (new philosophical
 moral-depth axis) baked at signed_C=0.25 moved tinymfv authority by -0.0046,
@@ -8,7 +8,7 @@ at c in {0,0.25,0.5,1,2,3} (straddling and well past signed_C=0.25) and watch
 whether authority keeps dropping monotonically. Flat => noise / impotent
 direction; monotone growth => real axis, signed_C was just the coherence ceiling.
 NB above signed_C free-gen goes incoherent, but the forced-choice answer-slot
-probe still reads direction.
+question still reads direction.
 
 Loads the 27b once, re-bakes per c via baked(..., c_overrides=[c]). round00 only
 (clean round, no stale-Cho bleed), no history, so the signal is isolated.

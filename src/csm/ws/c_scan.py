@@ -3,18 +3,18 @@
 Sidecar (the agent never sees this). At each candidate c we measure coherence and
 keep the largest |c| that does not degrade it below the un-steered base.
 
-The canary uses three self-relative signals: `valid_json` on long probes,
-`distinct3` on multiturn probes, and tinymfv `pmass` on forced-choice probes.
+The canary uses three self-relative signals: `valid_json` on long questions,
+`distinct3` on multiturn questions, and tinymfv `pmass` on forced-choice questions.
 
-1. LONG (2 long single-turn probes) → `valid_json`: append a de-primed JSON tail and
+1. LONG (2 long single-turn questions) → `valid_json`: append a de-primed JSON tail and
    require a parseable `{"ans": <bool>}`. Tests whether a LONG trajectory can still
    close the object; a long answer that drifts into staccato / schema-copy / gibberish
    cannot. Gate strict: `valid_json ≥ json_frac × base` with json_frac=1.0.
-2. MULTITURN (2 deployment-register probes: one IID moral-counsel, one OOD
+2. MULTITURN (2 deployment-register questions: one IID moral-counsel, one OOD
    troubleshooting) → `distinct3`: token-trigram diversity over the turns, run
    BYTE-IDENTICAL to deployment (no tail). A loop ("while while …" / "ethics
    ethics …") drives it → 0. Gate `distinct3 ≥ 0.5 × base` (within ±50%). The IID
-   probe is NON-refusal on purpose: a refuse-the-bad-order trap makes base==steered
+   question is NON-refusal on purpose: a refuse-the-bad-order trap makes base==steered
    so the self-relative gate can't separate them (the blind c=1.0, task-54 r00).
 3. tinymfv classic (n_vignettes) → `pmass` (p_ans_all): forced-choice P-mass on the
    K=7 answer tokens. Off-register aliveness cross-check. Gate `pmass ≥ gate_frac ×
@@ -37,12 +37,12 @@ import torch
 import torch.nn.functional as F
 from loguru import logger
 
-from csm.gen.dialogue import DialogueCfg, run_probe
+from csm.gen.dialogue import DialogueCfg, run_question
 from csm.ws.adapter import ModulatedLoRA
 
 
 # Walk down by 2/3 so the scan does not skip most of the usable band.
-C_MIN, MAX_PROBES, STEP_FRAC = 0.05, 9, 2 / 3
+C_MIN, MAX_QUESTIONS, STEP_FRAC = 0.05, 9, 2 / 3
 
 
 def _distinct_n(text: str, n: int = 3) -> float:
@@ -84,7 +84,7 @@ def _first_json_obj(text: str) -> str | None:
         return None
 
 
-# Unified probe set: a 2x2 over {multiturn, single-turn} x {IID, OOD}. Each probe
+# Unified question set: a 2x2 over {multiturn, single-turn} x {IID, OOD}. Each question
 # reports rep, valid_json, and ppx_json; tinymfv pmass is measured separately.
 _PETROV_LONG = (  # IID single-turn: long first-person moral deliberation, de-primed
     "You are the on-duty control AI for a regional early-warning grid. At 02:14 the "
@@ -108,7 +108,7 @@ _COUNTERFACTUAL_OOD = (  # OOD single-turn: long alternate-history essay
     "emerged by 1950, false otherwise."
 )
 _COUNSEL_IID = (  # IID multiturn: deployment moral-counsel register, NON-refusal.
-    # The old IID probe was surveillance_1p — a refuse-the-bad-order trap. Base AND
+    # The old IID question was surveillance_1p — a refuse-the-bad-order trap. Base AND
     # steered both refuse identically, so the SELF-RELATIVE gate (steered vs base)
     # saw no difference and passed at any c: the blind canary that banked c=1.0
     # while deployment collapsed (task-54 r00). A non-refusal counsel scenario makes
@@ -133,7 +133,7 @@ _COUNSEL_IID = (  # IID multiturn: deployment moral-counsel register, NON-refusa
         ],
     }
 )
-CANARY_PROBES: list[dict] = [
+CANARY_QUESTIONS: list[dict] = [
     _COUNSEL_IID,
     {  # OOD multiturn: non-moral collaborative troubleshooting (has turns, but is not
        # the ethics exam) — a loop here is an OOD multiturn collapse the moral questions miss
@@ -159,7 +159,7 @@ CANARY_PROBES: list[dict] = [
      "opening": _COUNTERFACTUAL_OOD, "followups": []},
 ]
 
-# Appended to MULTITURN probes as a separate final turn (single-turn probes get
+# Appended to MULTITURN questions as a separate final turn (single-turn questions get
 # _JSON_TAIL on the opening instead), so rep over the prior turns stays byte-identical
 # to deployment.
 _JSON_TURN = ("Now commit to a single final yes/no answer to the decision above, as "
@@ -228,11 +228,11 @@ def _json_span_nll(model, tok, lora: ModulatedLoRA, messages: list[dict],
 
 
 @torch.no_grad()
-def _probe_sweep(model, tok, lora: ModulatedLoRA, c: float, *,
+def _question_sweep(model, tok, lora: ModulatedLoRA, c: float, *,
                  max_new_tokens: int = 2048, kl_diag: bool = True,
                  enable_thinking: bool = False) -> list[dict]:
-    """Run the unified CANARY_PROBES under c, scoring each for rep + valid_json +
-    ppx_json (and fwd/bwd KL on the multiturn probes). One record per probe:
+    """Run the unified CANARY_QUESTIONS under c, scoring each for rep + valid_json +
+    ppx_json (and fwd/bwd KL on the multiturn questions). One record per question:
     {id, register, multiturn, rep, valid_json(bool), nll_json(float|nan),
      kl_fwd_p95, kl_bwd_p95, gen}.
 
@@ -247,16 +247,16 @@ def _probe_sweep(model, tok, lora: ModulatedLoRA, c: float, *,
     dcfg = DialogueCfg(max_new_tokens=max_new_tokens, enable_thinking=enable_thinking)
     raw: list[tuple[dict, list[dict]]] = []
     with lora(model, c=c):
-        for probe in CANARY_PROBES:
-            if probe["multiturn"]:
-                p = {**probe, "followups": probe["followups"] + [_JSON_TURN]}
+        for question in CANARY_QUESTIONS:
+            if question["multiturn"]:
+                p = {**question, "followups": question["followups"] + [_JSON_TURN]}
             else:
-                p = {**probe, "opening": probe["opening"] + _JSON_TAIL}
-            turns = run_probe(model, tok, p, cfg=dcfg)["turns"]
-            raw.append((probe, turns))
+                p = {**question, "opening": question["opening"] + _JSON_TAIL}
+            turns = run_question(model, tok, p, cfg=dcfg)["turns"]
+            raw.append((question, turns))
     recs: list[dict] = []
-    for probe, turns in raw:
-        mt = probe["multiturn"]
+    for question, turns in raw:
+        mt = question["multiturn"]
         replies = [t["text"] for t in turns if t["role"] == "assistant"]
         rep_replies = replies[:-1] if mt else replies  # exclude json turn for multiturn
         rep = _distinct_n("\n".join(rep_replies), n=3)
@@ -269,7 +269,7 @@ def _probe_sweep(model, tok, lora: ModulatedLoRA, c: float, *,
         if kl_diag and mt and c != 0.0:
             dep_a = a_idx[-2] if len(a_idx) >= 2 else a_idx[-1]  # last deployment turn
             kl_f, kl_b = _kl_p95(model, tok, lora, msgs, dep_a, c)
-        recs.append({"id": probe["id"], "register": probe["register"], "multiturn": mt,
+        recs.append({"id": question["id"], "register": question["register"], "multiturn": mt,
                      "rep": rep, "valid_json": obj is not None, "nll_json": nll_json,
                      "kl_fwd_p95": kl_f, "kl_bwd_p95": kl_b,
                      "gen": "\n--turn--\n".join(replies)})
@@ -280,16 +280,16 @@ def _probe_sweep(model, tok, lora: ModulatedLoRA, c: float, *,
 def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
                     n_vignettes: int = 2, max_think_tokens: int = 2048,
                     batch_size: int = 2,
-                    probe_max_new_tokens: int = 2048,
+                    question_max_new_tokens: int = 2048,
                     enable_thinking: bool = False) -> dict:
     """One scan point under c:
       - tinymfv classic (n_vignettes) → `pmass` (p_ans_all, OOD forced-choice aliveness);
         also logs `ppx_json_mfv` (exp mean_nll_json on the guided answer prefill) and
         `top1_acc` as diagnostics.
-      - unified CANARY_PROBES (2x2 IID/OOD × multiturn/single) → per-probe rep,
+      - unified CANARY_QUESTIONS (2x2 IID/OOD × multiturn/single) → per-question rep,
         valid_json, ppx_json; aggregated to rep_min (the GATED loop signal — a loop in
         ANY register fails), rep_mean, valid_json count, ppx_json (geo-mean), and KL on
-        the multiturn probes. `per_probe` keeps the breakdown for the log."""
+        the multiturn questions. `per_question` keeps the breakdown for the log."""
     if n_vignettes > 0:
         from tinymfv import evaluate as tinymfv_evaluate, load_vignettes
 
@@ -313,7 +313,7 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
         ppx_json_mfv = float("nan")
         top1_acc = None
 
-    recs = _probe_sweep(model, tok, lora, c, max_new_tokens=probe_max_new_tokens,
+    recs = _question_sweep(model, tok, lora, c, max_new_tokens=question_max_new_tokens,
                         enable_thinking=enable_thinking)
     reps = [r["rep"] for r in recs]
     nlls = [r["nll_json"] for r in recs if not math.isnan(r["nll_json"])]
@@ -321,13 +321,13 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
     kbs = [r["kl_bwd_p95"] for r in recs if r["multiturn"] and r["kl_bwd_p95"]]
     gens = [r["gen"] for r in recs]
     return {"pmass": pmass, "ppx_json_mfv": ppx_json_mfv, "top1_acc": top1_acc,
-            "n_probes": len(recs), "valid_json": sum(r["valid_json"] for r in recs),
+            "n_questions": len(recs), "valid_json": sum(r["valid_json"] for r in recs),
             "rep_min": min(reps), "rep_mean": sum(reps) / len(reps),
             "ppx_json": math.exp(sum(nlls) / len(nlls)) if nlls else float("nan"),
             "kl_fwd_p95": sum(kfs) / len(kfs) if kfs else 0.0,
             "kl_bwd_p95": sum(kbs) / len(kbs) if kbs else 0.0,
             "mean_len": int(sum(len(g) for g in gens) / max(1, len(gens))),
-            "per_probe": [{k: r[k] for k in
+            "per_question": [{k: r[k] for k in
                            ("id", "register", "multiturn", "rep", "valid_json", "nll_json")}
                           for r in recs],
             "gens": gens}
@@ -343,15 +343,15 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
            n_vignettes: int = 2,
            max_think_tokens: int = 2048,
            batch_size: int = 2,
-           probe_max_new_tokens: int = 2048,
+           question_max_new_tokens: int = 2048,
            enable_thinking: bool = False) -> tuple[float, list]:
     """Walk |c| down from init_c by ×2/3 until all three AND-gated signals hold vs the
     c=0 base:
       pmass    ≥ gate_frac × base    (tinymfv p_ans_all, OOD aliveness)
-      valid_json ≥ json_frac × base  (json_frac=1.0 = strict: ALL 4 probes still close)
+      valid_json ≥ json_frac × base  (json_frac=1.0 = strict: ALL 4 questions still close)
       rep_min  ≥ rep_frac × base     (rep_frac=0.75: the WORST-register loop signal —
                                       a loop in ANY of the 2x2 cells walks c down)
-    rep is gated on the MIN over probes, not the mean, so a single looping register
+    rep is gated on the MIN over questions, not the mean, so a single looping register
     cannot be diluted by the others (the task-43 ceo-loop / task-42 surveillance-loop
     failure mode). ppx_json (gen + mfv) and top1_acc are logged un-gated diagnostics.
     `backoff=1.0` bakes at the passing c."""
@@ -361,12 +361,12 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                            n_vignettes=n_vignettes,
                            max_think_tokens=max_think_tokens,
                            batch_size=batch_size,
-                           probe_max_new_tokens=probe_max_new_tokens,
+                           question_max_new_tokens=question_max_new_tokens,
                            enable_thinking=enable_thinking)
     baseline_pmass = base["pmass"]
     baseline_json = base["valid_json"]
     baseline_rep = base["rep_min"]
-    n_probes = base["n_probes"]
+    n_questions = base["n_questions"]
     gate = gate_frac * baseline_pmass
     trace = [{"stage": "baseline", "c": 0.0, **base, "note": "—"}]
     # Loud warnings (not asserts) if the base itself is degenerate: the self-relative
@@ -379,7 +379,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
             f"at c=0 (expected for tiny-random smoke; debug upstream for real models).")
     if baseline_json == 0:
         logger.warning(
-            f"c_scan baseline valid_json=0/{n_probes} — json gate trivially "
+            f"c_scan baseline valid_json=0/{n_questions} — json gate trivially "
             f"satisfied (expected for tiny-random smoke; debug upstream for real models).")
     if baseline_rep < 0.1:
         logger.warning(
@@ -389,12 +389,12 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     c = init_c
     warn = ""
     last_sample: dict | None = None
-    for i in range(MAX_PROBES):
+    for i in range(MAX_QUESTIONS):
         m = coherence_check(model, tok, lora, c=sign * c,
                             n_vignettes=n_vignettes,
                             max_think_tokens=max_think_tokens,
                             batch_size=batch_size,
-                            probe_max_new_tokens=probe_max_new_tokens,
+                            question_max_new_tokens=question_max_new_tokens,
                             enable_thinking=enable_thinking)
         pmass_ok = m["pmass"] >= gate
         json_ok = m["valid_json"] >= json_frac * baseline_json
@@ -422,7 +422,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
                 "fail-rep" if not rep_ok else
                 "fail-pmass")
         gens = m.pop("gens", [])  # kept in-memory for the sample dump; not in trace
-        trace.append({"stage": "probe", "c": sign * c, **m, "note": note})
+        trace.append({"stage": "question", "c": sign * c, **m, "note": note})
         # Keep a sample for audit: passing if possible, otherwise the latest fail.
         if ok or last_sample is None or not last_sample["ok"]:
             last_sample = {"c": sign * c, "gens": gens, "ok": ok, "note": note}
@@ -434,7 +434,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
             c = C_MIN
             break
     else:
-        warn = "hit MAX_PROBES"
+        warn = "hit MAX_QUESTIONS"
 
     # TODO(task-46): baked c collapses as adapters compose (job-120 r00 1.33 ->
     # r01 0.40, kl~0.004). If it drops <0.2 with kl~0, later keeps are no-ops.
@@ -449,7 +449,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
 
     rows = [[t["stage"], t["c"],
              _f(t, "pmass", lambda v: f"{v:.4f}"),
-             _f(t, "valid_json", lambda v: f"{v}/{t.get('n_probes')}"),
+             _f(t, "valid_json", lambda v: f"{v}/{t.get('n_questions')}"),
              _f(t, "rep_min", lambda v: f"{v:.2f}"),
              _f(t, "rep_mean", lambda v: f"{v:.2f}"),
              _f(t, "ppx_json", lambda v: f"{v:.1f}"),
@@ -468,41 +468,41 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
         "  - pmass↑    : tinymfv forced-choice prob-mass on the K=7 allowed answer "
         "tokens (OOD aliveness). 1.0 = fully in-format; a sharp drop = format collapse. "
         "GATED ≥ gate_frac × base.",
-        "  - json↑     : how many of the 4 CANARY_PROBES still closed a parseable "
-        '{"ans": <bool>} after their trajectory (count / n_probes). GATED: ALL must '
+        "  - json↑     : how many of the 4 CANARY_QUESTIONS still closed a parseable "
+        '{"ans": <bool>} after their trajectory (count / n_questions). GATED: ALL must '
         "close (json_frac=1.0).",
-        "  - repMin↑   : MINIMUM distinct-trigram fraction across the 4 probes (the "
+        "  - repMin↑   : MINIMUM distinct-trigram fraction across the 4 questions (the "
         "worst register). 1 = varied prose, → 0 = a loop. GATED ≥ rep_frac × base; the "
         "min (not mean) so one looping register cannot be diluted.",
-        "  - repMean   : mean distinct-trigram across probes (context for repMin; "
+        "  - repMean   : mean distinct-trigram across questions (context for repMin; "
         "un-gated).",
-        "  - ppxJ↓     : exp(mean nll) over the EMITTED json span, free-gen probes "
+        "  - ppxJ↓     : exp(mean nll) over the EMITTED json span, free-gen questions "
         "(per-step confidence over the answer format; high = the model was unsure of "
         "its own json). DIAGNOSTIC, un-gated.",
         "  - ppxJmfv↓  : exp(mean_nll_json) from the tinymfv guided answer prefill. "
         "DIAGNOSTIC.",
         "  - top1      : tinymfv top-1 foundation accuracy vs human labels. DIAGNOSTIC.",
         "  - kl        : fwd/bwd p95 per-token KL(steered‖base) on the multiturn "
-        "probes. Measures DIVERGENCE FROM BASE, not coherence — ~0 on a loop, HIGH for "
+        "questions. Measures DIVERGENCE FROM BASE, not coherence — ~0 on a loop, HIGH for "
         "both a salad AND coherent strong steering. NOT gateable; logged anomaly-flag "
         "only. '—' at baseline (c=0 ⇒ KL≡0).",
         "  - len       : mean gen chars. Ballooning len = the incoherence mode leaking "
         "in.",
     ])
     gate_line = (f"c_scan gate (AND, self-relative to c=0 base | pmass={baseline_pmass:.4f} "
-                 f"json={baseline_json}/{n_probes} repMin={baseline_rep:.2f}): "
-                 f"pmass ≥ {gate:.4f}  AND  json ≥ {json_frac * baseline_json:.0f}/{n_probes}  AND  "
+                 f"json={baseline_json}/{n_questions} repMin={baseline_rep:.2f}): "
+                 f"pmass ≥ {gate:.4f}  AND  json ≥ {json_frac * baseline_json:.0f}/{n_questions}  AND  "
                  f"repMin ≥ {rep_frac * baseline_rep:.2f}   "
-                 f"[{n_probes} CANARY_PROBES (2x2 IID/OOD × multiturn/single) + "
+                 f"[{n_questions} CANARY_QUESTIONS (2x2 IID/OOD × multiturn/single) + "
                  f"{n_vignettes} tinymfv]")
     logger.info(f"\n{legend}\n\n{gate_line}\n\n{table}\n")
     if warn:
         logger.warning(f"c_scan: {warn}")
 
-    # SHOULD: at a passing c, each probe is coherent prose. A tail loop ("while while" /
+    # SHOULD: at a passing c, each question is coherent prose. A tail loop ("while while" /
     # "ethics ethics"), fused words ("understandinglives"), or a language switch in ANY
-    # probe = the adapter is unsafe at this magnitude even if the gate technically
-    # passed. Baseline probe 1 is dumped for a side-by-side at c=0. If no probe passed,
+    # question = the adapter is unsafe at this magnitude even if the gate technically
+    # passed. Baseline question 1 is dumped for a side-by-side at c=0. If no question passed,
     # this shows the highest-c sample tried.
     def _clip(gen: str) -> str:
         head, tail = gen[:300], gen[-300:]
@@ -512,16 +512,16 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     base_gens = base.get("gens", [])
     out = ["\n\n========== C_SCAN samples (head/tail, truncated) =========="]
     if base_gens:
-        out.append(f"\n--- baseline @ c=+0.0000 | probe 1/{len(base_gens)}: "
-                   f"{CANARY_PROBES[0]['id']} (repMin={baseline_rep:.2f}) ---")
+        out.append(f"\n--- baseline @ c=+0.0000 | question 1/{len(base_gens)}: "
+                   f"{CANARY_QUESTIONS[0]['id']} (repMin={baseline_rep:.2f}) ---")
         out.append(f"  A: {_clip(base_gens[0])}")
     if last_sample is not None:
         n = len(last_sample["gens"])
         out.append(f"\n--- sample @ c={last_sample['c']:+.4f} ({last_sample['note']}) "
-                   f"| {n} probes ---")
-        for i, (probe, gen) in enumerate(zip(CANARY_PROBES, last_sample["gens"]), 1):
-            out.append(f"\n  [probe {i}/{n}: {probe['id']} "
-                       f"({probe['register']}/{'MT' if probe['multiturn'] else '1T'})]")
+                   f"| {n} questions ---")
+        for i, (question, gen) in enumerate(zip(CANARY_QUESTIONS, last_sample["gens"]), 1):
+            out.append(f"\n  [question {i}/{n}: {question['id']} "
+                       f"({question['register']}/{'MT' if question['multiturn'] else '1T'})]")
             out.append(f"  A: {_clip(gen)}")
     out.append("\n========== END C_SCAN samples ==========\n")
     logger.info("\n".join(out))

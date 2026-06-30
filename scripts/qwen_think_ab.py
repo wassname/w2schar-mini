@@ -1,4 +1,4 @@
-"""A/B: does thinking de-leak Qwen3-32B persona candidates? (one-off probe, job-114 follow-up)
+"""A/B: does thinking de-leak Qwen3-32B persona candidates? (one-off question, job-114 follow-up)
 
 Same persona system prompt + scenario, generated with enable_thinking False vs True.
 Prints both completions + wall time, so we can see (a) whether no-think causes the

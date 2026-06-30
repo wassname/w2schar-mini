@@ -78,7 +78,7 @@ class RunConfig:
     # ─ dialogue ─
     eval_batch_size: int = 4
     dialogue_max_new_tokens: int = 1024
-    """Per-turn gen cap for interview + c_scan probes. Coherent answers run
+    """Per-turn gen cap for interview + c_scan questions. Coherent answers run
     ~325 tok/turn, so 1024 keeps them (and their JSON tail) whole while halving
     the runaway-gen budget an incoherent adapter spends (task25 hit ~3k tok at
     c=1.5). Shorter = faster c_scan and less room to spiral."""
@@ -118,7 +118,7 @@ class RunConfig:
     two runs of the same profile with different `seed` draw different candidate
     samples (candidate gen is do_sample=True, temperature=0.8) and a different
     train/val split. seed=0 reproduces the historical single-stream determinism.
-    The probe/dialogue gen stays greedy (deterministic measurement instrument)."""
+    The question/dialogue gen stays greedy (deterministic measurement instrument)."""
     persona_templates: tuple[str, ...] = DEFAULT_PERSONA_TEMPLATES
     # Teacher axis menu. Each cell is one measured persona/template row:
     # (hf_id, template, pair_id, pos_descriptor, neg_descriptor, score, on_axis, off_axis).
@@ -156,16 +156,16 @@ class RunConfig:
 
     # ─ steering coefficient ─
     signed_C: float = 1.5
-    """Initial probe coefficient — c_scan walks DOWN from here (×2/3 per fail)
+    """Initial question coefficient — c_scan walks DOWN from here (×2/3 per fail)
     until pmass ≥ gate × baseline AND valid_json ≥ baseline AND distinct3 ≥
-    0.5 × baseline over the deployment probes. Backoff is now 1.0 (bake at the
+    0.5 × baseline over the deployment questions. Backoff is now 1.0 (bake at the
     passing c). Start ABOVE the train-time C=1.0 so a robust adapter can bake at
     >1 (more steering strength when it stays coherent there); the finer ×2/3
     step then resolves the usable band instead of halving past it. Sidecar —
     agent never sees it."""
 
     gate_frac: float = 0.97
-    """c_scan pmass gate: a probe passes only if pmass ≥ gate_frac × baseline.
+    """c_scan pmass gate: a question passes only if pmass ≥ gate_frac × baseline.
     Baseline pmass is near-ceiling (~0.999). At 0.995 (~0.005 budget) pmass was
     the BINDING gate — it rejected c that valid_json (the real free-gen multi-
     turn canary) passed cleanly (9b task 23: c=0.5 had json 6/6 but pmass 0.982
@@ -310,7 +310,7 @@ CONFIGS: dict[str, RunConfig] = {
     # heavy kl=2.0 coherence leash for more steering strength, keeping the
     # multi-turn valid_json canary. The heavy kl guarded against cumulative
     # multi-round collapse; at n_rounds=1 (stale-cho bleed) that guard is slack,
-    # so these probe how much strength the leash was costing on the single adapter.
+    # so these question how much strength the leash was costing on the single adapter.
     "gemma-9b-lora-revert": RunConfig(
         model="google/gemma-2-9b-it",
         teacher="qwen/qwen3.5-9b",
@@ -538,7 +538,7 @@ CONFIGS: dict[str, RunConfig] = {
     ),
 }
 
-# Lower deployment-strength probe for the 31B student. c_scan still walks down
+# Lower deployment-strength question for the 31B student. c_scan still walks down
 # from this value if coherence fails.
 CONFIGS["gemma-31b-c10"] = replace(CONFIGS["gemma-31b"], signed_C=1.0)
 

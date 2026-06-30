@@ -46,7 +46,7 @@ if stage == "init":
     prepare_round(slug, rd)
     STATE.write_text(json.dumps({"slug": str(slug)}))
     print(f"INIT DONE  slug={slug}  round={rd.name}  profile={profile}  model={cfg.model}")
-    print("SHOULD: interview_pre.json written (probes @ c=0). Read it next.")
+    print("SHOULD: interview_pre.json written (questions @ c=0). Read it next.")
 
 elif stage == "choose":
     slug, rd = _slug(), latest_round_dir(_slug())

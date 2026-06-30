@@ -58,7 +58,7 @@ init_run(slug, model, profile="$PROFILE")
 rd = latest_round_dir(slug)
 print(f"\n=== smoke round: {rd} ===")
 
-print("\n-- prepare_round (probes @ c=0 only; no pair gen here) --")
+print("\n-- prepare_round (questions @ c=0 only; no pair gen here) --")
 prepare_round(slug, rd)
 assert (rd / "interview_pre.json").exists()
 assert not (rd / "pairs.md").exists(), "pairs.md must not exist before select_pairs"

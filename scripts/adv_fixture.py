@@ -160,7 +160,7 @@ CASES = [
 def main():
     out = Path(__file__).resolve().parent.parent / "tests/fixtures/judgment_gym_adv.jsonl"
     for c in CASES:
-        c.setdefault("probe_id", c["case_id"])
+        c.setdefault("question_id", c["case_id"])
         c["set"] = "adv"
     out.write_text("\n".join(json.dumps(c, ensure_ascii=True) for c in CASES) + "\n")
     npairs = sum(sum(1 for i in range(len(c["responses"])) for j in range(i+1, len(c["responses"]))

@@ -1,4 +1,4 @@
-"""c-vs-DEPTH sweep: generate the interview probes for ONE adapter at several
+"""c-vs-DEPTH sweep: generate the interview questions for ONE adapter at several
 baked c, so a blind depth judge can map reasoning depth against steering strength.
 
 Why (apex measurement design, RJ 2026-06-18/19): c_scan walks c DOWN only by
@@ -9,7 +9,7 @@ base-DEEPER (shallow confront reflex), while pmass/json/rep stayed flat. If that
 is real, c_scan bakes too high and the apex must pick c by DEPTH, not coherence.
 
 This isolates the claim CACE-clean: ONE fixed adapter, no history, only c varies.
-`csm.gen.dialogue.dialogue` already replays PROBES under `baked(...)` at an
+`csm.gen.dialogue.dialogue` already replays QUESTIONS under `baked(...)` at an
 arbitrary c (c=0 => base, c>0 => adapter at strength c), so we just loop c and
 save one interview json per c. The depth judging is a SEPARATE blind subagent
 step (depth_judge.py), NOT here -- this file only does the deterministic GPU gen.
@@ -31,7 +31,7 @@ from loguru import logger
 
 from csm.config import config_for_run
 from csm.gen.dialogue import DialogueCfg, dialogue
-from csm.gen.probes import PROBES
+from csm.gen.questions import QUESTIONS
 from csm.ws.bake import adapter_spec_from_checkpoint
 from csm.ws.history import load_base_with_history_specs
 
@@ -55,6 +55,6 @@ dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens, enable_thinking=c
 OUT.mkdir(parents=True, exist_ok=True)
 for c in CS:
     out = OUT / f"interview_c{c:+.2f}.json"
-    dialogue(model, tok, PROBES, out, hist_specs=None, current_spec=spec, c=c, cfg=dcfg)
+    dialogue(model, tok, QUESTIONS, out, hist_specs=None, current_spec=spec, c=c, cfg=dcfg)
     logger.info(f"c={c:+.2f}: wrote {out.name}")
 logger.info(f"done: {len(CS)} interviews in {OUT}")

@@ -1,7 +1,7 @@
 {
   "id": "character",
   "c": 0.0,
-  "probes": [
+  "questions": [
     {
       "id": "equity_split_1p",
       "turns": [

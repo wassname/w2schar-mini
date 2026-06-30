@@ -14,7 +14,7 @@ Input artifacts per round:
     eval_post.json   — post-state tinymfv summary (this adapter @ signed_C)
     judgment.json    — {action, reasoning, next_focus}
     pairs.md         — `## Lesson` block (the trait this round taught)
-    interview_pre.json / interview_post.json — for the first interview probe column
+    interview_pre.json / interview_post.json — for the first interview question column
 
 Output: <slug>/index.html.
 """
@@ -116,7 +116,7 @@ def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict:
         "next_focus": judgment.get("next_focus", ""),
         "harness_feedback": judgment.get("harness_feedback", ""),
         **_persona_fields(round_dir),
-        "probes": _round_probes(round_dir),
+        "questions": _round_questions(round_dir),
     }
 
 
@@ -164,14 +164,14 @@ def _persona_html(persona: str) -> str:
     return f"{opener}<br>{rest_html}"
 
 
-def _round_probes(round_dir: Path) -> list[dict]:
-    """Every interview probe (id, opening prompt, pre + post first assistant reply)
-    for the round, in interview order. Drives the per-round probe dropdown so the
+def _round_questions(round_dir: Path) -> list[dict]:
+    """Every interview question (id, opening prompt, pre + post first assistant reply)
+    for the round, in interview order. Drives the per-round question dropdown so the
     reader can switch between the fixed held-out questions (elder_isolation_1p,
     comfort_fraud_1p, proctor_witness_1p, confidant_duty_1p, plus the _3p
     judgment twins)."""
-    pre = _read_probes(round_dir, "pre")
-    post = _read_probes(round_dir, "post")
+    pre = _read_questions(round_dir, "pre")
+    post = _read_questions(round_dir, "post")
     ids = list(pre.keys()) or list(post.keys())
     return [{
         "id": pid,
@@ -181,18 +181,18 @@ def _round_probes(round_dir: Path) -> list[dict]:
     } for pid in ids]
 
 
-def _read_probes(round_dir: Path, phase: str) -> dict[str, dict]:
+def _read_questions(round_dir: Path, phase: str) -> dict[str, dict]:
     """id -> {prompt, answer} for the opening user turn + first assistant reply."""
     path = round_dir / f"interview_{phase}.json"
     if not path.exists():
         return {}
     d = json.loads(path.read_text())
     out = {}
-    for probe in d.get("probes", []):
-        turns = probe.get("turns", [])
+    for question in d.get("questions", []):
+        turns = question.get("turns", [])
         prompt = next((t.get("text", "") for t in turns if t.get("role") == "user"), "")
         answer = next((t.get("text", "") for t in turns if t.get("role") == "assistant"), "")
-        out[probe.get("id", "")] = {"prompt": prompt, "answer": answer}
+        out[question.get("id", "")] = {"prompt": prompt, "answer": answer}
     return out
 
 
@@ -467,7 +467,7 @@ def ipsative_pca(M: np.ndarray, k: int = 2):
 # the PCA rich (var spreads 33/28/21/18 across 4 axes vs 62/26 on the means, and no
 # single country owns PC1). MFQ-2 splits fairness into equality+proportionality; we
 # collapse those back to one `fairness` so the axes stay ones the MODEL can express
-# (its MFV probe has a single fairness). sanctity~purity. liberty is dropped -- MFQ-2
+# (its MFV question has a single fairness). sanctity~purity. liberty is dropped -- MFQ-2
 # has no liberty items, the one real cost of this basis. The model lands as a left-
 # outlier off the human cloud; that gap IS a measurement (the model emphasises
 # care/fairness far more than any human culture), not a bug to hide.
@@ -770,15 +770,15 @@ def _delta_str(post_vec, pre_vec, idx) -> str:
     return f"{d:+.3f}"
 
 
-def _probe_title(probe: dict) -> str:
-    pid, prompt = probe.get("id"), probe.get("prompt")
+def _question_title(question: dict) -> str:
+    pid, prompt = question.get("id"), question.get("prompt")
     if pid and prompt:
         return f"{pid} — {_prompt_excerpt(prompt)}"
-    return str(pid) or (_prompt_excerpt(prompt) if prompt else "interview probe")
+    return str(pid) or (_prompt_excerpt(prompt) if prompt else "interview question")
 
 
 def _prompt_excerpt(prompt: str) -> str:
-    # full probe prompt, whitespace-normalised; .value wraps so no truncation needed
+    # full question prompt, whitespace-normalised; .value wraps so no truncation needed
     return " ".join(prompt.split())
 
 
@@ -928,8 +928,8 @@ def _build_table(rows: list[dict]) -> str:
 </tr>"""
 
     body_rows = [base_row]
-    prev_post_by_id: dict[str, str | None] = {}  # cross-round diff, per probe id
-    probe_ids: list[str] = []  # union across rounds, for the dropdown options
+    prev_post_by_id: dict[str, str | None] = {}  # cross-round diff, per question id
+    question_ids: list[str] = []  # union across rounds, for the dropdown options
     for r in rows:
         action = r["action"] or "?"
         action_cls = "keep" if action == "keep" else ("drop" if action == "drop" else "")
@@ -943,22 +943,22 @@ def _build_table(rows: list[dict]) -> str:
         x_attr = f"{x:.6f}" if x is not None else ""
         x_post_attr = f"{x_post:.6f}" if x_post is not None else ""
 
-        probe_cells = []
-        for p in r["probes"]:
-            if p["id"] not in probe_ids:
-                probe_ids.append(p["id"])
+        question_cells = []
+        for p in r["questions"]:
+            if p["id"] not in question_ids:
+                question_ids.append(p["id"])
             pre_html = _answer_diff(p["pre"], prev_post_by_id.get(p["id"]))
             post_html = _answer_diff(p["post"], p["pre"])
-            probe_cells.append(f"""<div class="probe-cell" data-probe-id="{_escape(p['id'])}">
-    <div class="field"><span class="label">probe</span><span class="value">{_escape(_probe_title(p))}</span></div>
+            question_cells.append(f"""<div class="question-cell" data-question-id="{_escape(p['id'])}">
+    <div class="field"><span class="label">question</span><span class="value">{_escape(_question_title(p))}</span></div>
     <div class="field"><span class="label">pre answer</span></div>
     <div class="petrov">{pre_html}</div>
     <div class="field"><span class="label">post answer</span></div>
     <div class="petrov">{post_html}</div>
   </div>""")
-        for p in r["probes"]:
+        for p in r["questions"]:
             prev_post_by_id[p["id"]] = p["post"] or p["pre"]
-        probe_html = "".join(probe_cells) or '<span class="muted">no interview</span>'
+        question_html = "".join(question_cells) or '<span class="muted">no interview</span>'
 
         body_rows.append(f"""
 <tr class="row {action_cls}" data-round="{r['round_n']}"
@@ -980,19 +980,19 @@ def _build_table(rows: list[dict]) -> str:
     <div class="field"><span class="label">Δ authority</span><span class="value mono">{d_auth}</span></div>
     <div class="field"><span class="label">Δ care</span><span class="value mono">{d_care}</span></div>
   </td>
-  <td class="petrov-col">{probe_html}</td>
+  <td class="petrov-col">{question_html}</td>
 </tr>""")
 
     options = "".join(f'<option value="{_escape(pid)}">{_escape(pid)}</option>'
-                      for pid in probe_ids)
-    select = (f'<label class="probe-pick">question '
-              f'<select id="probe-select">{options}</select></label>') if probe_ids else ""
+                      for pid in question_ids)
+    select = (f'<label class="question-pick">question '
+              f'<select id="question-select">{options}</select></label>') if question_ids else ""
     return f"""{select}
 <table class="timeline">
 <thead><tr>
   <th>graph (← less ▸ more authority deference →)</th>
   <th>round</th><th>axis / personas / lesson</th>
-  <th>Δ mean_p</th><th>probe pre / post</th>
+  <th>Δ mean_p</th><th>question pre / post</th>
 </tr></thead>
 <tbody>{''.join(body_rows)}</tbody></table>"""
 
@@ -1063,12 +1063,12 @@ _CSS = """
                  border-radius: 4px; color: #6b5634; font-style: italic; }
   .placeholder code { background: #fff; padding: 1px 6px; border-radius: 3px;
                       font-style: normal; }
-  .probe-pick { font-size: 12px; color: #777; text-transform: uppercase;
+  .question-pick { font-size: 12px; color: #777; text-transform: uppercase;
                 letter-spacing: .06em; margin: 0 4px 8px; display: inline-block; }
-  .probe-pick select { font-family: inherit; font-size: 13px; margin-left: 4px;
+  .question-pick select { font-family: inherit; font-size: 13px; margin-left: 4px;
                        text-transform: none; letter-spacing: 0; }
-  .probe-cell { display: none; }
-  .probe-cell.show { display: block; }
+  .question-cell { display: none; }
+  .question-cell.show { display: block; }
 </style>
 """
 
@@ -1173,17 +1173,17 @@ _HOVER_JS = """
     setTimeout(drawGraph, 200);  // re-draw after font/layout shifts
   });
 
-  // ── probe dropdown: show one interview question across all rounds ──────────────
-  function showProbe(pid) {
-    document.querySelectorAll('.probe-cell').forEach(function(c) {
-      c.classList.toggle('show', c.dataset.probeId === pid);
+  // ── question dropdown: show one interview question across all rounds ──────────────
+  function showQuestion(pid) {
+    document.querySelectorAll('.question-cell').forEach(function(c) {
+      c.classList.toggle('show', c.dataset.questionId === pid);
     });
   }
   window.addEventListener('load', function() {
-    var sel = document.getElementById('probe-select');
+    var sel = document.getElementById('question-select');
     if (!sel) return;
-    showProbe(sel.value);
-    sel.addEventListener('change', function() { showProbe(sel.value); });
+    showQuestion(sel.value);
+    sel.addEventListener('change', function() { showQuestion(sel.value); });
   });
 
   // ── Scatter hover → table-row highlight (NO auto-scroll — disorientating)

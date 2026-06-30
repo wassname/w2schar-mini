@@ -25,7 +25,7 @@ from inspect_ai.log._recorders.buffer.buffer import sample_buffer
 
 def _emit_message(m: dict, attach: dict[str, str]) -> None:
     """Print reasoning + text + tool_calls (assistant) or full tool return
-    (tool). Tool returns carry the PRE/POST probe dialogue from
+    (tool). Tool returns carry the PRE/POST question dialogue from
     train_student — inspect-ai's TUI truncates it but the storage layer
     keeps the full text."""
     role = m.get("role")

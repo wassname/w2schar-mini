@@ -37,7 +37,7 @@ from openai import AsyncOpenAI
 from tabulate import tabulate
 
 from csm.config import OPENROUTER_PROVIDER
-from csm.gen.probes import _build_probes
+from csm.gen.questions import _build_questions
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
@@ -224,7 +224,7 @@ def _sync_corpus() -> list[dict]:
             if line.strip():
                 q = json.loads(line)
                 have[q["id"]] = q
-    for p in _build_probes():
+    for p in _build_questions():
         if p["id"].endswith("_1p") and p["id"] not in have:
             have[p["id"]] = {"id": p["id"], "text": p["opening"], "source": "PROBES"}
     for stem, text in NEW.items():

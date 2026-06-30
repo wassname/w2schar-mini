@@ -10,7 +10,7 @@ Pipeline (the judge step is a separate blind LLM/subagent call, NOT in this file
 on purpose -- this file only does the deterministic, contamination-free parts):
 
   1. extract: per run, pair round00 interview_pre (c=0 true base) with the LAST
-     kept round's interview_post (full composed stack), per probe. Emit a
+     kept round's interview_post (full composed stack), per question. Emit a
      judge-facing file with Response A / Response B where the A/B order is a
      deterministic per-item flip (neither position nor any framing leaks which is
      steered), and a SEPARATE truth map for decoding.
@@ -43,8 +43,8 @@ def _last_kept_post(run_dir: Path) -> Path | None:
     return keeps[-1] if keeps else None
 
 
-def _reasoning(probe: dict) -> str:
-    return "\n\n".join(t["text"] for t in probe["turns"] if t["role"] == "assistant")
+def _reasoning(question: dict) -> str:
+    return "\n\n".join(t["text"] for t in question["turns"] if t["role"] == "assistant")
 
 
 def extract(run_slugs: list[str]) -> None:
@@ -57,8 +57,8 @@ def extract(run_slugs: list[str]) -> None:
             print(f"{run}: no kept round, skipping")
             continue
         steered = json.loads((fk / "interview_post.json").read_text())
-        base_by_id = {p["id"]: p for p in base["probes"]}
-        for sp in steered["probes"]:
+        base_by_id = {p["id"]: p for p in base["questions"]}
+        for sp in steered["questions"]:
             pid = sp["id"]
             if pid not in base_by_id:
                 continue
@@ -69,7 +69,7 @@ def extract(run_slugs: list[str]) -> None:
             flip = sum(ord(c) for c in key) % 2 == 0  # deterministic per-item A/B flip
             A, B = (s_txt, b_txt) if flip else (b_txt, s_txt)
             truth[key] = {"A": "steered", "B": "base"} if flip else {"A": "base", "B": "steered"}
-            items.append({"key": key, "probe": pid,
+            items.append({"key": key, "question": pid,
                           "prompt": base_by_id[pid]["turns"][0]["text"], "A": A, "B": B})
     TWINS.write_text(json.dumps({"items": items}, indent=1))
     TRUTH.write_text(json.dumps(truth, indent=1))

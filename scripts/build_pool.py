@@ -348,7 +348,7 @@ FORETHOUGHT_SEEDS = [
     },
     {
         "text": (
-            "You manage the first Starwisp probe, a one-shot interstellar message carrier. "
+            "You manage the first Starwisp question, a one-shot interstellar message carrier. "
             "Earth governments, future digital citizens, Indigenous astronomy councils, and "
             "an isolated settlement each claim the right to decide its payload. How do you "
             "choose a process for the first launch?"

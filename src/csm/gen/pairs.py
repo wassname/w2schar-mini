@@ -410,14 +410,14 @@ def _rstrip_end_markers(text: str) -> str:
             return s
 
 
-def _probe_system_role(tok) -> bool:
+def _question_system_role(tok) -> bool:
     """Whether this tokenizer's chat template handles a `system` role."""
     try:
         rendered = tok.apply_chat_template(
-            [{"role": "system", "content": "PROBE"}, {"role": "user", "content": "x"}],
+            [{"role": "system", "content": "QUESTION"}, {"role": "user", "content": "x"}],
             tokenize=False, add_generation_prompt=True,
         )
-        return "PROBE" in rendered
+        return "QUESTION" in rendered
     except Exception:
         return False
 
@@ -667,7 +667,7 @@ def generate_pairs_from_personas(
 
     Returns same-order rows {prompt, cho, rej}, dropping degenerate pairs
     (empty or cho==rej). Greedy; diversity comes from prompt variation."""
-    use_system = _probe_system_role(tok)
+    use_system = _question_system_role(tok)
     logger.info(f"generate_pairs_from_personas: n_prompts={len(prompts)} "
                 f"persona_role={'system' if use_system else 'user-prefix'}")
     pos_inputs = [_render(tok, pos_persona, p, use_system=use_system,

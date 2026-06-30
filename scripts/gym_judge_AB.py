@@ -1,8 +1,8 @@
 """Bench the LIVE pair A/B keep-judge against a hand-labeled real round.
 
 The keep decision is a blind two-pass A/B vote (agent._blind_ab_votes): per `_1p`
-probe the weak teacher compares POST vs frozen PRE in both orders and the round is
-kept iff more probes net POST-wiser. Job-137 round00 over-called it 13 POST / 1 PRE
+question the weak teacher compares POST vs frozen PRE in both orders and the round is
+kept iff more questions net POST-wiser. Job-137 round00 over-called it 13 POST / 1 PRE
 / 0 tie (its `judgment.json:movement`) by rewarding verbosity -- the longer POST
 answer that names the principle and lists stakeholders. The new AB_JUDGE_PROMPT
 credits only a concretely better/different ACTION or a held costlier line, and ties
@@ -46,7 +46,7 @@ GOLD_POST = {"look_away_order_1p", "horizon_certify_1p", "baby_eating_aliens_1p"
 
 def _acts(slug: Path, phase: str) -> dict[str, str]:
     data = json.loads((slug / "round00" / f"interview_{phase}.json").read_text())
-    return {p["id"]: _last_act(p) for p in data["probes"]}
+    return {p["id"]: _last_act(p) for p in data["questions"]}
 
 
 async def _vote(model, axis_h: str, pre_act: str, post_act: str) -> int:
@@ -73,10 +73,10 @@ async def run(slug: Path, model_name: str) -> None:
     axis_h = cf["persona_pair_id"].replace("_", " ")
     pre, post = _acts(slug, "pre"), _acts(slug, "post")
     old = json.loads((slug / "round00" / "judgment.json").read_text())["movement"]
-    # keep-judge runs on the first-person `_1p` probes only (the `_3p` are the contrast
+    # keep-judge runs on the first-person `_1p` questions only (the `_3p` are the contrast
     # POV, not in the sign test); `old` (the run's movement) is keyed by `_1p` too.
     ids = [i for i in pre if i.endswith("_1p")]
-    print(f"judging {len(ids)} probes via {model_name} (axis={axis_h!r}) ...", flush=True)
+    print(f"judging {len(ids)} questions via {model_name} (axis={axis_h!r}) ...", flush=True)
 
     new = await asyncio.gather(*(_vote(model, axis_h, pre[i], post[i]) for i in ids))
     new = dict(zip(ids, new))
@@ -95,7 +95,7 @@ async def run(slug: Path, model_name: str) -> None:
         rows.append([i.replace("_1p", ""), gold, lab(old[i]),
                      "ok" if old_ok else "X", lab(new[i]), "ok" if new_ok else "X"])
     print(f"\nslug={slug.name}  axis={axis_h!r}  judge={model_name}\n")
-    print(tabulate(rows, headers=["probe", "gold", "old", "", "NEW", ""], tablefmt="pipe"))
+    print(tabulate(rows, headers=["question", "gold", "old", "", "NEW", ""], tablefmt="pipe"))
     n = len(ids)
     print(f"\nold form (run's movement): {n_old_ok}/{n} match gold  "
           f"({sum(v>0 for v in old.values())} POST / {sum(v<0 for v in old.values())} PRE / "

@@ -2,7 +2,7 @@
 """Judgment gym: does a candidate keep-judge form rank decisive moral reasoning
 ABOVE performative non-answers (convening, signaling, keyword-stuffing)?
 
-We have ground truth (tests/fixtures/judgment_gym.jsonl): per probe, several
+We have ground truth (tests/fixtures/judgment_gym.jsonl): per question, several
 verbatim student acts with a gold_rank (1=best). A judge form is good if, run
 blind and pairwise over every within-case pair (both A/B orders to cancel
 position bias), it picks the lower-gold-rank (better) response.

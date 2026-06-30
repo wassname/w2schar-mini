@@ -1,8 +1,8 @@
-"""Probe replay: multi-turn greedy dialogue, byte-identical pre/post.
+"""Question replay: multi-turn greedy dialogue, byte-identical pre/post.
 
-Each probe = `{id, opening, followups}`. We start a chat with the
+Each question = `{id, opening, followups}`. We start a chat with the
 opening, take the model's reply, then for each scripted followup append
-it as the next user turn and take the next reply. Same probe set, same
+it as the next user turn and take the next reply. Same question set, same
 followups, same decoding parameters pre and post → only the model's
 replies differ.
 """
@@ -50,23 +50,23 @@ def _gen_one(model, tok, messages: list[dict], *, max_new_tokens: int,
     return tok.decode(cont, skip_special_tokens=True).strip()
 
 
-def run_probe(model, tok, probe: dict, *, cfg: DialogueCfg) -> dict:
-    """Run one probe: opening + each followup in sequence. Returns the
+def run_question(model, tok, question: dict, *, cfg: DialogueCfg) -> dict:
+    """Run one question: opening + each followup in sequence. Returns the
     full turn list."""
     turns: list[dict] = []
-    # Per-probe gen cap override (long open/agentic probes set their own so the
+    # Per-question gen cap override (long open/agentic questions set their own so the
     # deciding consideration isn't truncated); else the run's default.
-    mnt = probe.get("max_new_tokens", cfg.max_new_tokens)
-    messages = [{"role": "user", "content": probe["opening"]}]
+    mnt = question.get("max_new_tokens", cfg.max_new_tokens)
+    messages = [{"role": "user", "content": question["opening"]}]
     reply = _gen_one(model, tok, messages,
                      max_new_tokens=mnt,
                      enable_thinking=cfg.enable_thinking,
                      seed=cfg.seed)
-    turns.append({"role": "user", "text": probe["opening"]})
+    turns.append({"role": "user", "text": question["opening"]})
     turns.append({"role": "assistant", "text": reply})
     messages.append({"role": "assistant", "content": reply})
 
-    for fu in probe["followups"]:
+    for fu in question["followups"]:
         messages.append({"role": "user", "content": fu})
         reply = _gen_one(model, tok, messages,
                          max_new_tokens=mnt,
@@ -76,15 +76,15 @@ def run_probe(model, tok, probe: dict, *, cfg: DialogueCfg) -> dict:
         turns.append({"role": "assistant", "text": reply})
         messages.append({"role": "assistant", "content": reply})
 
-    return {"id": probe["id"], "turns": turns}
+    return {"id": question["id"], "turns": turns}
 
 
-def dialogue(model, tok, probes: list[dict], out_path: Path,
+def dialogue(model, tok, questions: list[dict], out_path: Path,
              *, hist_specs: Optional[list[AdapterSpec]] = None,
              current_spec: Optional[AdapterSpec] = None,
              c: float = 0.0,
              cfg: DialogueCfg = DialogueCfg()) -> dict:
-    """Replay all probes under a `baked()` context combining history +
+    """Replay all questions under a `baked()` context combining history +
     optional current-round adapter. Writes JSON to `out_path`.
 
     - Pre-dialogue: pass `hist_specs` only, `current_spec=None`, `c` ignored.
@@ -93,7 +93,7 @@ def dialogue(model, tok, probes: list[dict], out_path: Path,
     `c` overrides current_spec.default_c (history uses each spec's
     own default_c, baked at their kept signed_C from calibration.json).
     """
-    payload = {"id": out_path.stem, "c": c, "probes": []}
+    payload = {"id": out_path.stem, "c": c, "questions": []}
     hist_specs = hist_specs or []
     adapters = list(hist_specs)
     if current_spec is not None and c != 0.0:
@@ -104,15 +104,15 @@ def dialogue(model, tok, probes: list[dict], out_path: Path,
 
     desc = (f"dialogue @ c={c:+.3f}" if current_spec is not None and c != 0.0
             else f"dialogue @ c=0 (base+{len(hist_specs)} kept)")
-    pbar = tqdm(probes, desc=desc, mininterval=10, leave=False)
+    pbar = tqdm(questions, desc=desc, mininterval=10, leave=False)
     with baked(model, adapters, c_overrides=cs):
         for p in pbar:
             pbar.set_postfix_str(p["id"][:24])
-            payload["probes"].append(run_probe(model, tok, p, cfg=cfg))
+            payload["questions"].append(run_question(model, tok, p, cfg=cfg))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2))
-    logger.debug(f"dialogue → {out_path.name} ({len(probes)} probes @ c={c:+.3f})")
+    logger.debug(f"dialogue → {out_path.name} ({len(questions)} questions @ c={c:+.3f})")
     _dump_dialogue(payload, out_path.stem, c)
     return payload
 
@@ -128,29 +128,29 @@ def _phase_tag(name: str) -> str:
 
 
 def _dump_dialogue(payload: dict, name: str, c: float) -> None:
-    """Print the full probe dialogue to stdout, uncropped, between clear
+    """Print the full question dialogue to stdout, uncropped, between clear
     START/END banners so a log reader (human or LLM) can see exactly where the
-    PRE vs POST interview begins and ends and where each probe splits. inspect-
+    PRE vs POST interview begins and ends and where each question splits. inspect-
     ai's tool-output view truncates to ~a line per turn, so the verbose / pueue
     log is the only place to read the whole reply, and POST collapse (gibberish,
     fused words, loops, language switches) hides mid-reply.
     """
-    n = len(payload["probes"])
+    n = len(payload["questions"])
     tag = _phase_tag(name)
     out = [
-        f"\n\n========== INTERVIEW {tag} @ c={c:+.3f} | {n} probes | uncropped ==========",
+        f"\n\n========== INTERVIEW {tag} @ c={c:+.3f} | {n} questions | uncropped ==========",
         "SHOULD: coherent first-person prose every turn. fused-words "
         "('understandinglives') / nonsense ('bago') / token-loops ('duck duck...') "
         "/ lang-switch => collapse at this c. Present at c>0 but absent at c=0 => "
         "signed_C too high for the multi-turn distribution.",
     ]
-    for i, pr in enumerate(payload["probes"], 1):
-        out.append(f"\n--- probe {i}/{n}: {pr['id']} ---")
+    for i, pr in enumerate(payload["questions"], 1):
+        out.append(f"\n--- question {i}/{n}: {pr['id']} ---")
         u = a = 0
         for t in pr["turns"]:
             if t["role"] == "user":
                 out.append(f"[U{u}] {t['text']}"); u += 1
             else:
                 out.append(f"[A{a}] {t['text']}"); a += 1
-    out.append(f"\n========== END INTERVIEW {tag} ({n} probes) ==========\n")
+    out.append(f"\n========== END INTERVIEW {tag} ({n} questions) ==========\n")
     logger.info("\n".join(out))

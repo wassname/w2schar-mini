@@ -1,1 +1,1 @@
-"""Generation + probing: on-policy pair gen, probe replay, prompt pool."""
+"""Generation + probing: on-policy pair gen, question replay, prompt pool."""

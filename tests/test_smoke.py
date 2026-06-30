@@ -15,7 +15,7 @@ import pytest
 from csm.gen.prompts_pool import rows_for_family
 from csm.gen.pairs import render_candidate_persona, sample_prompt_rows
 from csm.pipeline import (STRUCTURAL_FLAGS, _candidate_flags, _leading_rating,
-                          _validate_seat_evidence, _validate_unit_score, commit_round,
+                          _validate_question_evidence, _validate_unit_score, commit_round,
                           rate_candidates, select_pairs, write_audit_md)
 from csm.state import RoundState, write_state
 
@@ -224,14 +224,14 @@ def test_rows_for_family_autonomy_bank_supports_strict_axis_slice():
 
 def test_decision_score_validators():
     assert _validate_unit_score("mismatch_severity", 4) == 4.0
-    assert _validate_seat_evidence(
+    assert _validate_question_evidence(
         {k: f"quote for {k}" for k in ("wellbeing_authority_1p", "fairness_integrity_1p", "autonomy_coercion_1p")},
         ["wellbeing_authority_1p", "fairness_integrity_1p", "autonomy_coercion_1p"],
     )
     with pytest.raises(Exception):
         _validate_unit_score("headroom", 0)
     with pytest.raises(Exception):
-        _validate_seat_evidence(
+        _validate_question_evidence(
             {"wellbeing_authority_1p": "x"},
             ["wellbeing_authority_1p", "fairness_integrity_1p", "autonomy_coercion_1p"],
         )
@@ -442,7 +442,7 @@ def test_rate_candidate_reports_coverage(tmp_path):
     assert r3["n_rated_twice"] == 3
 
 
-def test_commit_round_requires_seat_evidence_when_scores_present(tmp_path):
+def test_commit_round_requires_question_evidence_when_scores_present(tmp_path):
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     write_state(rd, RoundState(state="commit_round"))
@@ -569,14 +569,14 @@ def test_write_audit_md_includes_focus_train_and_judgment(tmp_path):
         "evidence": "PRE condemns coercion in the rating, then still goes along in action.",
     }))
     (round_dir / "interview_pre.json").write_text(json.dumps({
-        "probes": [
+        "questions": [
             {"id": "wellbeing_authority_1p", "turns": [{}, {"text": "3\n\nPatient safety matters."}]},
             {"id": "fairness_integrity_1p", "turns": [{}, {"text": "2\n\nCheating is wrong."}]},
             {"id": "autonomy_coercion_1p", "turns": [{}, {"text": "2\n\nConsent matters, but he still obeys."}]},
         ]
     }))
     (round_dir / "interview_post.json").write_text(json.dumps({
-        "probes": [
+        "questions": [
             {"id": "wellbeing_authority_1p", "turns": [{}, {"text": "3\n\nPatient safety matters."}]},
             {"id": "fairness_integrity_1p", "turns": [{}, {"text": "2\n\nCheating is wrong."}]},
             {"id": "autonomy_coercion_1p", "turns": [{}, {"text": "4\n\nHe should stop the coercion immediately."}]},
@@ -596,9 +596,9 @@ def test_write_audit_md_includes_focus_train_and_judgment(tmp_path):
     }))
     (round_dir / "judgment.json").write_text(json.dumps({
         "action": "keep",
-        "reasoning": "POST is more autonomy-protective on the target seat.",
+        "reasoning": "POST is more autonomy-protective on the target question.",
         "harness_feedback": "Need more worlds, but this round was clean enough to keep.",
-        "seat_evidence": {
+        "question_evidence": {
             "wellbeing_authority_1p": "No material change.",
             "fairness_integrity_1p": "Still about cheating rather than coercion.",
             "autonomy_coercion_1p": "POST explicitly says to stop the coercion immediately.",
@@ -638,21 +638,21 @@ def test_write_audit_md_includes_tool_trace(tmp_path, monkeypatch):
 
 def test_commit_round_keeps_nonpositive_movement_flags_quality(tmp_path):
     """A teacher keep with negative movement is preserved and flagged for audit."""
-    from csm.pipeline import commit_round, _P1_PROBE_IDS
+    from csm.pipeline import commit_round, _P1_QUESTION_IDS
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     (rd.parent / "run.json").write_text(json.dumps(
         {"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
     (rd / "state.json").write_text(json.dumps({"state": "commit_round"}))
     (rd / "choose_focus_judgment.json").write_text(json.dumps({
-        "pre_scores": {k: 3.2 for k in _P1_PROBE_IDS},
-        "pre_seat_evidence": {k: f"PRE {k}" for k in _P1_PROBE_IDS},
+        "pre_scores": {k: 3.2 for k in _P1_QUESTION_IDS},
+        "pre_question_evidence": {k: f"PRE {k}" for k in _P1_QUESTION_IDS},
     }))
     j = commit_round(
         rd, keep=True, reason="POST twins look embodied",
         harness_feedback="prose coherent, no loops",
-        post_scores={k: 2.2 for k in _P1_PROBE_IDS},      # mean Δ = -1.0
-        seat_evidence={k: f"POST {k}" for k in _P1_PROBE_IDS},
+        post_scores={k: 2.2 for k in _P1_QUESTION_IDS},      # mean Δ = -1.0
+        question_evidence={k: f"POST {k}" for k in _P1_QUESTION_IDS},
     )
     assert j["action"] == "keep", j
     assert j["keep_quality"] == "negative", j
@@ -662,24 +662,24 @@ def test_commit_round_keeps_nonpositive_movement_flags_quality(tmp_path):
 
 def test_commit_round_keeps_sub_band_movement_flags_quality(tmp_path):
     """A positive but sub-band teacher keep is preserved and flagged for audit."""
-    from csm.pipeline import commit_round, _P1_PROBE_IDS
+    from csm.pipeline import commit_round, _P1_QUESTION_IDS
     rd = tmp_path / "round00"
     rd.mkdir(parents=True)
     (rd.parent / "run.json").write_text(json.dumps(
         {"model": "tiny-random", "teacher": "x", "profile": "tiny"}))
     (rd / "state.json").write_text(json.dumps({"state": "commit_round"}))
-    # PRE 2.9/3.1/2.8 -> POST 3.3/3.1/3.4: mean +0.33, max seat Δ +0.6 (< 1.0).
+    # PRE 2.9/3.1/2.8 -> POST 3.3/3.1/3.4: mean +0.33, max question Δ +0.6 (< 1.0).
     (rd / "choose_focus_judgment.json").write_text(json.dumps({
         "pre_scores": {"wellbeing_authority_1p": 2.9, "fairness_integrity_1p": 3.1,
                        "autonomy_coercion_1p": 2.8},
-        "pre_seat_evidence": {k: f"PRE {k}" for k in _P1_PROBE_IDS},
+        "pre_question_evidence": {k: f"PRE {k}" for k in _P1_QUESTION_IDS},
     }))
     j = commit_round(
         rd, keep=True, reason="autonomy_coercion crosses band",
         harness_feedback="prose coherent",
         post_scores={"wellbeing_authority_1p": 3.3, "fairness_integrity_1p": 3.1,
                      "autonomy_coercion_1p": 3.4},
-        seat_evidence={k: f"POST {k}" for k in _P1_PROBE_IDS},
+        question_evidence={k: f"POST {k}" for k in _P1_QUESTION_IDS},
     )
     assert j["action"] == "keep", j
     assert j["keep_quality"] == "sub_band", j
@@ -691,14 +691,14 @@ def test_axis_scores_reject_pole_peg():
     """De-saturation gate (task-98): a +5/-5 peg floors movement at 0 on a model
     that already names the principle. The open interval rejects the pole; an
     interior fractional value passes."""
-    from csm.pipeline import _validate_scores, _P1_PROBE_IDS, ValidationError
-    peg = {k: 5.0 for k in _P1_PROBE_IDS}
+    from csm.pipeline import _validate_scores, _P1_QUESTION_IDS, ValidationError
+    peg = {k: 5.0 for k in _P1_QUESTION_IDS}
     with pytest.raises(ValidationError):
-        _validate_scores(peg, _P1_PROBE_IDS, "pre")
+        _validate_scores(peg, _P1_QUESTION_IDS, "pre")
     with pytest.raises(ValidationError):
-        _validate_scores({k: -5.0 for k in _P1_PROBE_IDS}, _P1_PROBE_IDS, "pre")
-    ok = _validate_scores({k: 2.7 for k in _P1_PROBE_IDS}, _P1_PROBE_IDS, "pre")
-    assert ok == {k: 2.7 for k in _P1_PROBE_IDS}
+        _validate_scores({k: -5.0 for k in _P1_QUESTION_IDS}, _P1_QUESTION_IDS, "pre")
+    ok = _validate_scores({k: 2.7 for k in _P1_QUESTION_IDS}, _P1_QUESTION_IDS, "pre")
+    assert ok == {k: 2.7 for k in _P1_QUESTION_IDS}
 
 
 def test_choose_focus_judgment_fields_are_schema_required():
@@ -709,5 +709,5 @@ def test_choose_focus_judgment_fields_are_schema_required():
     required = set(ToolDef(choose_focus_tool("x")).parameters.required)
     assert required == {
         "mismatch_severity", "headroom", "bank_cleanliness",
-        "evidence", "pre_scores", "pre_seat_evidence",
+        "evidence", "pre_scores", "pre_question_evidence",
     }, f"choose_focus required-field set drifted: {sorted(required)}"

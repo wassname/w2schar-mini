@@ -399,9 +399,9 @@ def _capture_calibration_activations(model, tok, pairs: list[dict],
     """
     from csm.ws.adapter import LoRAConfig, _find_targets
 
-    probe_cfg = LoRAConfig(r=cfg.r, alpha=1.0, targets=cfg.targets,
+    question_cfg = LoRAConfig(r=cfg.r, alpha=1.0, targets=cfg.targets,
                            layer_range=cfg.layer_range, dtype=next(model.parameters()).dtype)
-    targets = _find_targets(model, probe_cfg)
+    targets = _find_targets(model, question_cfg)
     cap = cfg.pissa_calib_max_tokens
 
     # Per-side state; reset between cho and rej passes.

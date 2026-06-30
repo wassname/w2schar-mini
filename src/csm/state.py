@@ -28,7 +28,7 @@ def allowed_after(state: State) -> str:
     if state == "train_student":
         return "train_student()  (or commit_round(reason=...) before training to abort the round)"
     if state == "commit_round":
-        return "commit_round(reason, next_focus, harness_feedback, question_evidence)  # blind pair A/B judge decides keep/drop for you (keep iff more probes POST-wiser)"
+        return "commit_round(reason, next_focus, harness_feedback, question_evidence)  # blind pair A/B judge decides keep/drop for you (keep iff more questions POST-wiser)"
     return "(round complete — harness will allocate the next round or stop)"
 
 

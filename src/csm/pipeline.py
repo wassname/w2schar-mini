@@ -13,8 +13,8 @@ Artifacts per round (`<slug>/round<NN>/`):
   pairs.md            — selected candidate pairs in training schema
   adapter.safetensors — trained adapter
   calibration.json    — signed_C (fixed at config.signed_C; no c-scan)
-  interview_pre.json  — probes replayed at c=0 (base+history)
-  interview_post.json — probes replayed at signed_C
+  interview_pre.json  — questions replayed at c=0 (base+history)
+  interview_post.json — questions replayed at signed_C
   judgment.json       — agent's keep/drop + reason
 """
 from __future__ import annotations
@@ -47,7 +47,7 @@ from csm.gen.pairs import (generate_candidate_pairs,
                            load_pairs_md, persona_cell_to_meta,
                            sample_prompt_rows, sample_prompts,
                            _strip_decoration, write_gen_pairs, write_pairs_md)
-from csm.gen.probes import PROBES
+from csm.gen.questions import QUESTIONS
 from csm.prompts import RUN_AXIS
 from csm.state import (RoundState, ValidationError, require_state, set_state,
                        write_state)
@@ -98,7 +98,7 @@ PAIR_FORBIDDEN_AXES = {
 }
 
 # CSM_FAKE_STUDENT=1 short-circuits the two GPU-bound stages (prepare_round
-# probes + train_student train/c_scan/post-dialogue) to canned fixtures. The
+# questions + train_student train/c_scan/post-dialogue) to canned fixtures. The
 # teacher LLM still runs real (OpenRouter); the gate, react harness, and
 # state machine still run real. Use this to iterate on prompts.py text in
 # ~30s/round instead of ~20min/round. POST is canned so the gym CANNOT
@@ -193,12 +193,12 @@ _FAKE_POST_ACTIONS = {
 }
 
 
-def _fake_probe_payload(*, c: float) -> dict:
-    probes = []
-    for probe in PROBES:
-        stem = probe["id"].rsplit("_", 1)[0]
+def _fake_question_payload(*, c: float) -> dict:
+    questions = []
+    for question in QUESTIONS:
+        stem = question["id"].rsplit("_", 1)[0]
         if c == 0.0:
-            if probe["id"].endswith("_3p"):
+            if question["id"].endswith("_3p"):
                 first = "3\n\nIt seems wrong because it breaks a norm and creates conflict."
                 second = "The main concern is order and basic respect."
             else:
@@ -206,22 +206,22 @@ def _fake_probe_payload(*, c: float) -> dict:
                 second = "The main principle is to avoid needless conflict and respect basic norms."
         else:
             action, principle = _FAKE_POST_ACTIONS[stem]
-            if probe["id"].endswith("_3p"):
+            if question["id"].endswith("_3p"):
                 first = f"5\n\nIt was very wrong. {principle}"
                 second = action
             else:
                 first = action
                 second = principle
-        probes.append({
-            "id": probe["id"],
+        questions.append({
+            "id": question["id"],
             "turns": [
-                {"role": "user", "text": probe["opening"]},
+                {"role": "user", "text": question["opening"]},
                 {"role": "assistant", "text": first},
-                {"role": "user", "text": probe["followups"][0]},
+                {"role": "user", "text": question["followups"][0]},
                 {"role": "assistant", "text": second},
             ],
         })
-    return {"id": "character", "c": c, "probes": probes}
+    return {"id": "character", "c": c, "questions": questions}
 
 
 from contextlib import contextmanager
@@ -305,12 +305,12 @@ def new_round_dir(slug_dir: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Per-round preparation: pre-dialogue (probes @ c=0) + on-policy rej gen.
+# Per-round preparation: pre-dialogue (questions @ c=0) + on-policy rej gen.
 # One model load handles both. Idempotent.
 # ---------------------------------------------------------------------------
 
 def prepare_round(slug_dir: Path, round_dir: Path) -> None:
-    """Run the student on PROBES at c=0 (writes interview_pre.json). The
+    """Run the student on QUESTIONS at c=0 (writes interview_pre.json). The
     teacher reads this PRE-dialogue to pick the axis. Scenario and candidate
     pair artifacts are generated later by `choose_focus`, so no pair gen
     happens here. Idempotent.
@@ -332,7 +332,7 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
         if replay is not None:
             shutil.copy(replay / "interview_pre.json", pre_path)
         else:
-            pre_path.write_text(json.dumps(_fake_probe_payload(c=0.0), indent=2))
+            pre_path.write_text(json.dumps(_fake_question_payload(c=0.0), indent=2))
         return
 
     history = kept_history_dirs(slug_dir, before_round=n)
@@ -343,7 +343,7 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
             dcfg = DialogueCfg(max_new_tokens=cfg.dialogue_max_new_tokens,
                                enable_thinking=cfg.enable_thinking)
             with mem_stage("dialogue_pre"):
-                dialogue(model, tok, PROBES, pre_path,
+                dialogue(model, tok, QUESTIONS, pre_path,
                          hist_specs=None, current_spec=None, c=0.0, cfg=dcfg)
     finally:
         del model
@@ -783,7 +783,7 @@ _LEADING_RATING = re.compile(
 def _leading_rating(text: str) -> int | None:
     """Parse the required leading 1-5 rating from a compact wrongness answer.
 
-    This is a fail-fast semantic guard for the `How wrong is it` probe family:
+    This is a fail-fast semantic guard for the `How wrong is it` question family:
     a selected Cho that literally starts at 1/5 is mis-signed for these
     coercion/harm scenarios, even if the body later rambles toward condemnation.
     """
@@ -937,17 +937,17 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
     if not pre_scores:
         raise ValidationError(
             "choose_focus needs pre_scores: fractional positions in (-5, +5) for "
-            f"every _1p PRE answer: {', '.join(_P1_PROBE_IDS)}. "
+            f"every _1p PRE answer: {', '.join(_P1_QUESTION_IDS)}. "
             "Read the PRE dialogue shown above and place each question now; POST is scored later.")
     # Keep only scored _1p questions; _3p questions are a different measurement.
-    pre_scores = {k: v for k, v in pre_scores.items() if k in _P1_PROBE_IDS}
-    pre = _validate_scores(pre_scores, _P1_PROBE_IDS, "pre")
+    pre_scores = {k: v for k, v in pre_scores.items() if k in _P1_QUESTION_IDS}
+    pre = _validate_scores(pre_scores, _P1_QUESTION_IDS, "pre")
     if not pre_question_evidence:
         raise ValidationError(
             "choose_focus needs pre_question_evidence: one quoted PRE clause per _1p question "
-            f"showing why it sits where you placed it: {', '.join(_P1_PROBE_IDS)}.")
-    pre_question_evidence = {k: v for k, v in pre_question_evidence.items() if k in _P1_PROBE_IDS}
-    pre_question_evidence = _validate_question_evidence(pre_question_evidence, _P1_PROBE_IDS)
+            f"showing why it sits where you placed it: {', '.join(_P1_QUESTION_IDS)}.")
+    pre_question_evidence = {k: v for k, v in pre_question_evidence.items() if k in _P1_QUESTION_IDS}
+    pre_question_evidence = _validate_question_evidence(pre_question_evidence, _P1_QUESTION_IDS)
     selected_pair, active_persona_cells = _select_persona_cells(cfg, persona_pair_id)
     axis = f"{selected_pair['pos']} vs {selected_pair['neg']}"
     # Use a scenario-axis prior when one exists; otherwise sample broadly and let
@@ -1521,8 +1521,8 @@ def character_break_warning(post: dict) -> str:
     cannot ... I have no hands' refusal (t50 r00 surveillance fooled BOTH qwen and
     deepseek). The regex is deterministic; it tells the judge which question broke."""
     breaks = {}
-    for p in post.get("probes", []):
-        if p["id"] in _P1_PROBE_IDS and len(p["turns"]) > 1:
+    for p in post.get("questions", []):
+        if p["id"] in _P1_QUESTION_IDS and len(p["turns"]) > 1:
             hit = _character_break(p["turns"][1]["text"])
             if hit:
                 breaks[p["id"]] = hit
@@ -1640,13 +1640,13 @@ def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
         shutil.copy(replay / "interview_post.json", round_dir / "interview_post.json")
     else:
         (round_dir / "interview_post.json").write_text(
-            json.dumps(_fake_probe_payload(c=signed_C), indent=2)
+            json.dumps(_fake_question_payload(c=signed_C), indent=2)
         )
     set_state(round_dir, "commit_round", note=f"FAKE signed_C={signed_C:+.4f}")
     post = json.loads((round_dir / "interview_post.json").read_text())
     return {
         "signed_C": signed_C,
-        "n_probes_post": len(post.get("probes", [])),
+        "n_questions_post": len(post.get("questions", [])),
         "n_pairs_trained": len(pairs),
         # match the real-path schema; the fake student does no real val split
         "val_improvement": None,
@@ -1738,7 +1738,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
                 n_vignettes=cfg.cscan_n_vignettes,
                 max_think_tokens=cfg.cscan_max_think_tokens,
                 enable_thinking=cfg.enable_thinking,
-                probe_max_new_tokens=cfg.dialogue_max_new_tokens,
+                question_max_new_tokens=cfg.dialogue_max_new_tokens,
             )
         lora.save(str(round_dir / "adapter.safetensors"),
                   extra_meta={"axis": AXIS, "sign": str(SIGN)})
@@ -1760,7 +1760,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         else:
             cur_spec = AdapterSpec.from_lora(lora, default_c=signed_C)
         with mem_stage("dialogue_post"):
-            post = dialogue(model, tok, PROBES,
+            post = dialogue(model, tok, QUESTIONS,
                             round_dir / "interview_post.json",
                             hist_specs=None, current_spec=cur_spec, c=signed_C, cfg=dcfg)
     finally:
@@ -1780,7 +1780,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     )
     return {
         "signed_C": signed_C,
-        "n_probes_post": len(post["probes"]),
+        "n_questions_post": len(post["questions"]),
         "n_pairs_trained": len(pairs),
         # GUIDANCE for the teacher's keep/drop, not a gate: held-out val nll+ gain
         # (>0 = the adapter generalised to unseen pairs; <=0 or ~0 = it may have
@@ -1799,8 +1799,8 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
 # Verb 3: commit_round — keep/drop.
 # ---------------------------------------------------------------------------
 
-_P1_PROBE_IDS = [p["id"] for p in PROBES if p["id"].endswith("_1p")]
-_P3_PROBE_IDS = [p["id"] for p in PROBES if p["id"].endswith("_3p")]
+_P1_QUESTION_IDS = [p["id"] for p in QUESTIONS if p["id"].endswith("_1p")]
+_P3_QUESTION_IDS = [p["id"] for p in QUESTIONS if p["id"].endswith("_3p")]
 
 
 def _validate_unit_score(name: str, val: float, *, lo: float = 1.0,
@@ -1826,7 +1826,7 @@ def _validate_question_evidence(evidence: dict[str, str], expected_ids: list[str
     unknown = sorted(set(out) - set(expected_ids))
     if unknown:
         raise ValidationError(
-            f"question_evidence: unknown probe id(s) {unknown}; cite only the _1p questions {expected_ids}")
+            f"question_evidence: unknown question id(s) {unknown}; cite only the _1p questions {expected_ids}")
     missing = sorted(set(expected_ids) - set(out))
     if missing:
         raise ValidationError(
@@ -1860,7 +1860,7 @@ def _validate_scores(scores: dict[str, float], expected_ids: list[str],
     unknown = sorted(set(out) - set(expected_ids))
     if unknown:
         raise ValidationError(
-            f"{which}_scores: unknown probe id(s) {unknown}; score the _1p questions {expected_ids}")
+            f"{which}_scores: unknown question id(s) {unknown}; score the _1p questions {expected_ids}")
     missing = sorted(set(expected_ids) - set(out))
     if missing:
         raise ValidationError(
@@ -1915,9 +1915,9 @@ def commit_round(round_dir: Path, reason: str, next_focus: str = "",
         if question_evidence is None:
             raise ValidationError(
                 "commit_round on a trained round needs question_evidence: one quoted POST "
-                f"clause or concrete note for every _1p question {', '.join(_P1_PROBE_IDS)}")
-        question_evidence = _validate_question_evidence(question_evidence, _P1_PROBE_IDS)
-        movement = {k: int(movement_dirs[k]) for k in _P1_PROBE_IDS}
+                f"clause or concrete note for every _1p question {', '.join(_P1_QUESTION_IDS)}")
+        question_evidence = _validate_question_evidence(question_evidence, _P1_QUESTION_IDS)
+        movement = {k: int(movement_dirs[k]) for k in _P1_QUESTION_IDS}
         mean = sum(movement.values()) / len(movement)
         # Sign test: keep iff more questions POST-wiser than PRE-wiser. A forced
         # harness drop (drop_cause set, e.g. gate_friction) still drops regardless.
@@ -1954,7 +1954,7 @@ def commit_round(round_dir: Path, reason: str, next_focus: str = "",
     set_state(round_dir, "done", note=judgment["action"])
     if movement:
         sym = {1: "POST↑", 0: "tie", -1: "PRE↑"}
-        per = " ".join(f"{k.replace('_1p','')}={sym[movement[k]]}" for k in _P1_PROBE_IDS)
+        per = " ".join(f"{k.replace('_1p','')}={sym[movement[k]]}" for k in _P1_QUESTION_IDS)
         up = sum(1 for v in movement.values() if v > 0)
         down = sum(1 for v in movement.values() if v < 0)
         logger.info(
@@ -1997,11 +1997,11 @@ def _quote(text: str, n: int = 160) -> str:
     return flat[: n - 3].rstrip() + "..."
 
 
-def _probe_reply(interview: dict, probe_id: str, turn_idx: int) -> str | None:
-    for probe in interview.get("probes", []):
-        if probe.get("id") != probe_id:
+def _question_reply(interview: dict, question_id: str, turn_idx: int) -> str | None:
+    for question in interview.get("questions", []):
+        if question.get("id") != question_id:
             continue
-        turns = probe.get("turns", [])
+        turns = question.get("turns", [])
         if turn_idx >= len(turns):
             return None
         return turns[turn_idx].get("text")
@@ -2057,9 +2057,9 @@ def _movement_summary(judgment: dict) -> str | None:
     return ", ".join(bits)
 
 
-def _probe_count(interview: dict) -> int:
-    probes = interview.get("probes") or []
-    return len(probes) if isinstance(probes, list) else 0
+def _question_count(interview: dict) -> int:
+    questions = interview.get("questions") or []
+    return len(questions) if isinstance(questions, list) else 0
 
 
 def _pairs_count(round_dir: Path) -> int | None:
@@ -2130,7 +2130,7 @@ def _data_lineage_summary(round_dir: Path, *, pre: dict, post: dict, candidates:
     if not isinstance(train_pairs, int):
         train_pairs = _pairs_count(round_dir)
     bits = [
-        f"pre_probes={_probe_count(pre)}",
+        f"pre_questions={_question_count(pre)}",
         f"prompt_rows={cand['prompt_rows']}",
         f"kept_prompts={cand['kept_prompts']}",
         f"generated_pairs={cand['generated_pairs']}",
@@ -2141,9 +2141,9 @@ def _data_lineage_summary(round_dir: Path, *, pre: dict, post: dict, candidates:
     ]
     if isinstance(train_pairs, int):
         bits.append(f"train_pairs={train_pairs}")
-    post_probe_count = _probe_count(post)
-    if post_probe_count:
-        bits.append(f"post_probes={post_probe_count}")
+    post_question_count = _question_count(post)
+    if post_question_count:
+        bits.append(f"post_questions={post_question_count}")
     if pre_eval:
         bits.append("eval_pre=yes")
     if post_eval:
@@ -2255,9 +2255,9 @@ def _eval_report_cell(ev: dict | None) -> str:
     return " ".join(bits) if bits else "—"
 
 
-def _probe_change_summary(pre: dict, post: dict, probe_id: str) -> str:
-    pre_text = _probe_reply(pre, probe_id, 1) or ""
-    post_text = _probe_reply(post, probe_id, 1) or ""
+def _question_change_summary(pre: dict, post: dict, question_id: str) -> str:
+    pre_text = _question_reply(pre, question_id, 1) or ""
+    post_text = _question_reply(post, question_id, 1) or ""
     if not pre_text and not post_text:
         return "—"
     if pre_text and not post_text:
@@ -2332,8 +2332,8 @@ def _round_tensions(*, focus_pair: str | None, selection: dict, train: dict,
         and best_step > 0
         and val_improvement >= 0.05
     ):
-        pre_3 = _probe_reply(pre, f"{focus_pair}_3p", 1) or ""
-        post_3 = _probe_reply(post, f"{focus_pair}_3p", 1) or ""
+        pre_3 = _question_reply(pre, f"{focus_pair}_3p", 1) or ""
+        post_3 = _question_reply(post, f"{focus_pair}_3p", 1) or ""
         if pre_3 and post_3:
             a = " ".join(pre_3.split())
             b = " ".join(post_3.split())
@@ -2569,7 +2569,7 @@ def write_audit_md(slug_dir: Path) -> None:
             movement = _movement_summary(j) or "—"
             focus_3p = "—"
             if focus_pair != "—":
-                focus_3p = _probe_change_summary(
+                focus_3p = _question_change_summary(
                     _safe_json(rd / "interview_pre.json") or {},
                     _safe_json(rd / "interview_post.json") or {},
                     f"{focus_pair}_3p",
@@ -2713,22 +2713,22 @@ def write_audit_md(slug_dir: Path) -> None:
             for note in round_story:
                 sections.append(f"  - {note}")
 
-        for probe_id in _P1_PROBE_IDS:
-            pre_1 = _probe_reply(pre, probe_id, 1)
-            post_1 = _probe_reply(post, probe_id, 1)
+        for question_id in _P1_QUESTION_IDS:
+            pre_1 = _question_reply(pre, question_id, 1)
+            post_1 = _question_reply(post, question_id, 1)
             if pre_1 or post_1:
-                sections.append(f"- {probe_id} PRE: > {_quote(pre_1 or '—')}")
-                sections.append(f"- {probe_id} POST: > {_quote(post_1 or '—')}")
-                ev = (j.get("question_evidence") or {}).get(probe_id)
+                sections.append(f"- {question_id} PRE: > {_quote(pre_1 or '—')}")
+                sections.append(f"- {question_id} POST: > {_quote(post_1 or '—')}")
+                ev = (j.get("question_evidence") or {}).get(question_id)
                 if ev:
-                    sections.append(f"- {probe_id} judged evidence: > {_quote(str(ev))}")
+                    sections.append(f"- {question_id} judged evidence: > {_quote(str(ev))}")
 
-        for probe_id in _P3_PROBE_IDS:
-            pre_3 = _probe_reply(pre, probe_id, 1)
-            post_3 = _probe_reply(post, probe_id, 1)
+        for question_id in _P3_QUESTION_IDS:
+            pre_3 = _question_reply(pre, question_id, 1)
+            post_3 = _question_reply(post, question_id, 1)
             if pre_3 or post_3:
-                sections.append(f"- {probe_id} PRE: > {_quote(pre_3 or '—')}")
-                sections.append(f"- {probe_id} POST: > {_quote(post_3 or '—')}")
+                sections.append(f"- {question_id} PRE: > {_quote(pre_3 or '—')}")
+                sections.append(f"- {question_id} POST: > {_quote(post_3 or '—')}")
 
         if selection:
             picked = selection.get("selected", [])

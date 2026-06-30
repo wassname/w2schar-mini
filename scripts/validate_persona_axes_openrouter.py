@@ -1063,7 +1063,7 @@ class OpenRouter:
         }
         # Disable thinking (not just exclude-from-output): a reasoning model
         # (qwen3.x) otherwise spends the whole max_tokens budget on hidden CoT and
-        # returns empty content. Same recipe as scripts/probe_gym.py, matching the
+        # returns empty content. Same recipe as scripts/question_gym.py, matching the
         # live student (enable_thinking=False, greedy).
         extra_body = {
             "reasoning": {"enabled": False},

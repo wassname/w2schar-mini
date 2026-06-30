@@ -1,4 +1,4 @@
-"""Persona-framing coherence probe (neg pole).
+"""Persona-framing coherence question (neg pole).
 
 WHY: task-46 r02/r03 dropped because the STUDENT's rej generation collapsed
 ("Order confirmed. of of of search search...", multilingual sprays) under the
@@ -9,7 +9,7 @@ framing ("pretend you are a person who...", "act as if...", "you are an AI
 assistant who...") would carry the same blind-compliance content while staying
 coherent.
 
-This probe ISOLATES that: hold the neg content (blind compliance) fixed, vary
+This question ISOLATES that: hold the neg content (blind compliance) fixed, vary
 only the framing, generate rej on the real gemma-31b with the PRODUCTION gen
 params (greedy, no_repeat_ngram_size=3, refusal ban, persona-only rep penalty,
 gen_max_new_tokens), and score degeneracy with the canary's own signals
@@ -18,7 +18,7 @@ stubs the student.
 
 Base-only (no kept adapters baked). A framing must be robust on base before it
 can be robust composed; if base-only already separates the framings, that's the
-signal. Run:  uv run python scripts/probe_persona_coherence.py
+signal. Run:  uv run python scripts/question_persona_coherence.py
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from loguru import logger
 from tabulate import tabulate
 
 from csm.config import CONFIGS
-from csm.gen.pairs import (_generate_batched, _probe_system_role, _render,
+from csm.gen.pairs import (_generate_batched, _question_system_role, _render,
                            sample_prompts)
 from csm.ws.bake import baked
 from csm.ws.c_scan import _distinct_n
@@ -96,7 +96,7 @@ def main() -> None:
     model, tok, hist_specs = load_base_with_history_specs(
         cfg.model, hist, quant=cfg.quant)
     logger.info(f"COMPOSE: {'baked ' + _COMPOSE_DIR if hist_specs else 'bare base (no history)'}")
-    use_system = _probe_system_role(tok)
+    use_system = _question_system_role(tok)
 
     rows = []
     all_variants = {**NEG_VARIANTS, "POS_ref": POS_REF}

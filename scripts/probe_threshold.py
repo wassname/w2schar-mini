@@ -1,4 +1,4 @@
-"""One-off calibration probe for external-review risk #2 (dead-run).
+"""One-off calibration question for external-review risk #2 (dead-run).
 
 Feeds a PAST run's REAL student-generated candidate poles to the REAL weak
 qwen-9b teacher with the live rating brief, then measures how many candidates
@@ -7,7 +7,7 @@ This is the honest pass-rate test the fake-student gym cannot do (its poles are
 stubbed). If <min_pairs_to_train clear at 3.5/2.5 the softened run still dead-runs.
 
 Usage:
-    uv run python scripts/probe_threshold.py out/iter/<slug>/round00
+    uv run python scripts/question_threshold.py out/iter/<slug>/round00
 """
 import json
 import os
@@ -98,7 +98,7 @@ def main(round_dir: str):
                 by_item[sid]["candidates"].append(c)
             try:
                 got = rate_batch(axis_ctx, list(by_item.values()), reverse)
-            except Exception as e:  # measurement probe: log + skip a bad batch, don't lose the run
+            except Exception as e:  # measurement question: log + skip a bad batch, don't lose the run
                 print(f"  pass={'rev' if reverse else 'fwd'} batch {i//BATCH}: SKIP {type(e).__name__}: {e}", flush=True)
                 continue
             for sid, r in got.items():
@@ -124,7 +124,7 @@ def main(round_dir: str):
     off_vals = sorted(r["off"] for r in rows)
     print(f"on_axis  median={on_vals[len(on_vals)//2]:.2f}  range=[{on_vals[0]:.1f},{on_vals[-1]:.1f}]")
     print(f"off_axis median={off_vals[len(off_vals)//2]:.2f}  range=[{off_vals[0]:.1f},{off_vals[-1]:.1f}]")
-    out_path = "/tmp/claude-0/probe_threshold.json"
+    out_path = "/tmp/claude-0/question_threshold.json"
     json.dump({"axis": axis, "n_kept": len(kept), "rows": rows,
                "clears_35": clears_35, "clears_42": clears_42, "floor": FLOOR},
               open(out_path, "w"), indent=2)

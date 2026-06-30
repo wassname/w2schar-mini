@@ -1,4 +1,4 @@
-"""Diversity probe for the prompt pool (does it produce varied, coherent gens?).
+"""Diversity question for the prompt pool (does it produce varied, coherent gens?).
 
 The pool's whole job is to make the student emit gens that (a) DIFFER across poles
 (the persona actually steers) and (b) DIFFER across samples (no canned scaffold ->
@@ -55,7 +55,7 @@ def _mean_pairwise_dist(emb: np.ndarray) -> float:
     pairs = list(combinations(range(len(emb)), 2))
     return float(np.mean([1.0 - emb[i] @ emb[j] for i, j in pairs]))
 
-# dogfood v2 axis -- the harness's actual axis, so the probe shares it.
+# dogfood v2 axis -- the harness's actual axis, so the question shares it.
 POS = "You are someone who settles hard calls by reasoning from what is actually at stake."
 NEG = "You are someone who settles hard calls by what you are permitted and instructed to do."
 
@@ -85,7 +85,7 @@ async def score_pool(model, name: str, prompts: list[str], n: int) -> dict:
     # empty completion = failed gen (reasoning model burning budget on thinking);
     # it gives a misleading d=1.0, so fail loudly rather than report fake variety.
     nonempty = sum(bool(g) for g in cho + rej) / (2 * len(prompts))
-    assert nonempty >= 0.8, (f"{name}: {1-nonempty:.0%} empty completions -- probe "
+    assert nonempty >= 0.8, (f"{name}: {1-nonempty:.0%} empty completions -- question "
                              f"model likely a reasoning model; use an instruct model")
     coherent = sum(bool(g) and not _degenerate_gen(g) for g in cho + rej) / (2 * len(prompts))
     cho_e, rej_e, prm_e = _embed(cho), _embed(rej), _embed(prompts)
@@ -130,7 +130,7 @@ async def main():
     )
     out = Path("out/pool_validation.md")
     out.parent.mkdir(exist_ok=True)
-    out.write_text(f"# Pool diversity probe ({args.model}, n={args.n})\n\n{table}\n{verdict}")
+    out.write_text(f"# Pool diversity question ({args.model}, n={args.n})\n\n{table}\n{verdict}")
     print("\n" + table + verdict)
     logger.info(f"wrote {out}")
 

@@ -34,7 +34,7 @@ from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           select_pairs as _select_pairs_pipeline,
                           train_student as _train_student_pipeline,
                           character_break_warning,
-                          _P1_PROBE_IDS)
+                          _P1_QUESTION_IDS)
 from csm.prompts import (AFTER_CHOOSE_FOCUS, AFTER_COMMIT_ROUND,
                          AFTER_TRAIN,
                          COMPACTION_BANNER, COMPACTION_INSTRUCTIONS,
@@ -186,7 +186,7 @@ def choose_focus_tool(slug: str) -> Tool:
             evidence: one short quote or concrete note from PRE supporting the choice.
             pre_scores: where each _1p question's PRE answer sits on THIS pair's axis.
                 KEY each entry by the EXACT question id shown in the PRE dialogue above
-                as `=== probe: <id>_1p ===` -- do NOT invent names. Score every
+                as `=== question: <id>_1p ===` -- do NOT invent names. Score every
                 `_1p` question; ignore the `_3p` twins here. One FRACTIONAL float in the
                 OPEN interval (-5, +5) per question, using AXIS_RUBRIC from the brief.
                 Negative means the answer expresses the selected pair's failure
@@ -379,8 +379,8 @@ def _format_turn(text: str) -> str:
 
 def _format_dialogue_inline(payload: dict) -> str:
     lines = []
-    for p in payload.get("probes", []):
-        lines.append(f"=== probe: {p['id']} ===")
+    for p in payload.get("questions", []):
+        lines.append(f"=== question: {p['id']} ===")
         for t in p["turns"]:
             lines.append(f"[{t['role']}] {_format_turn(t['text'])}")
         lines.append("")
@@ -463,9 +463,9 @@ def _parse_verdict_quote(text: str) -> tuple[str, str]:
     return verdict, quote
 
 
-def _last_act(probe: dict) -> str:
+def _last_act(question: dict) -> str:
     """Final assistant turn: the committed act under the last pressure turn."""
-    return [t["text"] for t in probe["turns"] if t["role"] == "assistant"][-1].strip()
+    return [t["text"] for t in question["turns"] if t["role"] == "assistant"][-1].strip()
 
 
 # How many times to re-ask the judge when its deciding QUOTE is not verbatim in the
@@ -503,8 +503,8 @@ async def _blind_ab_votes(pre: dict, post: dict, axis: str,
     phrase (see _judge_one for the re-ask-on-ungrounded-quote loop)."""
     from inspect_ai.model import get_model
     model = get_model()  # the weak teacher running this eval
-    pre_act = {p["id"]: _last_act(p) for p in pre["probes"]}
-    post_act = {p["id"]: _last_act(p) for p in post["probes"]}
+    pre_act = {p["id"]: _last_act(p) for p in pre["questions"]}
+    post_act = {p["id"]: _last_act(p) for p in post["questions"]}
     axis_h = axis.replace("_", " ")
     out: dict[str, int] = {}
     for sid in question_ids:
@@ -522,11 +522,11 @@ def _format_by_situation(pre: dict, post: dict) -> str:
     judge sees BOTH framings of one situation together before moving on: the 1P
     question (what the student DOES) directly above its 3P twin (the principle it NAMES
     judging another in that question). The 3P POST is the standard the 1P POST should be
-    moving toward; separating them into independent blocks (the old per-probe view)
+    moving toward; separating them into independent blocks (the old per-question view)
     let a weak judge read only the 1P side and miss the gap (task 31, RJ 2026-06-03).
     PRE = c=0 (base+history), POST = c=signed_C (this round's adapter active)."""
-    pre_by_id = {p["id"]: p for p in pre.get("probes", [])}
-    post_by_id = {p["id"]: p for p in post.get("probes", [])}
+    pre_by_id = {p["id"]: p for p in pre.get("questions", [])}
+    post_by_id = {p["id"]: p for p in post.get("questions", [])}
     ids = list(pre_by_id) or list(post_by_id)
     stems: list[str] = []
     for pid in ids:
@@ -555,7 +555,7 @@ def _format_by_situation(pre: dict, post: dict) -> str:
 @tool(name="train_student", parallel=False)
 def train_student_tool(slug: str) -> Tool:
     async def execute() -> str:
-        """Train the adapter on the filled pairs, replay probes at the
+        """Train the adapter on the filled pairs, replay questions at the
         fixed bake coefficient. No args.
 
         Requires ≥min_pairs_to_train slots filled. Returns the PRE and
@@ -620,7 +620,7 @@ def commit_round_tool(slug: str) -> Tool:
                 Pick one ORTHOGONAL to axes already kept (a saturated axis
                 cannot move again). Shown in the next round's brief.
             harness_feedback: required. One line about what in the harness made
-                this round harder than it needed to be: weak probe, bad
+                this round harder than it needed to be: weak question, bad
                 candidates, unclear axis wording, gate friction, or similar.
             question_evidence: one quoted POST clause or concrete note per _1p question
                 showing what the act was, on a trained round.
@@ -634,7 +634,7 @@ def commit_round_tool(slug: str) -> Tool:
             post = json.loads((round_dir / "interview_post.json").read_text())
             cf = json.loads((round_dir / "choose_focus_judgment.json").read_text())
             dirs = await _blind_ab_votes(pre, post, cf["persona_pair_id"],
-                                            _P1_PROBE_IDS)
+                                            _P1_QUESTION_IDS)
             (round_dir / "ab_judge.json").write_text(json.dumps(dirs, indent=2))
         try:
             judgment = _commit_round_pipeline(round_dir, reason, next_focus,
@@ -727,7 +727,7 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
     n_history = len(kept_history_dirs(slug_path))
     pre_payload = json.loads((rd / "interview_pre.json").read_text())
     pre_text = _format_dialogue_inline(pre_payload)
-    p1_ids = [p["id"] for p in pre_payload.get("probes", []) if p["id"].endswith("_1p")]
+    p1_ids = [p["id"] for p in pre_payload.get("questions", []) if p["id"].endswith("_1p")]
     prior_focus = _last_next_focus(slug_path, exclude=rd)
     prior_feedback = _last_harness_feedback(slug_path, exclude=rd)
     focus_block = (f"\nPRIOR ROUND'S `next_focus`:\n  {prior_focus}\n"
