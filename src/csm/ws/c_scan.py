@@ -400,19 +400,19 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
         json_ok = m["valid_json"] >= json_frac * baseline_json
         rep_ok = m["rep_min"] >= rep_frac * baseline_rep
         ok = pmass_ok and json_ok and rep_ok
-        # Ceiling-skip guard. init_c is the "presumed too strong" upper bound of the
-        # walk (CLAUDE.md: c_scan walks DOWN from init, never up), so the ceiling is
-        # by-assumption too strong and must NEVER bake directly -- always step down at
-        # least once. Walking down only INCREASES coherence, so if init passes,
-        # init*STEP_FRAC passes too; the only effect is capping the deployed c at
-        # init*2/3. This is strictly safer because the canary is BLIND to
-        # foundation-shape distortion (CLAUDE.md): a ceiling pass cannot vouch the c
-        # is safe. task-128 r03 and task-131 r12/r14 baked the c=4.0 ceiling on a
-        # noisy canary pass (an earlier separation-threshold guard let a 0.017 pmass
-        # wobble through) and over-steered hard (independent tinymfv top1 -0.11 to
-        # -0.25). An over-steered round usually cannot KEEP (the mark_exam depth-vote
-        # sign test nets PRE-deeper), but skipping the ceiling stops it baking junk in
-        # the first place.
+        # Ceiling-skip guard. init_c is the "presumed too strong" upper bound (CLAUDE.md:
+        # c_scan walks DOWN from init, never up), so never bake it directly -- step down
+        # at least once. Walking down only INCREASES coherence, so if init passes,
+        # init*STEP_FRAC passes too; the effect is capping deployed c at init*2/3. The
+        # honest reason to distrust a bare ceiling pass is COHERENCE (calibration's ONLY
+        # job): the three GATED signals (pmass/json/rep) miss "varied salad" incoherence
+        # -- only the UN-gated KL separates it (salad fwd_p95 ~2-4 vs coherent-strong
+        # steering <=~1.2, see _kl_p95). So a top-step pass on the gated trio is not a
+        # trustworthy coherence read at the extreme. NOT a foundation-shape / top1
+        # argument: a top1 drop is the INTENDED steering shift, not incoherence (CLAUDE.md
+        # "Dtop1 is NOT a coherence budget"), so the old task-128/131 top1=-0.25 figure
+        # does not by itself show the gens were incoherent -- the KL/gens would. (Better
+        # fix than this skip: gate the KL salad signal directly; left as a TODO.)
         ceiling = i == 0 and ok
         if ceiling:
             ok = False
@@ -491,7 +491,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
     ])
     gate_line = (f"c_scan gate (AND, self-relative to c=0 base | pmass={baseline_pmass:.4f} "
                  f"json={baseline_json}/{n_probes} repMin={baseline_rep:.2f}): "
-                 f"pmass ≥ {gate:.4f}  AND  json = {n_probes}/{n_probes}  AND  "
+                 f"pmass ≥ {gate:.4f}  AND  json ≥ {json_frac * baseline_json:.0f}/{n_probes}  AND  "
                  f"repMin ≥ {rep_frac * baseline_rep:.2f}   "
                  f"[{n_probes} CANARY_PROBES (2x2 IID/OOD × multiturn/single) + "
                  f"{n_vignettes} tinymfv]")
