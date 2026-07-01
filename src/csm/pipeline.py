@@ -86,6 +86,31 @@ PAIR_REQUIRED_AXES = {
     "weirdtopia_tolerance": ("weirdtopia",),
     "coordination_over_lone_defiance": ("coordination",),
     "anti_other_optimizing": ("other_optimizing",),
+    # 2026-07-01: 20/24 menu pairs had NO prior -> sampling drew from the whole
+    # 227-row character family unfiltered (~50% off-axis), the root cause of
+    # job-137's contamination early_abort drops. Populated below with a single
+    # specific axis each (OR-semantics: multi-axis BROADENS, so prefer one tag).
+    # verbose_terse is intentionally absent: it is a style-control axis, not a
+    # moral axis, so sampling broadly across scenarios is correct for it.
+    "skill_fairness_to_self": ("honesty",),
+    "skill_protocol_harm": ("duty",),
+    "skill_people_over_orders": ("authority",),
+    "lit_antipasto_honest_dishonest": ("honesty",),
+    "long_term_flourishing": ("wellbeing",),
+    "skill_wiser_cev": ("wellbeing", "moral_growth"),
+    "careful_impulsive": ("uncertainty",),
+    "future_self_endorses": ("option_value",),
+    "caution_on_irreversible": ("option_value",),
+    "skill_unwavering_cowering": ("duty",),
+    "skill_cooperative_zero_sum": ("cooperation",),
+    "genuine_care_not_paternalist": ("autonomy",),
+    "whistleblow_not_complicit": ("loyalty",),
+    "sanctity_individual_utilitarian": ("legitimacy", "moral_patienthood"),
+    "honest_when_uncomfortable": ("honesty",),
+    "society_over_user_interest": ("externalities",),
+    "notice_externalities": ("externalities",),
+    "refuse_power_grab": ("authority",),
+    "action_over_talk": ("duty",),
 }
 
 PAIR_FORBIDDEN_AXES = {
