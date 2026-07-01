@@ -1,5 +1,49 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-01 (c) -- rate_pairs judge: grounding with the CHARACTER GOAL (not the per-round axis) matches axis-grounding on confounds and is compaction-proof
+
+This is the #96 half of the "ground every ungrounded judge" goal. The rate_pairs judge
+(does a training pair contrast cleanly ON the axis, with no confound) is grounded today
+only by a context pointer -- production `TOOL_RATE_PAIRS` says "the selected axis", no axis
+text -- so a mid-loop compaction erases what the axis is. wassname's question: does grounding
+with the stable CHARACTER GOAL instead of the axis work? I added to `gym_rate_pairs.py`:
+(a) two off-axis fixtures (clean pairs whose contrast is on a DIFFERENT axis), (b) a
+`--compact` mode (axis -> content-free pointer, simulating compaction), (c) a `--goal` mode
+(axis slot filled with the global character goal).
+
+R0 form, qwen3.5-9b, confound-catching on the three unambiguous fails (the off-axis fixtures
+are legit character contrasts under goal-framing and pass, so they are excluded from this
+count):
+
+| axis condition        | s13c2 incoherent | s16c5 length | s10c1 refusal | caught |
+|:----------------------|:-----------------|:-------------|:--------------|:-------|
+| grounded (axis text)  | miss             | catch        | catch         | 2/3    |
+| compacted (pointer)   | miss             | catch        | miss          | 1/3    |
+| goal (character goal) | catch            | catch        | miss          | 2/3    |
+| goal, R1 form         | miss             | catch        | catch         | 2/3    |
+
+Table 1. Source: `/tmp/claude-1000/gym_rate_compaction.log` (grounded, compacted),
+`/tmp/claude-1000/gym_rate_goal.log` (goal R0, R1). Same 9-case fixture set.
+
+My read (calibrated, ~0.6): the bare pointer -- what production degrades to after compaction
+-- is the worst (1/3); both axis-grounding and goal-grounding recover 2/3. So SOME grounding
+beats the pointer, and goal-grounding matches axis-grounding on confounds WHILE being
+compaction-proof (the goal is global/in the brief, the per-round axis is not). That makes
+goal-grounding the better production choice: embed the character goal in the rate form so the
+judge stays grounded even after the axis scrolls out of context. Two caveats hold this below
+"established": n=1 run per condition, and the two hard confounds (incoherent s13c2, refusal
+s10c1) are caught INCONSISTENTLY across runs/forms -- they flip -- so part of the 1/3-vs-2/3
+gap is noise. A repeat run per condition would firm it.
+
+Side finding: the two off-axis fixtures passed (on_axis=5) under grounded, compacted, AND goal
+-- the axis text did NOT make the judge cull an off-axis-but-clean contrast. So the weak
+judge reads `on_axis` as "is there a clean contrast", not "on THIS axis"; the per-round axis
+was not driving the rate decision anyway. That is consistent with the recommendation: the rate
+judge's real job is confound-cull + "is there a clean character contrast", neither of which
+needs the specific axis, so grounding it with the global goal loses nothing and gains
+compaction-safety. Not yet done: change production `TOOL_RATE_PAIRS` to embed the goal (a brief
+change -> must go through `just smoke-prompts` first per CLAUDE.md), and a confirming repeat run.
+
 ## 2026-07-01 (b) -- the de-prime prediction FAILED on round01: keep-judge grounding is NEUTRAL, not a win (my round00 read was over-confident)
 
 Follow-up to (a). Entry (a) predicted round01 (`refuse_power_grab`) would be the
