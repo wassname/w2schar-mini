@@ -3817,3 +3817,28 @@ Per ml-debug ("fix bug, then tune HP on clean code"): re-queued the lr5 sweep
 (pueue 141, lr=5e-4) on the fixed code to run after the validation run. If lr5
 produces positive movement, undertrain confirmed; if still ~0, undertrain
 disproved at 5x and pivot to higher lr or the hinge-gamma redesign.
+
+## 2026-07-01 — validation run 140 COMPLETE: contamination fix confirmed at scale
+
+Baseline lr=1e-4, with contamination fix (commit 23a7fae), 5 rounds (config n_rounds=5
+overrides CLI --n-rounds 3). Final tally:
+
+| round | pair | action | movement | drop_cause |
+|-------|------|--------|----------|------------|
+| 00 | skill_cooperative_zero_sum | drop | -0.071 | no_movement |
+| 01 | refuse_power_grab | keep | +0.143 | — |
+| 02 | caution_on_irreversible | drop | -0.071 | no_movement |
+| 03 | notice_externalities | keep | +0.071 | — |
+| 04 | (axis) | keep | +0.643 | — |
+
+**3 keeps / 2 drops, 0 contamination drops.** vs job-137: 5 keeps / 11 drops, 5 contamination
+drops. The fix (populate PAIR_REQUIRED_AXES for 19/24 pairs) eliminated ALL early_abort/
+contamination drops (0 vs 5). Keep rate: 60% (3/5) vs job-137's 31% (5/16).
+
+Remaining failure = undertrain: both drops are `no_movement` (movement -0.071, near zero).
+Keeps are positive but weak (+0.071 to +0.143) until round04's +0.643. c_scan held
+signed_C=1.333 throughout (no collapse). This is the baseline for the lr5 sweep (141).
+
+**lr5 sweep (141) started** (slug 20260701T171012): round00 in mark_exam, signed_C=1.333
+coherent. Will compare 141's round00-02 movement to 140's baseline (+0.143/-0.071) to
+test the undertrain hypothesis.
