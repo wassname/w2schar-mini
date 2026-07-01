@@ -3586,3 +3586,44 @@ Requeued identical command as job 139 (prio 75); resumed the paused default grou
 empty of mine; resume also released another agent's 133/135/136/137 batch -- left untouched, 139 sits
 next in line behind running 133). Stage-1 validation (mark_exam fabrication gone, FROZEN PRE line,
 negatives DROP) still PENDING -- awaits 139 completing. Tasks #36/#38 unchanged.
+
+## 2026-07-01 — scenario-axis-prior bug: 83% of persona pairs sample unfiltered (root cause of job-137 contamination drops)
+
+**Observation (job-137 audit, qwen36-27b-3keep, current HEAD).** 11/16 rounds dropped;
+5 as `early_abort` with teacher feedback "Bank contamination dominant ~50% off-topic
+responses (child-discipline, museum-donation, roommate-conflict scenarios testing different
+value tensions than [the chosen axis])." Per-round `choose_focus_judgment.json` shows the
+contamination rounds (r03 honest_when_uncomfortable, r10 whistleblow_not_complicit, r13
+refuse_power_grab) all picked persona pairs with `required_axes=()`.
+
+**Root cause.** `src/csm/pipeline.py:983`:
+`required_axes = PAIR_REQUIRED_AXES.get(selected_pair["id"], ())`.
+**20 of 24 menu pairs (83%) have NO entry in `PAIR_REQUIRED_AXES`** → `req=()` →
+`sample_prompt_rows` draws from the whole 227-row character family with no axis filter
+→ ~half test a different value tension → `select_pairs` fails `min_pairs_to_train` (only
+6 of 74 clear) → `early_abort`. Verified: only wellbeing_authority/fairness_integrity/
+autonomy_coercion/principled_expedient have priors.
+
+**Secondary.** r12 used wellbeing_authority (req=`('care',)`, filtered) and STILL saw
+contamination, because `required_axes` is OR-semantics (`axes & set(required_axes)`)
+and `care` matches 83 rows including domestic ones. Populating single specific axes fixes
+the 83% unfiltered; the broad-`care` case is secondary.
+
+**ml-debug framing.** This is a data-pipeline bug (missing curated priors), NOT a
+loss/hparam problem. The asymmetric-margin sweep (pueue 140, lr=5e-4) tests the
+secondary undertrain hypothesis and cannot fix this. Per "pursue anomalies, don't tune
+HP on buggy code": fix the pipeline first.
+
+**Fix (staged in `docs/spec/2026-07-01_scenario_axis_prior.md`, NOT yet applied —
+pueue 140 reads code at runtime; applying now would confound its round01/02).**
+Populate `PAIR_REQUIRED_AXES` for 19 of the 20 missing pairs (verbose_terse is a
+style-control axis, intentionally unfiltered). Each gets a single specific axis
+(honesty/authority/loyalty/etc); two pairs needing broader coverage use OR-unions
+of 2 axes (skill_wiser_cev=(wellbeing,moral_growth)=20; sanctity_individual_utilitarian
+=(legitimacy,moral_patienthood)=20). Verified each yields 12-80 scenarios. Apply + smoke
++ queue a validation round after 140 completes.
+
+**Evidence.** `out/iter/20260629T231056_iter_qwen-qwen3.6-27b/round{12}/judgment.json:harness_feedback`;
+`src/csm/pipeline.py:983`; coverage check: `from csm.pipeline import PAIR_REQUIRED_AXES;
+from csm.config import CONFIGS; c=CONFIGS['qwen36-27b-3keep']; ids=[x[2] for x in c.persona_cells];
+print([i for i in ids if i not in PAIR_REQUIRED_AXES])` → 20 missing.
