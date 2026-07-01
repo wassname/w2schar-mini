@@ -3650,3 +3650,22 @@ Decision (autonomous, user AFK): killed the lr5 sweep (pueue 140-old) before app
 the fix per ml-debug "don't tune HPs on buggy code" -- the sweep tested a secondary
 hypothesis (undertrain) on code with the primary bug (contamination) still present, which
 would confound the result.
+
+## 2026-07-01 — contamination fix CONFIRMED working (validation run pueue-140 round00)
+
+Validation run (baseline lr=1e-4, with fix 23a7fae) round00 results:
+- `scenarios.json`: `required_axes=['cooperation']` populated (fix active).
+- **0/15 off-axis scenarios** in the sample (vs job-137's ~50%).
+- Zero contamination topics (child-discipline/museum-donation/roommate) in
+  pairs/viewed/candidates.
+- drop_cause = `no_movement` (movement_mean=-0.07: 1 pos / 2 neg / 11 zero),
+  NOT `early_abort`/contamination.
+
+The fix worked: it eliminated the contamination early_abort drops that
+dominated job-137 (5/11 drops). The remaining failure is undertrain (near-zero
+movement at baseline lr=1e-4) -- the signal the lr5 sweep is designed to test.
+
+Per ml-debug ("fix bug, then tune HP on clean code"): re-queued the lr5 sweep
+(pueue 141, lr=5e-4) on the fixed code to run after the validation run. If lr5
+produces positive movement, undertrain confirmed; if still ~0, undertrain
+disproved at 5x and pivot to higher lr or the hinge-gamma redesign.
