@@ -41,6 +41,14 @@ AXIS = ("serves broader wellbeing while treating instructions as real constraint
 # off-axis fixtures and the compacted run passes them, the axis must be embedded in the form.
 COMPACT_AXIS = "the round's selected disposition axis (recall it from the earlier context)"
 
+# GOAL grounding (wassname's suggestion): fill the {axis} slot with the STABLE character
+# goal instead of the per-round axis. If the rate judge's real job is "clean contrast where
+# Cho shows more character", the specific axis was never the filter -- character is -- and
+# the goal is global (in the brief), so it survives compaction. The off-axis fixtures are
+# legit character contrasts under this framing, so they SHOULD pass here.
+GOAL_AXIS = ("shows more moral CHARACTER -- a wiser or more caring ACTION, noticing who is "
+             "affected, holding a costlier line under pressure -- vs shows less character")
+
 # flag = the EXACT harness flags _pair_flags computed live (gen_pair_ratings.json),
 # surfaced verbatim to the teacher in R4 (the "confirm this warning" forms).
 FLAG_MSG = {
@@ -267,7 +275,11 @@ FORMS = {"R0": BRIEF + R0, "R1": BRIEF + R1, "R2": BRIEF + R2,
          "R3": BRIEF + R3, "R4": BRIEF + R4, "R5": BRIEF + R5}
 
 
-def render(fk, case, compact=False):
+def _axis_text(compact=False, goal=False):
+    return GOAL_AXIS if goal else COMPACT_AXIS if compact else AXIS
+
+
+def render(fk, case, compact=False, goal=False):
     warnings = ""
     if fk in ("R4", "R5"):
         msgs = [FLAG_MSG[f] for f in case.get("flags", []) if f in FLAG_MSG]
@@ -278,7 +290,7 @@ def render(fk, case, compact=False):
         else:  # R5: terse one-line NOTE, no confirm-list meta-task
             warnings = ("\nNOTE (auto-detected, may be a false alarm): "
                         + "; ".join(msgs) + "\n" if msgs else "\n")
-    return FORMS[fk].format(axis=COMPACT_AXIS if compact else AXIS, prompt=case["prompt"],
+    return FORMS[fk].format(axis=_axis_text(compact, goal), prompt=case["prompt"],
                             cho=case["cho"], rej=case["rej"], warnings=warnings)
 
 
@@ -369,8 +381,8 @@ def _reasoning(r):
     return ""
 
 
-async def rate(model, fk, case, compact=False):
-    prompt = render(fk, case, compact)
+async def rate(model, fk, case, compact=False, goal=False):
+    prompt = render(fk, case, compact, goal)
     k = _key(prompt)
     out_tok = rsn_tok = None
     if k in _CACHE:
@@ -394,8 +406,8 @@ async def rate(model, fk, case, compact=False):
     return d, predict(fk, d), out_tok, rsn_tok
 
 
-async def score_form(model, fk, compact=False):
-    res = await asyncio.gather(*(rate(model, fk, c, compact) for c in CASES))
+async def score_form(model, fk, compact=False, goal=False):
+    res = await asyncio.gather(*(rate(model, fk, c, compact, goal) for c in CASES))
     rows, n_ok, n_parsed = [], 0, 0
     for case, (d, pred, out_tok, rsn_tok) in zip(CASES, res):
         correct = pred == case["gold"]
@@ -405,7 +417,7 @@ async def score_form(model, fk, compact=False):
     return {"form": fk, "rows": rows, "acc": n_ok / len(CASES), "parsed": n_parsed}
 
 
-async def run(form_keys, model_name, max_tokens=16000, compact=False):
+async def run(form_keys, model_name, max_tokens=16000, compact=False, goal=False):
     global _MODEL
     _load_env()
     _MODEL = model_name
@@ -421,10 +433,10 @@ async def run(form_keys, model_name, max_tokens=16000, compact=False):
         print(f"cache: {len(_CACHE)} prior replies")
     print(f"rate-gym: {len(CASES)} cases ({sum(c['gold']=='pass' for c in CASES)} pass / "
           f"{sum(c['gold']=='fail' for c in CASES)} fail), judge={model_name}, forms={form_keys}, "
-          f"axis={'COMPACTED (pointer only)' if compact else 'grounded (full text)'}\n")
+          f"axis={'GOAL (character goal)' if goal else 'COMPACTED (pointer only)' if compact else 'grounded (full axis)'}\n")
     summary = []
     for fk in form_keys:
-        r = await score_form(model, fk, compact)
+        r = await score_form(model, fk, compact, goal)
         summary.append(r)
         print(f"--- form {fk}: {r['acc']:.0%} correct, {r['parsed']}/{len(CASES)} parsed")
         for cid, gold, pred, d, ok, out_tok, rsn_tok in r["rows"]:
@@ -458,10 +470,13 @@ if __name__ == "__main__":
     ap.add_argument("--max-tokens", type=int, default=16000)
     ap.add_argument("--compact", action="store_true",
                     help="strip the axis to a pointer (simulate post-compaction memory loss)")
+    ap.add_argument("--goal", action="store_true",
+                    help="fill the axis slot with the STABLE character goal instead of the per-round axis")
     args = ap.parse_args()
     if args.show or not args.run:
         for fk in FORMS:
-            print(f"\n{'='*78}\nFORM {fk} (compact={args.compact})\n{'='*78}\n{render(fk, CASES[-2], args.compact)}")
+            print(f"\n{'='*78}\nFORM {fk} (compact={args.compact} goal={args.goal})\n{'='*78}\n"
+                  f"{render(fk, CASES[-2], args.compact, args.goal)}")
     if args.run:
         asyncio.run(run([f.strip() for f in args.forms.split(",")], args.model,
-                        args.max_tokens, compact=args.compact))
+                        args.max_tokens, compact=args.compact, goal=args.goal))
