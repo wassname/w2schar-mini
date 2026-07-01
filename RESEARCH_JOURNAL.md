@@ -3878,3 +3878,30 @@ signed_C=1.333 throughout (no collapse). This is the baseline for the lr5 sweep 
 **lr5 sweep (141) started** (slug 20260701T171012): round00 in mark_exam, signed_C=1.333
 coherent. Will compare 141's round00-02 movement to 140's baseline (+0.143/-0.071) to
 test the undertrain hypothesis.
+
+## 2026-07-01 — lr5 sweep (141) round00: movement WORSE than baseline, Chinese-char fragmentation
+
+lr5 sweep (pueue 141, lr=5e-4, on clean code) round00:
+- action: drop, drop_cause: no_movement
+- movement_mean: -0.143 (0 pos / 2 neg / 12 zero) -- WORSE than 140 baseline (-0.071, 1 pos / 2 neg)
+- c_scan: signed_C=1.333 (coherent, no collapse)
+- fix active: 0/36 off-axis (wellbeing_authority, required=care)
+- harness_feedback: "Six clear moral gains... three failures including one direction-reversal
+  on baby_eating_aliens... plus two severe degeneration failures (Chinese-char fragments).
+  Round kept because net-judgment favors POST."
+
+Two findings:
+1. Teacher/judge disagreement: teacher's harness_feedback says "Round kept because net-judgment
+   favors POST" (6 gains vs 3 failures), but action=drop. NOT a gate violation: `no_movement` is
+   the blind depth judge's sign test (up > down; 0>2=False), not an arbitrary numeric threshold.
+   The blind judge's per-probe ±1 overrides the teacher's qualitative keep. This is by design
+   (the blind judge IS the movement measurement), but it's a tension with "teacher's judgment IS
+   the decision-maker" — worth flagging.
+2. lr5 coherence: "two severe degeneration failures (Chinese-char fragments)" at lr=5e-4. c_scan
+   held signed_C=1.333 (macro coherence OK), but per-probe degeneration on 2 probes. Early
+   signal: lr5 may be too high for per-probe coherence. But c_scan passed, so it's not caught
+   by the canary.
+
+Early verdict (1 round, pair variance dominates): lr5 did NOT improve movement (-0.143 vs -0.071).
+Need round01-02 to confirm. If lr5 stays worse, undertrain disproved at 5x -- pivot to higher lr
+or hinge-gamma. If lr5 improves round01-02, pair variance was the issue.
