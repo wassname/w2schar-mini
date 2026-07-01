@@ -1,4 +1,4 @@
-"""Path-loss adapter training with a reverse-KL coherence penalty.
+"""Asymmetric margin loss: train a steering adapter with reverse-KL anchor.
 
 Per (prompt, cho, rej), train at fixed C = 1:
 
@@ -479,7 +479,7 @@ def _capture_calibration_activations(model, tok, pairs: list[dict],
 def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
                   *, history_bake=None, enable_thinking: bool = False,
                   adapter_cls: type = ModulatedLoRA):
-    """Fit one ModulatedLoRA / ModulatedPiSSA on `pairs` via path-loss + KL anchor.
+    """Fit one ModulatedLoRA / ModulatedPiSSA on `pairs` via asymmetric-margin + KL anchor.
 
     `history_bake`: if given, its gate is set to `lambda: lora._c != 0.0` so
     the c=0 reference returns pristine base (LoRA) or post-prior-bakes
