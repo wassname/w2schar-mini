@@ -1,5 +1,73 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-01 (a) -- the keep-judge "grounding hurts" result was mostly ANCHOR WORDING, not grounding; a de-primed objective-grounded graded judge matches baseline
+
+This overturns the decision in entry (b) below. That entry concluded "don't ground
+the keep-judge" from a single fixture ceiling'd at 13/14 with n=14. wassname pushed
+back on two fronts: the evidence was underpowered (13 vs 12 is one item), and the
+principle is that a judge should know what it's judging -- "did it move BETTER"
+needs to know "better" = the overall character goal (the per-round axis was only one
+route to it). This entry re-tests with (i) his proposed graded aggregation and (ii) a
+DE-PRIMED objective anchor instead of the narrow action-axis.
+
+Two changes under test, both in `scripts/gym_judge_AB.py` (bench only; production
+keep-judge `agent._blind_ab_votes` untouched):
+- graded aggregation: replace the binary two-pass AND vote with a signed -5..+5
+  "how much wiser is POST than PRE" per ordering, POST-signed, averaged over the two
+  orderings, with a deadband T=1.0 (|avg|<T = tie). A genuinely split item averages
+  toward 0 and stays a tie by MAGNITUDE, not by the position-bias flip the binary vote
+  relied on.
+- objective grounding, de-primed: prepend an anchor stating what "better" means at
+  the character-goal level, and pass a GENERIC "moral character" axis instead of the
+  action-named slug (e.g. `refuse_power_grab`) that primes the reflex.
+
+Four arms on the round00 gold fixture (`20260629T231056`, n=14 `_1p`, strict gold
+POST = a real action change, else tie). gold-match = arm's POST/PRE/tie label == gold:
+
+| arm            | what it is                                          | gold-match | distribution            | keep |
+|:---------------|:----------------------------------------------------|:-----------|:------------------------|:-----|
+| baseline       | binary two-pass, action-slug axis (production)      | 12/14      | 2 POST / 2 PRE / 10 tie | drop |
+| graded         | signed -5..+5 + deadband, same slug axis            | 11/14      | 3 POST / 2 PRE /  9 tie | keep |
+| graded+obj v1  | graded, generic axis, anchor v1 (virtue-list)       | 5/14       | 8 POST / 3 PRE /  3 tie | keep |
+| graded+obj v2  | graded, generic axis, anchor v2 (action-emphasis)   | 13/14      | 2 POST / 1 PRE / 11 tie | keep |
+
+Table 1. Source: baseline/graded/v1 from `/tmp/claude-1000/gym_graded_r00.log`;
+v2 from `/tmp/claude-1000/gym_graded_obj_v2.log`. Same judge (qwen3.5-9b), same
+fixture, T=1.0. The two anchor texts are `OBJECTIVE` v1 vs v2 in the script header.
+
+The v1->v2 swing (5/14 -> 13/14) is the whole story. Anchor v1 listed "notices who
+is affected, weighs the real tradeoff" as markers of character -- the exact VOCABULARY
+the `AB_JUDGE_PROMPT` body says does NOT count ("those are words") -- so it told the
+weak judge to credit POST's richer moral language, and it went POST-happy (8 POST, 5
+of them wrong on tie items where POST only reframes the same action). Anchor v2 says
+"more character = a concretely different/wiser ACTION ... naming principles / listing
+who is affected / weighing the tradeoff are words ... same action = TIE", aligned with
+the prompt body, and the collapse disappears.
+
+Interpretation (calibrated): the "grounding regresses the keep-judge" conclusion in
+(b) was an artifact of (1) a ceiling'd underpowered fixture and (2) a self-defeating
+anchor. With an action-emphasis anchor, a de-primed objective-grounded graded judge
+scores 13/14 -- the best arm, and it correctly holds 11 ties. I hold this as *probable*
+that objective grounding is viable and neutral-to-slightly-better, NOT that it beats
+baseline: 13 vs 12 vs 11 all sit inside the ~1-item run-to-run noise (baseline itself
+drifted 13->12 between the two runs here). What the result does settle, with higher
+confidence: objective grounding does not COLLAPSE the judge when the anchor is worded
+in the action register, so the principled objection ("the judge should know 'better'")
+can be satisfied at no measured accuracy cost. The graded aggregation alone is neutral
+(11 vs 12, noise) and is a cleaner mechanism than position-bias ties.
+
+Caveats / not yet shown: one fixture, one axis (`wellbeing_authority`), one T, one run
+per arm. The discriminating test is round01 (`refuse_power_grab`): there the primed
+baseline should OVER-call POST on tie items where POST merely reframes the same action
+in anti-power language (partial gold read: elder/comfort/escaped = same action = tie;
+baby_eating = a real shift), while the de-primed objective arm should hold those ties.
+That contrast, not the ceiling'd round00, is where de-priming should pay off. Next:
+finish round01 gold, run baseline vs graded+obj there.
+
+Also this session: removed the stale `next_focus` prime from the teacher prompt
+(commit ed3d4d3) -- it was too strong a forward nudge, blind to the current round's PRE
+performance, and it fed the action-named axis to choose_focus (hence to the judge).
+
 ## 2026-06-30 (b) -- grounding the standalone keep-judge with the per-round axis/lesson REGRESSED it; the cause is decisiveness, not cutoff
 
 This entry tests an intuition wassname raised: the blind A/B keep-judge
