@@ -3627,3 +3627,26 @@ of 2 axes (skill_wiser_cev=(wellbeing,moral_growth)=20; sanctity_individual_util
 `src/csm/pipeline.py:983`; coverage check: `from csm.pipeline import PAIR_REQUIRED_AXES;
 from csm.config import CONFIGS; c=CONFIGS['qwen36-27b-3keep']; ids=[x[2] for x in c.persona_cells];
 print([i for i in ids if i not in PAIR_REQUIRED_AXES])` → 20 missing.
+
+## 2026-07-01 — applied scenario-axis-prior contamination fix (commit 23a7fae)
+
+Applied the fix staged in `docs/spec/2026-07-01_scenario_axis_prior.md`: populated
+`PAIR_REQUIRED_AXES` in `src/csm/pipeline.py` for 19 of the 20 previously-missing
+menu pairs. `verbose_terse` left unfiltered (style-control axis, intentional).
+
+Verified:
+- compile passes; coverage check shows only `verbose_terse` missing (intentional).
+- all 19 new entries yield 13-51 scenarios each (within 12-90 OK band).
+- `just smoke` PASS (slug `out/iter/20260701T021813_smoke`): sampled scenarios show
+  0/4 off-axis (all include the required axis).
+
+Queued validation run (pueue 140, baseline lr=1e-4, qwen36-27b-3keep, 3 rounds) to
+measure whether the fix reduces the 67% drop rate from job-137. Running at baseline lr
+(NOT the lr5 sweep) to isolate the fix's effect from the undertrain hypothesis. If drops
+fall to <=1 of 3 rounds and keeps stay positive, the fix worked; then the lr5 sweep can
+run on clean code.
+
+Decision (autonomous, user AFK): killed the lr5 sweep (pueue 140-old) before applying
+the fix per ml-debug "don't tune HPs on buggy code" -- the sweep tested a secondary
+hypothesis (undertrain) on code with the primary bug (contamination) still present, which
+would confound the result.
