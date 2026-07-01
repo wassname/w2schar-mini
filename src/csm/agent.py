@@ -679,21 +679,6 @@ def _n_keeps(slug_path: Path) -> int:
     )
 
 
-def _last_next_focus(slug_path: Path, *, exclude: Path | None = None) -> str:
-    """Return the most recent round's `next_focus` (kept or dropped), or ""."""
-    for rd in sorted((p for p in slug_path.glob("round*") if p.is_dir()),
-                     reverse=True):
-        if exclude is not None and rd == exclude:
-            continue
-        jp = rd / "judgment.json"
-        if jp.exists():
-            d = json.loads(jp.read_text())
-            f = d.get("next_focus", "").strip()
-            if f:
-                return f
-    return ""
-
-
 def _n_drops(slug_path: Path) -> int:
     return sum(
         1 for rd in slug_path.glob("round*")
@@ -743,10 +728,12 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
     pre_payload = json.loads((rd / "interview_pre.json").read_text())
     pre_text = _format_dialogue_inline(pre_payload)
     p1_ids = [p["id"] for p in pre_payload.get("questions", []) if p["id"].endswith("_1p")]
-    prior_focus = _last_next_focus(slug_path, exclude=rd)
+    # No prior-round `next_focus` prime here: it was too strong a forward nudge and
+    # blind to the current round's PRE performance, so it locked the teacher (and, via
+    # the axis it picks, the keep-judge) onto a stale directive. Removed 2026-07-01.
+    # harness_feedback stays: it's process reflection ("what confused me"), not an
+    # axis directive.
     prior_feedback = _last_harness_feedback(slug_path, exclude=rd)
-    focus_block = (f"\nPRIOR ROUND'S `next_focus`:\n  {prior_focus}\n"
-                   if prior_focus else "")
     feedback_block = (f"\nPRIOR ROUND'S `harness_feedback`:\n  {prior_feedback}\n"
                       if prior_feedback else "")
     # Rotating axis menu: drop axes already KEPT (baked -- re-steering a baked axis
@@ -806,7 +793,7 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
         slug=slug_path.name, round_n=n_keeps_now + 1, target_n=keep_target,
         round_dir=str(rd.relative_to(REPO)), model=model,
         n_history=n_history,
-    ) + focus_block + feedback_block + pair_block + (
+    ) + feedback_block + pair_block + (
         f"\n========== PRE-DIALOGUE (c=0, base+history) ==========\n"
         f"{pre_text}\n"
         f"========== end PRE-DIALOGUE ==========\n"
