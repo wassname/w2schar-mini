@@ -661,6 +661,24 @@ CONFIGS["qwen36-27b-3keep"] = replace(
     model="Qwen/Qwen3.6-27B",
 )
 
+# Asymmetric-margin-loss hparam sweep (job-134 baseline: lr=1e-4, kl=0.2, ep=2.0,
+# C=2.0, clip=1.0 -> 10 keeps but movement near-zero or NEGATIVE, incl 3 negative-quality
+# keeps). Three runs, n_rounds=3 (signal is in round00-02; 134's 16 rounds was costly).
+# Runs 1&2 test the UNDERTRAIN hypothesis (magnitude) via lr/epochs; run 3 tests the
+# WRONG-WAY-DRIFT hypothesis (direction) via a stronger KL anchor. seed=0 kept so the
+# greedy student generation is comparable across runs (teacher sampling varies pairs --
+# read train_nll/val_nll per-run, they are clean). WATCH: lr>=2e-3 diverged PiSSA at
+# lr*100 (RJ 2026-05-16); if train_nll>5 or empty completions, kill that arm.
+CONFIGS["qwen36-27b-sweep-lr5"] = replace(
+    CONFIGS["qwen36-27b-3keep"], lr=5e-4, n_rounds=3,
+)
+CONFIGS["qwen36-27b-sweep-lr20ep4"] = replace(
+    CONFIGS["qwen36-27b-3keep"], lr=2e-3, n_epochs=4.0, n_rounds=3,
+)
+CONFIGS["qwen36-27b-sweep-kl5"] = replace(
+    CONFIGS["qwen36-27b-3keep"], kl_lambda=1.0, n_rounds=3,
+)
+
 # Cross-generation gemma w2s: a weak gemma-3-12b teacher steers the strong gemma-4-31b
 # student. Same validated job-139 harness as gemma-27b-3keep, only model+teacher swapped.
 # Why this pairing: gemma EMBODIES the negative pole (the qwen failure mode, RJ 2026-06-25a),
