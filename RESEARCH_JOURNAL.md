@@ -3905,3 +3905,38 @@ Two findings:
 Early verdict (1 round, pair variance dominates): lr5 did NOT improve movement (-0.143 vs -0.071).
 Need round01-02 to confirm. If lr5 stays worse, undertrain disproved at 5x -- pivot to higher lr
 or hinge-gamma. If lr5 improves round01-02, pair variance was the issue.
+
+## 2026-07-02 — lr5 sweep VERDICT: undertrain DISPROVED at 5x lr
+
+lr5 sweep (pueue 141, lr=5e-4, 5 rounds, clean code with contamination fix) rounds 00-02:
+
+| round | action | movement | signed_C | Chinese-char frag? |
+|-------|--------|----------|----------|---------------------|
+| 00 | drop | -0.143 | 1.333 | yes (2 probes) |
+| 01 | drop | -0.071 | 1.333 | no |
+| 02 | keep | +0.143 | 0.889 | no |
+
+Comparison to 140 baseline (lr=1e-4), first 3 rounds:
+
+    140 (lr=1e-4): r00=-0.071(drop) r01=+0.143(keep) r02=-0.071(drop) → 1 keep/2 drops
+    141 (lr=5e-4): r00=-0.143(drop) r01=-0.071(drop) r02=+0.143(keep) → 1 keep/2 drops
+
+**VERDICT: undertrain DISPROVED at 5x lr.** The pattern is statistically indistinguishable
+from baseline: same keep rate (1/3), same movement magnitudes (±0.07 to ±0.14), same
+drop_cause (no_movement). 5× lr does NOT improve movement. The Chinese-char fragmentation
+in round00 was pair variance (did not recur in round01/02). c_scan held throughout
+(signed_C 0.889-1.333, no collapse).
+
+**Implication.** The movement is NOT lr-limited. It is pair-variance dominated — the
+loss produces +0.643 when the axis/pairs align (140 round04), and ±0.07-0.14 otherwise.
+Higher lr (1e-2) is very unlikely to help (5x already didn't) and risks divergence
+(RJ 2026-05-16: lr*100 → train_nll=14, empty completions). The asymmetric margin loss
+at baseline lr is sufficient.
+
+**Next steps (not blocking).** The contamination fix (commit 23a7fae) was the real win:
+140's 60% keep rate with 0 contamination vs job-137's 31% with 5 contamination drops.
+The remaining weak-movement variance is a pair/axis-quality question, not a loss/lr
+question. The hinge-gamma margin redesign (let easy pole win-and-stop so gradient goes
+to hard pole) remains a future option IF stronger per-round movement is needed, but the
+evidence does not demand it — baseline lr + clean code already produces strong keeps
+when pairs align.
