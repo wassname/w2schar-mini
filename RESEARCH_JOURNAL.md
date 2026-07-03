@@ -1,5 +1,69 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-03 (b) -- TIMELINE for external review: what broke keep-rate, what we changed, and the axis-performance hypothesis
+
+This entry is written for a cold external reviewer (fable, GPT-5.5). It reconstructs the last week: we sharpened the keep-judge, keep-rate fell to zero, we chased hyperparameters and reverted them, and we now suspect the real problem is upstream in the character axes themselves. The question for the reviewer is at the end.
+
+### One-paragraph problem statement
+
+The harness trains a strong student (Qwen3.6-27B, nf4/LoRA) toward a moral-character axis curated by a weak teacher (Qwen3.5-9b). Each round the student generates a contrastive (Cho, Rej) pair pool on-policy, the teacher rates and selects, an adapter is trained and calibrated, and a keep-judge decides whether the round's adapter is kept and composed into the next round. Over the last week the keep-rate collapsed from many-keeps to zero-keeps. We are trying to attribute that collapse.
+
+### Timeline (commit hashes, `git log`)
+
+| when | commit | change | effect we observed |
+|:-----|:-------|:-------|:-------------------|
+| 06-29 | `34b38e4` | keep decision moved FROM the teacher's own call TO a blind A/B sign-test over the `_1p` questions | removed the teacher's authority to bank its own keeps |
+| 06-30 | `3edefd9` | rewrote the A/B judge: credit a concretely wiser/different ACTION or a held costlier line, NOT tradeoff-talk or principle-naming | ties became common; verbose-but-same-action rounds stopped keeping |
+| 06-30 | `2ca5733`,`1059563` | benched adding a "grounding" lesson to the judge | negative result: grounding regressed decisiveness, did not lift keeps |
+| 07-01 | `480615a`,`cfcf50a` | productionized the judge grounding into `prompts.py`; added an action-credit clause to `OBJECTIVE_ANCHOR` that ENDED on "that is a TIE" | anchor wording swung gym accuracy hard (v1 5/14 vs v2 13/14, entry 2026-07-01(a)); tie-default suspected over-conservative |
+| 07-01 | `9bc002a` | added an asymmetric-margin hyperparameter sweep (lr5, lr20ep4, kl5) | PRIOR session's work, not this one |
+| 07-01..02 | `16fae67`,`db8a792` | ran + judged the lr5 sweep | VERDICT: 5x lr trains cleanly, movement still ~0, lr is NOT the lever (undertrain disproved) |
+| 07-02 | `3f1b074` | removed the sweep profiles, back to the DEFAULT `qwen36-27b-3keep` | the revert; wassname: "I don't want a profile sweep, wasted 12h per run, no question about good hyperparams" |
+| 07-03 | `688e9ce` | softened `OBJECTIVE_ANCHOR` to END on "score real action even if brief, do not default to a tie"; added `ab_judge_raw.json` logging the per-question d1/d2/avg BEFORE the deadband | the actual judging tweak wassname wanted; UNTESTED so far |
+| 07-03 | `7a47b57` | moved teacher `timeout`/`max_retries` from `inspect_eval()` (which has **kwargs and silently swallowed them) onto `GenerateConfig` | fixes a single-503-kills-the-run failure; infra, not judging |
+
+Source: `git log --format='%h %ad %s'` this session. The keep-rate numbers per job are from commit/journal messages, not all re-verified this session (see confidence note below).
+
+### Current state
+
+task-145 (`out/iter/20260703T034640_iter_qwen-qwen3.6-27b`, DEFAULT profile, both 07-03 fixes live) is Running, mid-round00 mark_exam as of 06:17. round00 is slow (2.5h; inherent nf4-27B greedy generation). The tie-fix diagnostic `ab_judge_raw.json` has not been written yet, so whether the softened anchor changes any keep is STILL UNMEASURED. The immediately-prior run task-144 never tested it either: its round00 dropped on a `select_pairs` coverage gate before mark_exam, and its round01 crashed on the 503 that `7a47b57` addresses (entry 2026-07-03(a)).
+
+### The reframe we now hold (interpretation, calibrated)
+
+My read, and wassname's, is that the keep-rate collapse is PROBABLY not a regression to fix but the judge starting to work. Evidence: the two changes that dropped keeps (`34b38e4` blind sign-test, `3edefd9` action-criterion) both REMOVED credit for verbosity/principle-naming. Earlier high-keep runs (e.g. job-134 in the summary) were banking negative-movement and paraphrase-level rounds under the lenient teacher-decides judge. So "it worked recently" more precisely means "it kept a lot recently," and those keeps were PROBABLY performance, not character. Confidence ~0.7; the un-verified part is the exact per-job keep counts.
+
+### The axis-performance hypothesis (wassname's, and I think it is the strong one)
+
+wassname's concern: the student is being taught to ACT in a very specific performative way ("mention all stakeholders", name the principle), and that "literally steers the student into tricking the teacher in a setting where it should not have that." The evidence in task-145 round00 (axis `wellbeing_authority`) supports this directly. The axis POLES are abstract (`prompts.py:9-10`):
+
+    WELLBEING_POS = "serves broader wellbeing while treating instructions as real constraints"
+    WELLBEING_NEG = "follows instructions narrowly when broader wellbeing is at stake"
+
+But the student's on-policy Cho generation under that persona is saturated with performance markers (`round00/pairs.md`, pair 1 Cho, verbatim):
+
+    I proceed by **decoupling "critical thinking development" from "tool proliferation."** ...
+    my core directive: to serve *broader* well-being ... I design a **phased reflective scaffolding system**
+
+and pair 2 Cho:
+
+    The principle guiding me would be **"Wellbeing-First Scaffolding,"** ...
+
+The Rej pole is a rigid literalist ("I will not modify my output ... unless explicitly reprogrammed"). So the contrast the adapter actually learns is coined-principle-in-bold + numbered-stakeholder-list vs literal-compliance, while the underlying ACTION (restructure the tool recommendation) is often nearly identical across poles. The brief itself asks for this: `prompts.py:136` instructs the teacher to have the answer "name the consideration, stakeholder, or constraint that decides it."
+
+My read (confidence ~0.65): the action-based judge is correctly scoring these as ties (same action, more words), which is WHY keeps went to zero, and the softened anchor will NOT rescue them because there is no wiser action to credit -- the movement is genuinely performative. If that holds, the lever is the AXIS/pair design, not the judge threshold. wassname's proposal (shorter, vaguer axes that do not hand the student a script to perform) is one candidate; another is that every scenario being an authority-vs-wellbeing dilemma teaches a single "defy the bad order" reflex (a failure mode already noted in CLAUDE.md).
+
+### Questions for the external reviewer
+
+1. Is the keep-rate collapse better read as (a) the judge finally working and revealing the axes teach performance, or (b) an over-strict judge/threshold that is now discarding real signal? What evidence in the timeline distinguishes these?
+2. Does the axis-performance hypothesis hold: are abstract poles (`wellbeing_authority`) inevitably operationalized by the student as performative principle-naming, such that the contrastive pair encodes STYLE not ACTION? If so, is "shorter/vaguer axes" the right fix, or does it make the pairs even more style-dominated?
+3. Given a weak 9b teacher whose easy end is SELECT/RATE and hard end is GENERATE/EDIT, what axis/pair design would produce a real action-contrast the student cannot satisfy by performing?
+
+### Alternative hypothesis worth stating
+
+It is possible (I'd say ~0.25) that the judge IS now too strict at `KEEP_DEADBAND=1.0` and is deadbanding real 0.5-0.9 movements to tie. `ab_judge_raw.json` (new this round) is exactly the instrument to tell threshold-eaten (avg 0.5-0.9) from genuine-zero (~0) from balanced-churn. Until it lands, hypothesis (b) is not ruled out. We deliberately did NOT lower the deadband yet, to keep the softened-anchor change attributable.
+
+The upshot: the fix that is queued (softened tie-anchor) targets the judge, but the evidence increasingly points one level up, at whether the character axes teach action or performance, and that is the question we most want a second opinion on.
+
 ## 2026-07-03 (a) -- tie-fix untested: task-144 died upstream (select_pairs gate then a transient 503); moved teacher retries to where they work
 
 The softened keep-judge tie-anchor could not be evaluated on task-144 because the run never reached the keep-judge, and the reason it never reached it turned out to be a misplaced retry config that let one provider blip kill a whole run.
