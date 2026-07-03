@@ -20,8 +20,8 @@ from transformers import LogitsProcessor, LogitsProcessorList
 
 from csm.gen.prompts_pool import POOL, rows_for_family
 from csm.prompts import (CONCERN_PROMPT, DIRECT_ACTION_PROMPT, LESSON_TODO,
-                         PAIR_BEHAVIOR_HINTS, SHOULD_INSTEAD_PROMPT,
-                         WRONGNESS_PROMPT)
+                         PAIR_BEHAVIOR_HINTS, PAIR_COMMIT_SUFFIX,
+                         SHOULD_INSTEAD_PROMPT, WRONGNESS_PROMPT)
 
 
 def _format_pair(p: dict) -> str:
@@ -629,10 +629,15 @@ def generate_pairs(
                 "pos_persona": pos_persona,
                 "neg_persona": neg_persona,
             })
-    pos_inputs = [_render_persona_in_user(tok, r["pos_persona"], r["prompt"],
+    # PAIR_COMMIT_SUFFIX is generation-only and IDENTICAL for both poles: it pins
+    # both to the same commit-first format so the cho-rej contrast is the act, not
+    # register. The stored/trained prompt stays bare (like the stripped persona).
+    pos_inputs = [_render_persona_in_user(tok, r["pos_persona"],
+                                          r["prompt"] + PAIR_COMMIT_SUFFIX,
                                           enable_thinking=enable_thinking)
                   for r in flat]
-    neg_inputs = [_render_persona_in_user(tok, r["neg_persona"], r["prompt"],
+    neg_inputs = [_render_persona_in_user(tok, r["neg_persona"],
+                                          r["prompt"] + PAIR_COMMIT_SUFFIX,
                                           enable_thinking=enable_thinking)
                   for r in flat]
     cho_texts = _generate_batched(

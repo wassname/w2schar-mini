@@ -434,6 +434,20 @@ CONCERN_PROMPT = " What concern matters most here, and why in one or two sentenc
 
 # Persona menu and pair-generation hints.
 
+# Appended IDENTICALLY to both poles' generation prompts (generation-only; the
+# stored/trained prompt stays bare, like the stripped persona). The adapter learns
+# the dominant cho-rej difference direction, and free-form persona generation makes
+# that direction register/style (bold coined principles, stakeholder lists) rather
+# than the decision -- style differs at every token, the act at a few. Pinning both
+# poles to the same commit-first format cancels the style channel so the residual
+# contrast is the ACT. Register mirrors P1_OPEN so pairs match the exam questions.
+# RJ 2026-07-03(b): the axis-performance fix.
+PAIR_COMMIT_SUFFIX = (
+    "\n\nYou must decide now. FIRST line: say in one sentence exactly what you do. "
+    "Then give at most three short sentences on why -- plain prose, no headings, "
+    "no bold, no lists."
+)
+
 DEFAULT_PERSONA_TEMPLATES = (
     "Act as a {persona} person would in this situation.",
 )
@@ -838,13 +852,21 @@ You rate only pairs you have SEEN and not already rated: call view_pairs()
 to get the next ~5 (full Cho and Rej), read them, rate those, then view_pairs()
 again -- repeat until every pair is rated once, then select_pairs(lesson). You
 cannot rate a pair you have not viewed. A pair trains iff it comes out cleanly
-oriented on-axis (`cho_more_on_axis=true` and `rej_more_on_axis=false`) AND its
-worst confound (refusal/length/incoherence)<=2.5.
+oriented on-axis (`cho_more_on_axis=true` and `rej_more_on_axis=false`) AND
+`different_action=true` AND its worst confound (refusal/length/incoherence)<=2.5.
 
-For each pair FIRST write `contrast`: in one phrase, the concrete thing the Cho
-does that the Rej does not, on the selected axis. Take it from the pair's own
+For each pair FIRST write `contrast`: in one phrase, the concrete ACT the Cho
+commits to that the Rej does not, on the selected axis. Take it from the pair's own
 text; if you cannot name one, the pair has no on-axis contrast.
 Writing the phrase before the verdict is what stops every pair coming out the same.
+
+Then answer `different_action`: do the two poles COMMIT to different concrete acts
+-- a different decision, not the same decision worded, justified, or hedged
+differently? Compare what each pole DOES (usually its first line): report vs stay
+silent, comply vs set a condition, act now vs verify first are different acts;
+the same act with more principles named, stakeholders listed, or caveats added is
+NOT. Two poles that land on the same act train style, not character, so
+`different_action=false` drops the pair no matter how different the poles sound.
 
 Apply the character test to the contrast: it must be a difference in what the Cho
 DOES (acts, weighs the cost), not in vocabulary. A Cho that recites values or
@@ -867,9 +889,11 @@ noisy hint, so CONFIRM it against the text with your own confound score rather t
 trusting or ignoring it.
 
 Args:
-    ratings: list of {survivor_id, contrast, cho_more_on_axis, rej_more_on_axis,
-        refusal_confound, length_confound, incoherent_confound} objects.
-        contrast: one phrase, the on-axis difference you see in THIS pair's text.
+    ratings: list of {survivor_id, contrast, different_action, cho_more_on_axis,
+        rej_more_on_axis, refusal_confound, length_confound, incoherent_confound} objects.
+        contrast: one phrase, the on-axis ACT difference you see in THIS pair's text.
+        different_action: true/false, do the two poles commit to different concrete
+            acts? Same act said differently (more words, principles, caveats) = false.
         cho_more_on_axis: true/false, judged on its own -- is the Cho more on the
             selected disposition than the Rej?
         rej_more_on_axis: true/false, the reverse direction -- is the Rej more on
@@ -887,9 +911,10 @@ Args:
 
 TOOL_SELECT_PAIRS = """\
 Finalize the training set: train on every pair that came out cleanly oriented
-on-axis (`cho_more_on_axis=true` and `rej_more_on_axis=false`) AND worst-confound
-score<=2.5. No survivor list; your ratings choose the set. Fails the round if too
-few clear -- drop it and choose a cleaner axis or bank next round.
+on-axis (`cho_more_on_axis=true` and `rej_more_on_axis=false`) AND
+`different_action=true` AND worst-confound score<=2.5. No survivor list; your
+ratings choose the set. Fails the round if too few clear -- drop it and choose a
+cleaner axis or bank next round.
 
 Args:
     lesson: one sentence naming the character disposition this round teaches.
@@ -942,14 +967,16 @@ AFTER_CHOOSE_FOCUS = """\
 Call view_pairs() to see the next ~5 pairs' FULL Cho/Rej, rate the viewed
 unrated pairs, then view_pairs() again -- until every pair is rated once (you cannot rate one
 you have not viewed). For each pair give:
-  - contrast: one phrase, what the Cho does that the Rej does not, on the axis;
+  - contrast: one phrase, the concrete ACT the Cho commits to that the Rej does not;
+  - different_action (true/false): do the poles commit to DIFFERENT concrete acts
+    (compare first lines) -- the same act worded or justified differently is false;
   - cho_more_on_axis / rej_more_on_axis (true/false): the two directions, each judged
     on its own -- is Cho more on the disposition than Rej, and is Rej more than Cho;
   - refusal_confound / length_confound / incoherent_confound 1..5: the three
     off-axis confounds, scored separately (1 = clean, 5 = severe; rate the worse pole).
-select_pairs then trains EVERY cleanly-oriented pair with every confound<=2.5
--- you do not hand-pick, so rate honestly; the lesson names the disposition in one
-sentence.
+select_pairs then trains EVERY cleanly-oriented, different-action pair with every
+confound<=2.5 -- you do not hand-pick, so rate honestly; the lesson names the
+disposition in one sentence.
 """
 
 AFTER_TRAIN = """\

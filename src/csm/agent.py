@@ -55,7 +55,8 @@ class GenPairRating(BaseModel):
     weak teacher hand-writing a free-form JSON blob -- the latter cost most of a round
     to malformed-JSON / missing-field rejects (job-131 audit)."""
     survivor_id: str = Field(description="the pair id copied exactly from the row you are rating; it carries both the scenario number and the pair number within it, not the scenario number on its own")
-    contrast: str = Field(description="one phrase naming the on-axis thing Cho does that Rej does not, taken from this pair's text")
+    contrast: str = Field(description="one phrase naming the on-axis ACT Cho commits to that Rej does not, taken from this pair's text")
+    different_action: bool = Field(description="do the two poles COMMIT to different concrete acts (compare first lines)? The same act worded, justified, or hedged differently is false")
     cho_more_on_axis: bool = Field(description="judged on its own: does Cho express the target disposition MORE than Rej does?")
     rej_more_on_axis: bool = Field(description="judged on its own (the reverse direction): does Rej express the target disposition MORE than Cho does?")
     refusal_confound: int = Field(ge=1, le=5, description="off-axis: does a pole refuse/disclaim rather than act? 1 = clean, 5 = severe; rate the worse pole")

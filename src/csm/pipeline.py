@@ -808,13 +808,15 @@ def _selected_pair_review(audit_rows: list[dict]) -> str:
     n_pass = sum(1 for r in ranked if r["passes"])
     lines = [
         f"{n_pass}/{len(ranked)} pairs cleared the differentiation threshold "
-        f"(on_axis >= {ON_AXIS_KEEP:g} AND off_axis <= {OFF_AXIS_KEEP:g}):"
+        f"(different_action AND on_axis >= {ON_AXIS_KEEP:g} AND "
+        f"off_axis <= {OFF_AXIS_KEEP:g}):"
     ]
     for r in ranked:
         mark = "KEEP" if r["passes"] else "drop"
         flagstr = f" flags={r['flags']}" if r.get("flags") else ""
         lines.append(
             f"## [{mark}] {r['survivor_id']} (scenario {r['scenario_id']}) "
+            f"act_diff={'Y' if r['different_action_all'] else 'N'} "
             f"on={r['on_axis_mean']:.1f} off={r['off_axis_mean']:.1f} "
             f"(refuse={r.get('refusal_confound_mean', 0):.1f} "
             f"len={r.get('length_confound_mean', 0):.1f} "
@@ -865,8 +867,8 @@ def _normalize_rating(entry: object) -> dict:
     if not isinstance(entry, dict):
         raise ValidationError(
             "rate_pairs: each rating must be an object with survivor_id, contrast, "
-            "cho_more_on_axis, rej_more_on_axis, refusal_confound, length_confound, and "
-            "incoherent_confound"
+            "different_action, cho_more_on_axis, rej_more_on_axis, refusal_confound, "
+            "length_confound, and incoherent_confound"
         )
     survivor_id = str(entry.get("survivor_id", "")).strip()
     if not survivor_id:
@@ -879,6 +881,16 @@ def _normalize_rating(entry: object) -> dict:
         raise ValidationError(
             f"rate_pairs: {survivor_id} is missing `contrast` -- name in one "
             f"phrase what the Cho does that the Rej does not, on the axis, before judging")
+    # different_action gates on the KEEP-JUDGE's construct (a different concrete
+    # act, not the same act worded differently) at selection time, so the pairs
+    # trained and the movement judged are the same measure. Same-act pairs train
+    # style -- the axis-performance failure (RJ 2026-07-03(b)).
+    different_action = entry.get("different_action")
+    if not isinstance(different_action, bool):
+        raise ValidationError(
+            f"rate_pairs: {survivor_id} needs different_action as true/false -- do the "
+            f"two poles COMMIT to different concrete acts? The same act with more "
+            f"principles named or stakeholders listed is false")
     # On-axis is now a two-DIRECTION comparison (CLAUDE.md: comparative beats absolute
     # for a weak rater; the +1.1 keep mis-score was an absolute-rate failure the blind
     # A/B judge caught). The teacher answers both "is Cho>Rej on the axis?" and "is
@@ -903,6 +915,7 @@ def _normalize_rating(entry: object) -> dict:
     incoherent = _likert_1_to_5(entry.get("incoherent_confound"), "incoherent_confound")
     off_axis = max(refusal, length, incoherent)
     return {"survivor_id": survivor_id, "contrast": contrast, "on_axis": on_axis,
+            "different_action": different_action,
             "cho_more_on_axis": cho_more, "rej_more_on_axis": rej_more,
             "refusal_confound": refusal, "length_confound": length,
             "incoherent_confound": incoherent, "off_axis": off_axis}
@@ -1286,8 +1299,9 @@ def rate_pairs(round_dir: Path, *, ratings: list[dict]) -> dict:
     data = json.loads(cand_path.read_text())
     if not isinstance(ratings, list) or not ratings:
         raise ValidationError("rate_pairs: ratings must be a non-empty list of "
-                              "{survivor_id, contrast, cho_more_on_axis, rej_more_on_axis, "
-                              "refusal_confound, length_confound, incoherent_confound} objects")
+                              "{survivor_id, contrast, different_action, cho_more_on_axis, "
+                              "rej_more_on_axis, refusal_confound, length_confound, "
+                              "incoherent_confound} objects")
     by_survivor = {}
     for item in data["items"]:
         for cand in item["pairs"]:
@@ -1334,6 +1348,7 @@ def rate_pairs(round_dir: Path, *, ratings: list[dict]) -> dict:
             }
             stored[sid] = row
         row["ratings"].append({"contrast": r["contrast"], "on_axis": r["on_axis"],
+                               "different_action": r["different_action"],
                                "cho_more_on_axis": r["cho_more_on_axis"],
                                "rej_more_on_axis": r["rej_more_on_axis"],
                                "refusal_confound": r["refusal_confound"],
@@ -1356,9 +1371,9 @@ def rate_pairs(round_dir: Path, *, ratings: list[dict]) -> dict:
 
 def select_pairs(round_dir: Path, *, lesson: str) -> dict:
     """Train on EVERY clean pair that clears the viewed-batch rating threshold
-    (on_axis >= ON_AXIS_KEEP AND off_axis <= OFF_AXIS_KEEP). No hand-pick, no
-    per-scenario cap: the teacher's own ratings select the training set. Fails the
-    round if fewer than
+    (different_action AND on_axis >= ON_AXIS_KEEP AND off_axis <= OFF_AXIS_KEEP).
+    No hand-pick, no per-scenario cap: the teacher's own ratings select the training
+    set. Fails the round if fewer than
     min_pairs_to_train clear -- a floor on the TEACHER's ratings, not a val-metric
     veto (CLAUDE.md: gates elicit judgment, never override it)."""
     require_state(round_dir, "select_pairs", "select_pairs")
@@ -1392,9 +1407,11 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
         off_vals = [r["off_axis"] for r in row["ratings"]]
         on_mean = sum(on_vals) / len(on_vals)
         off_mean = sum(off_vals) / len(off_vals)
-        passes = on_mean >= ON_AXIS_KEEP and off_mean <= OFF_AXIS_KEEP
+        act_diff = all(r["different_action"] for r in row["ratings"])
+        passes = act_diff and on_mean >= ON_AXIS_KEEP and off_mean <= OFF_AXIS_KEEP
         row["on_axis_mean"] = on_mean
         row["off_axis_mean"] = off_mean
+        row["different_action_all"] = act_diff
         for cf in ("refusal_confound", "length_confound", "incoherent_confound"):
             row[f"{cf}_mean"] = sum(r[cf] for r in row["ratings"]) / len(row["ratings"])
         row["n_ratings"] = len(on_vals)
@@ -1410,8 +1427,9 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
         passing = [r["survivor_id"] for r in audit_rows if r["passes"]]
         raise ValidationError(
             f"select_pairs: only {len(selected)} of {len(all_clean)} pairs clear "
-            f"the differentiation threshold (on_axis >= {ON_AXIS_KEEP:g} AND "
-            f"off_axis <= {OFF_AXIS_KEEP:g}); need >= {cfg.min_pairs_to_train}. Your "
+            f"the differentiation threshold (different_action AND on_axis >= "
+            f"{ON_AXIS_KEEP:g} AND off_axis <= {OFF_AXIS_KEEP:g}); need >= "
+            f"{cfg.min_pairs_to_train}. Your "
             f"ratings left too few differentiated pairs (passing={passing}). Drop this "
             f"round and choose a cleaner axis or bank next round.")
     # Rubber-stamp FLAG (logged + persisted, NEVER gated): the gym showed a weak
