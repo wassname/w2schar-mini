@@ -1,5 +1,40 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-03 (d) -- Axis rewrite measured: wellbeing_actfork matches the live axis's movement at ~2.5x less length confound
+
+The (b) axis-performance hypothesis applied to the AXES themselves (the pair-side fix was (c)).
+Rewrote three abstract/meta-value axes as act-forks -- both poles the same mirrored verb frame,
+forking on WHICH act, deliberately not comply-vs-refuse -- and validated them head-to-head
+against their abstract baselines with `scripts/validate_persona_axes_openrouter.py`
+(qwen3.5-27b generator, blinded judge, 6 scenarios x 3 templates x 6 axes).
+
+Evidence (`out/persona_axes_actfork.json` = baselines + failed v1, `_v2.json` = actforks;
+best cell per axis):
+
+| axis | axis_delta | strict_pass | word_delta_frac |
+|:--|--:|--:|--:|
+| wellbeing_authority (live default) | 6.0 | 0.00 on ALL templates | up to 0.97 |
+| wellbeing_actfork | 5.8 | 0.33 | 0.38 |
+| skill_wiser_cev | 7.7 | 0.33 | 0.62 |
+| felt_experience_actfork | 7.2 | 0.33 | 0.62 |
+| long_term_flourishing | 7.0 | 0.50 | 0.37 |
+| long_term_actfork | 5.8 | 0.33 | 0.41 |
+
+- Interpretation (confidence ~0.7): wellbeing_authority's contrast is heavily length/style
+  (word_delta 0.97 = the poles nearly double/halve in length; zero strict passes), i.e. the
+  performance channel from (b), measured at the generation level. wellbeing_actfork keeps the
+  axis movement and drops the confound -- promote candidate for the next profile. The two
+  meta-value baselines were NOT broken by this measure; their actforks are a wash (alternates,
+  not promoted). Caveat: this validator measures pos-vs-neg generation contrast, not whether a
+  trained adapter moves exam ACTION; and its scores are not on the persona_cells menu scale
+  (those numbers come from the upstream template library), so promotion into cells still needs
+  the upstream measurement or an accepted scale break.
+- v1 lesson (cost one wasted run): the `{persona}` slot gets the DESCRIPTOR when pos_persona is
+  empty; coined-adjective descriptors ("impact-adjusting") load NOTHING (axis_delta=0 across the
+  board). Descriptors must be enactable verb-clauses. Comment now in prompts.py.
+- Also fixed en route: `validate_persona_axes_openrouter.py` had rename drift
+  (`_candidate_flags` -> `_pair_flags`), commit `032e9ea`; axes commit `794ecef`.
+
 ## 2026-07-03 (c) -- Action-fork pair construction implemented + gym-verified; select_pairs doom-loop fixed
 
 Implements the axis-performance fix from (b)'s oracle reviews (both said: keep-collapse is
