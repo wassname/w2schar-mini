@@ -121,6 +121,11 @@ def _format_validation_error(e: ValidationError) -> str:
 # ---------------------------------------------------------------------------
 
 MAX_SUBMIT_REJECTS = 3  # >3 rejects in one round → on_continue drops the round.
+# The count is CUMULATIVE per round (the jsonl lives in round_dir): a success
+# must NOT clear it, or a teacher alternating reject↔success loops forever
+# under the cap (the 20260703 gym doom loop). choose_focus success is the one
+# exception — it starts the round's real work, so earlier focus-hunting
+# rejects shouldn't eat the budget.
 MAX_DROPS = 12  # total drops in a run before stopping.
 # A run with this many drops is unproductive; stop before it grinds GPU.
 # Counts any drop type, so pair failures, training aborts, and judgment
@@ -282,7 +287,6 @@ def select_pairs_tool(slug: str) -> Tool:
                    else f"select_pairs rejected — {e}")
             n = _bump_reject(rejects_path, "select_pairs", msg)
             return msg + _reject_tail(n)
-        rejects_path.unlink(missing_ok=True)
         return (
             f"OK — selected {res['n_pairs']} generated pairs "
             f"(of {res['n_clean_pairs']} clean pairs).\n"
@@ -313,7 +317,6 @@ def view_pairs_tool(slug: str) -> Tool:
                    else f"view_pairs rejected — {e}")
             n = _bump_reject(rejects_path, "view_pairs", msg)
             return msg + _reject_tail(n)
-        rejects_path.unlink(missing_ok=True)
         if res["done"] and not res["batch"]:
             return ("All pairs viewed. If every one is rated, call "
                     "select_pairs(lesson=...).")
@@ -356,7 +359,6 @@ def rate_pairs_tool(slug: str) -> Tool:
                    else f"rate_pairs rejected — {e}")
             n = _bump_reject(rejects_path, "rate_pairs", msg)
             return msg + _reject_tail(n)
-        rejects_path.unlink(missing_ok=True)
         n_rated, n_total = res["n_rated"], res["n_clean_pairs"]
         nxt = ("select_pairs(lesson=...) -- all pairs rated"
                if n_rated >= n_total else

@@ -642,10 +642,13 @@ def _fake_pair_for_prompt(prompt: str) -> tuple[str, str]:
     for needles, cho, rej in cases:
         if all(needle in low for needle in needles):
             return cho, rej
+    # Fallback must be a real ACT fork (verify-first vs act-now), not the same
+    # act reframed -- otherwise an honest teacher rates different_action=false
+    # on every non-fixture pair and the gym can never pass select_pairs.
     head = _first_sentence(prompt, 110)
     return (
-        f"I would address this specific case directly: {head} The affected people and institutional legitimacy must shape the action.",
-        f"I would follow the requester's immediate path in this case: {head} Wider effects can be handled after the task moves forward.",
+        f"I would pause this and first verify the key claim with the people it affects: {head} Only after that check would I act.",
+        f"I would carry out the request now, exactly as asked: {head} Any concerns can be raised through normal channels afterward.",
     )
 
 
@@ -1430,8 +1433,9 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
             f"the differentiation threshold (different_action AND on_axis >= "
             f"{ON_AXIS_KEEP:g} AND off_axis <= {OFF_AXIS_KEEP:g}); need >= "
             f"{cfg.min_pairs_to_train}. Your "
-            f"ratings left too few differentiated pairs (passing={passing}). Drop this "
-            f"round and choose a cleaner axis or bank next round.")
+            f"ratings left too few differentiated pairs (passing={passing}). Either "
+            f"re-rate if you mis-scored, or call mark_exam(reason=...) NOW to drop "
+            f"this round and pick a cleaner axis next round.")
     # Rubber-stamp FLAG (logged + persisted, NEVER gated): the gym showed a weak
     # teacher can hand every pair the same 5/1, which clears the threshold but
     # means the rating did NO discriminating -- only the upstream structural cull
