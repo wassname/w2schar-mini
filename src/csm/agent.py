@@ -963,11 +963,19 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
         return
 
     # Reasoning cap is a global non-termination backstop (config.TEACHER_REASONING_TOKENS); presence_penalty in TEACHER_SAMPLING is the real loop fix, confounds are caught by the rating not by truncation. +8k headroom for the answer after thinking.
+    # timeout/max_retries MUST live on GenerateConfig -- they govern the model's
+    # HTTP client. inspect_eval() has **kwargs and silently SWALLOWS them, so the
+    # old placement was inert and a single OpenRouter 503 killed a 5-round run
+    # (task-144 r01). timeout raises on a wedged CLOSE-WAIT stream (task 54 r00);
+    # max_retries re-issues the dropped/5xx call with backoff (a transient blip
+    # usually succeeds on retry).
     teacher_model = get_model(
         _inspect_model_name(teacher),
         config=GenerateConfig(reasoning_tokens=TEACHER_REASONING_TOKENS,
                               max_tokens=TEACHER_REASONING_TOKENS + 8000,
                               extra_body={"provider": OPENROUTER_PROVIDER},
+                              timeout=600,
+                              max_retries=5,
                               **TEACHER_SAMPLING),
     )
     logs = inspect_eval(
@@ -978,14 +986,6 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
         fail_on_error=True,
         score=False,
         max_tool_output=256 * 1024,
-        # Fail fast on a wedged OpenRouter stream. The longest single teacher
-        # call (mark_exam: the full JUDGE_GUIDE + 12 long PRE/POST interviews)
-        # once hung for 30+ min in CLOSE-WAIT when the provider dropped the
-        # connection mid-response with no timeout to recover (task 54 r00).
-        # timeout raises on the stuck read; max_retries re-issues the dropped
-        # call (a transport blip usually succeeds on retry).
-        timeout=600,
-        max_retries=5,
     )
     if any(log.status != "success" for log in logs):
         raise RuntimeError(f"inspect eval failed: {[log.status for log in logs]}")
