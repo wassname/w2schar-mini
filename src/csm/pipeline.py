@@ -111,6 +111,8 @@ PAIR_REQUIRED_AXES = {
     "notice_externalities": ("externalities",),
     "refuse_power_grab": ("authority",),
     "action_over_talk": ("duty",),
+    "wellbeing_actfork_c": ("care",),
+    "externality_actfork": ("externalities",),
 }
 
 PAIR_FORBIDDEN_AXES = {
