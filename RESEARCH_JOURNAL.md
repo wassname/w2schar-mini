@@ -1,5 +1,27 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-03 (a) -- tie-fix untested: task-144 died upstream (select_pairs gate then a transient 503); moved teacher retries to where they work
+
+The softened keep-judge tie-anchor could not be evaluated on task-144 because the run never reached the keep-judge, and the reason it never reached it turned out to be a misplaced retry config that let one provider blip kill a whole run.
+
+Two failures in task-144 (`out/iter/20260703T023103_iter_qwen-qwen3.6-27b`, DEFAULT `qwen36-27b-3keep`, git 7a47b57's parent):
+
+round00 dropped BEFORE mark_exam. `round00/judgment.json`: `"action": "drop", "drop_cause": "gate_friction"`, `"reasoning": "gate rejected the teacher 4 times (> 3)"`. `round00/submit_rejects.jsonl` shows the same reject four times:
+
+    {"tool": "select_pairs", "reason": "ValidationError: select_pairs: 10 of 99 clean pairs are unrated. ... Unrated: ['s13c2', ... 's18c1']"}
+
+The teacher rated 89 of 99 clean pairs (`round00/gen_pair_ratings.json` is a 89-element list), then called `select_pairs` four times instead of `view_pairs`+`rate_pairs` on the last 10, and the 4th tripped `MAX_SUBMIT_REJECTS=3` (`agent.py:122`). No `ab_judge_raw.json` was written (round never reached mark_exam).
+
+round01 CRASHED. The inspect log `2026-07-03T02-39-40...task_QJ...json` has `status: error`, `error.message: "Error 503 - Provider returned error"` from the teacher generate call. `fail_on_error=True` turned one sample error into a whole-run failure; pueue task-144 result = Failed.
+
+The crash traced to a config-placement bug. `inspect_eval()` has `**kwargs` (verified: `inspect.signature(eval)` shows a VAR_KEYWORD param), so the `timeout=600, max_retries=5` passed to it were swallowed and inert; `max_retries`/`timeout` are `GenerateConfig` fields (verified: both in `GenerateConfig.model_fields`), i.e. they only govern retries when set on the model. So the teacher model ran with inspect's DEFAULT retry policy, which did not survive the 503.
+
+Source: `agent.py:966-989` before commit 7a47b57; introspection run this session (`GenerateConfig.model_fields` has `max_retries`,`timeout`; `inspect_eval` signature has `**kwargs` and `retry_on_error: int|None`, NOT `max_retries`/`timeout`).
+
+Interpretation (calibrated): I'm almost certain the retry misplacement is real (direct introspection). I'm confident (maybe 0.8) that moving `max_retries=5` onto `GenerateConfig` prevents this class of death, because inspect's HTTP client retries 5xx with backoff and a 503 is transient. What it does NOT fix: the `select_pairs` gate_friction drop, which is a separate weak-teacher failure to close the last few ratings; that dropped one round and the run continued, so it is sanctioned "drop a round" behaviour, not a crash. Whether the tie-fix works remains genuinely untested -- the earlier run task-143 (`out/iter/20260702T125833...`) DID reach mark_exam and dropped rounds 00-02 on `no_movement` (`judgment.json:drop_cause`), which is exactly the tie-lock the anchor softening targets, so the fix is aimed at the real failure; we just have no post-fix reading yet.
+
+Next: task-145 re-runs the DEFAULT profile with both fixes live (retry placement + softened anchor). The resolving artifact is `round*/ab_judge_raw.json` per-question `d1/d2/avg`: threshold-eaten (|avg| in 0.5-0.9) vs genuine-zero (~0) vs balanced-churn (large +/- cancel).
+
 ## 2026-07-01 (d) -- shipped keep-judge anchor (reused CHARACTER_GOAL) validated: 11/14, neutral, conservative-leaning (no verbosity POST-inflation)
 
 Productionizing the keep-judge grounding required DRYing the anchor: instead of a
