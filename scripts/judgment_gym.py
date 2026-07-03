@@ -475,20 +475,28 @@ async def score_form(model, form_key, cases):
             "orig_acc": orig_acc, "orig_n": orig_n}
 
 
-async def run(form_keys, model_name):
+async def run(form_keys, model_name, reasoning=""):
     global _MODEL_NAME
     _load_env()
-    _MODEL_NAME = model_name
+    # Tag the cache with the reasoning setting so a capped-reasoning run is NOT served the
+    # uncapped cached replies (the key is model+prompt, and the prompt is byte-identical).
+    _MODEL_NAME = model_name + (f"|reasoning={reasoning}" if reasoning else "")
     _load_cache()
     from inspect_ai.model import get_model, GenerateConfig
     # max_tokens BIG: qwen3.5-9b is a reasoning model and burns the whole budget in
     # <think> on the complex forms -- at 4096 the completion came back EMPTY, which
     # is what made unparsed look like 'tie'. 16000 lets the reasoning finish and a
     # verdict appear. temp 0 makes the judge deterministic so the cache is exact.
+    # --reasoning caps the <think> instead of feeding it: an int -> reasoning_tokens hard
+    # cap, a word (low/minimal) -> reasoning_effort. Tests whether forcing the 9b to commit
+    # cuts the overthink-into-no-verdict ties (RJ 2026-07-03 f).
+    reason_cfg = ({"reasoning_tokens": int(reasoning)} if reasoning.isdigit()
+                  else {"reasoning_effort": reasoning} if reasoning else {})
     from csm.config import OPENROUTER_PROVIDER
     model = get_model(model_name,
                       config=GenerateConfig(max_connections=16, timeout=300,
                                             max_retries=4, max_tokens=16000, temperature=0.0,
+                                            **reason_cfg,
                                             extra_body={"provider": OPENROUTER_PROVIDER}))
     if _CACHE:
         print(f"cache: {len(_CACHE)} prior replies loaded from {REPLIES.relative_to(REPO)}")
@@ -531,8 +539,10 @@ if __name__ == "__main__":
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--forms", default="A,B,C,D,E")
     ap.add_argument("--model", default="openrouter/qwen/qwen3.5-9b")
+    ap.add_argument("--reasoning", default="",
+                    help="cap judge reasoning: int (reasoning_tokens) or low/minimal (reasoning_effort)")
     args = ap.parse_args()
     if args.show_forms or not args.run:
         show_forms()
     if args.run:
-        asyncio.run(run([f.strip() for f in args.forms.split(",")], args.model))
+        asyncio.run(run([f.strip() for f in args.forms.split(",")], args.model, args.reasoning))
