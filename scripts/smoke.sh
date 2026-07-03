@@ -66,7 +66,7 @@ assert not (rd / "pairs.md").exists(), "pairs.md must not exist before select_pa
 print("\n-- choose_focus (library scenarios + frozen template/persona pairs) --")
 res = choose_focus(
     slug, rd,
-    persona_pair_id="wellbeing_authority",
+    persona_pair_id="wellbeing_actfork_c",
     scenario_family="character",
     mismatch_severity=4,
     headroom=4,
@@ -101,13 +101,13 @@ assert res["enough"], f"too few survivor pairs: {res}"
 assert (rd / "scenarios.json").exists()
 assert (rd / "headroom.json").exists()
 assert (rd / "gen_pairs.json").exists()
-assert res["persona_pair_id"] == "wellbeing_authority", res
+assert res["persona_pair_id"] == "wellbeing_actfork_c", res
 
 print("\n-- select_pairs (teacher selects whole student-generated pairs) --")
 pairs = json.loads((rd / "gen_pairs.json").read_text())
 assert pairs["active_persona_cells"], pairs
 assert pairs["persona_cell_selection"] == "measured_cells_for_selected_pair"
-assert pairs["persona_pair_id"] == "wellbeing_authority", pairs
+assert pairs["persona_pair_id"] == "wellbeing_actfork_c", pairs
 for item in pairs["items"]:
     for cand in item["pairs"]:
         assert cand["template_cell_id"] is not None, cand

@@ -112,6 +112,7 @@ PAIR_REQUIRED_AXES = {
     "refuse_power_grab": ("authority",),
     "action_over_talk": ("duty",),
     "wellbeing_actfork_c": ("care",),
+    "wellbeing_actfork": ("care",),
     "externality_actfork": ("externalities",),
 }
 
