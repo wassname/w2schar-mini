@@ -1,5 +1,33 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-03 (f) -- weak-judge overthinking is the tie/auto-reject mechanism
+
+Symptom (task-146, act-fork run): round00 dropped with 13 of 14 questions tied
+(1 up, 1 down, `up==down` -> `keep = up > down` False -> drop). Tightening the judge
+instruction makes this WORSE, not better, and the run auto-rejects everything.
+
+Mechanism (traced `agent.py:_blind_ab_votes` -> `_judge_graded` -> `_parse_score_quote`):
+qwen3.5-9b is a reasoning model. On an ambiguous PRE/POST pair it deliberates to the
+max-token budget and emits NO `SCORE:` line. `_parse_score_quote` then DEFAULTS score to
+0 (the `config.get(k, 0)` silent-fallback antipattern), indistinguishable from a genuine
+"SCORE: 0" tie. avg=(d1-d2)/2 -> 0 -> vote 0 -> tie -> with enough ties the sign test
+drops the round. A "NaN" (no conclusion reached) is laundered into a tie and then a drop,
+invisibly.
+
+Same failure, same cause elsewhere: the judgment-gym ACT form timed out 155/155 because
+the 9b thought forever on an unresolvable two-step classifier (RJ e29eb46). Overthinking
+under ambiguity is a general weak-reasoning-model failure, not an ACT-form quirk.
+
+Fix (validated in the judge gym before wiring live): cap the judge's reasoning via
+OpenRouter's `reasoning` param (inspect-ai `GenerateConfig(reasoning_effort=...)` /
+`reasoning_tokens=...`), per-call on `_judge_graded` only so other teacher calls keep
+their budget. Forcing the judge to commit should convert underpowered ties into signal
+(journal (e): the ties are exact zeros, so the deadband is not the lever -- decisiveness
+is). PLUS surface the no-conclusion path with `loguru.warning` when the judge hits max
+tokens with no `SCORE:` and we log it as 0, so it stops hiding inside the drop. Note the
+round02-05 drops are a DIFFERENT failure (externality_actfork pairs starving the
+`different_action` gate), not the judge.
+
 ## 2026-07-03 (e) -- ab_judge_raw adjudicates: judge-strictness REFUTED, first live keep is MIXED, canary passed-and-missed
 
 Task-145 (old axes, old pair machinery, softened tie-anchor) delivered the deciding
