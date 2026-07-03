@@ -40,7 +40,7 @@ from tabulate import tabulate
 from tqdm.asyncio import tqdm as atqdm
 
 from csm.gen.prompts_pool import rows_for_family
-from csm.pipeline import PAIR_REQUIRED_AXES, _candidate_flags  # the harness's own prune gate (drags torch)
+from csm.pipeline import PAIR_REQUIRED_AXES, _pair_flags  # the harness's own prune gate (drags torch)
 from csm.prompts import CANDIDATE_PERSONA_AXES
 
 
@@ -1214,7 +1214,7 @@ async def _evaluate_one(
         # so this screen predicts choose_focus survival exactly (no drift). The
         # gate is what starved 11/12 rounds; harness_kept == zero flags.
         harness_cand = {"cho": pos_text, "rej": neg_text, "prompt": scenario}
-        harness_flags = _candidate_flags(
+        harness_flags = _pair_flags(
             harness_cand, all_prompts, own_idx, cull_degenerate=True)
         base.update({
             "harness_flags": harness_flags,
