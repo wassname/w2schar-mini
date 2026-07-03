@@ -1,5 +1,38 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-03 (c) -- Action-fork pair construction implemented + gym-verified; select_pairs doom-loop fixed
+
+Implements the axis-performance fix from (b)'s oracle reviews (both said: keep-collapse is
+probably the judge working; the poison is style-level pair contrast; make pairs fork on the ACT).
+
+- `9154502` action-fork pair construction: `PAIR_COMMIT_SUFFIX` appended to both poles at
+  generation only (stored/trained prompt stays bare) forces a committed first-line act and pins
+  format, cancelling the style channel in the cho-rej activation difference; `rate_pairs` gains a
+  bool `different_action` ("do the poles COMMIT to different concrete acts -- same act worded,
+  justified, or hedged differently is false"), required for a pair to train. Bool = easiest rung
+  of the judgment ladder for the 9b.
+- Gym run 1 (`out/iter/20260703T065412.../round00`): the 9b followed the form flawlessly (8/8
+  ratings carried the field, honest 7-false/1-true, act-framed contrasts) but the round
+  doom-looped ~35 min at select_pairs. Root cause: every tool success unlinked
+  `submit_rejects.jsonl`, so the 3-reject round-drop measured CONSECUTIVE rejects and never
+  fired; and the existing mark_exam(reason=...) drop path from select_pairs state was never
+  surfaced to the teacher (its choose_focus pivot got a wrong-state wall).
+- `3a4a73b` fixes: reject counter cumulative per round (choose_focus success still clears it);
+  `allowed_after(select_pairs)` + the differentiation-threshold reject now name the mark_exam
+  drop path (gate no longer blocks progression -- CLAUDE.md premise restored); fake fallback
+  poles now state a real act fork (verify-first vs act-now) so an honest rating can pass in
+  the gym.
+- Gym runs 2+3 post-fix: select_pairs cleared first-try in ~2.5 min (6/6 and 8/8
+  different_action=true), zero rejects, and one round went fully end-to-end to a mark_exam
+  keep (`out/iter/20260703T074134.../round00/judgment.json`). Counter fix itself not exercised
+  live (nothing rejected); verified by code-read only.
+- Open: PAIR_COMMIT_SUFFIX untested on real on-policy poles (fake student skips generation);
+  whether real poles clear different_action at >=3/8 is the first thing to check on the next
+  live run. Watch the rubber-stamp warning (identical 5.0/1.0 means -- expected on the fake
+  bank). task-145 still runs pre-9154502 code unless it crash-requeues. The deciding
+  diagnostic before any live re-run remains (b)'s hand-read of ~10 blind A/B exam pairs +
+  task-145's ab_judge_raw.json.
+
 ## 2026-07-03 (b) -- TIMELINE for external review: what broke keep-rate, what we changed, and the axis-performance hypothesis
 
 This entry is written for a cold external reviewer (fable, GPT-5.5). It reconstructs the last week: we sharpened the keep-judge, keep-rate fell to zero, we chased hyperparameters and reverted them, and we now suspect the real problem is upstream in the character axes themselves. The question for the reviewer is at the end.
