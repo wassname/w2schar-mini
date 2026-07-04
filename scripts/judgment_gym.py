@@ -497,27 +497,72 @@ def _load_env():
             os.environ["OPENROUTER_API_KEY"] = line.split("=", 1)[1].strip()
 
 
-_TRUNC = ("max_tokens", "length", "model_length", "error")
+# stop_reasons that mean "no usable verdict" -> NOT cached (a re-run retries them) and
+# counted as truncated/unparsed. "no_commit" = even the force-answer phase gave no verdict.
+_TRUNC = ("max_tokens", "length", "model_length", "error", "no_commit")
+
+# Phase-2 force message (mirrors agent._judge_sample). Asks for the pairwise contract only.
+VERDICT_FORCE = ("You are out of thinking time. Answer NOW, one line only, exactly:\n"
+                 "VERDICT: A      (or B, or tie)")
 
 
-async def _call(model, prompt, form_key, case, pair_str, parse):
-    """Generate (cache+log) for one prompt -> (parsed, truncated). `parse` extracts the
-    verdict/rating from the completion. Truncated/error replies are NOT cached so a
-    re-run retries exactly those."""
+def _reasoning_tail(r, n: int = 2000) -> str:
+    """Tail of the hidden reasoning, used to continue a truncated judge call."""
+    c = getattr(getattr(r, "message", None), "content", None)
+    if isinstance(c, list):
+        t = "\n".join(getattr(x, "reasoning", "") for x in c if getattr(x, "reasoning", ""))
+        return t[-n:]
+    return ""
+
+
+async def _cured_generate(model, prompt, parse, force_instr, form_key, case, pair_str):
+    """The PRODUCTION cure, ported from agent._judge_sample: phase 1 thinks up to
+    JUDGE_THINK_BUDGET; if it commits no parseable verdict, phase 2 feeds the reasoning
+    tail back and forces a direct answer with reasoning OFF. This is what runs live, so
+    the gym must use it -- a plain single generate() lets the heavy rubrics overthink to
+    the token cap and truncate, which is a harness artifact, not the rubric being bad.
+    Returns (completion, stop_reason, reasoning). force_instr=None -> single call (rating
+    forms, whose JSON contract has no VERDICT line)."""
+    from inspect_ai.model import GenerateConfig, ChatMessageUser, ChatMessageAssistant
+    from csm.config import JUDGE_THINK, JUDGE_FORCE, JUDGE_THINK_BUDGET
+    try:
+        r1 = await asyncio.wait_for(
+            model.generate(prompt, config=GenerateConfig(max_tokens=JUDGE_THINK_BUDGET, **JUDGE_THINK)),
+            timeout=600)
+    except Exception as e:
+        print(f"  !! {form_key} {case['case_id']} {pair_str} p1: {type(e).__name__}: {e}", flush=True)
+        return "", "error", ""
+    comp1 = r1.completion or ""
+    reasoning = _reasoning_tail(r1)
+    if force_instr is None or parse(comp1) is not None:
+        return comp1, str(getattr(r1, "stop_reason", "") or ""), reasoning
+    # Phase 2: phase 1 hit the budget / gave no verdict. Force a commit, reasoning off.
+    msgs = [ChatMessageUser(content=prompt),
+            ChatMessageAssistant(content=(reasoning or "(thinking truncated)")),
+            ChatMessageUser(content=force_instr)]
+    try:
+        r2 = await asyncio.wait_for(
+            model.generate(msgs, config=GenerateConfig(max_tokens=256, **JUDGE_FORCE)),
+            timeout=600)
+    except Exception as e:
+        print(f"  !! {form_key} {case['case_id']} {pair_str} p2: {type(e).__name__}: {e}", flush=True)
+        return comp1, "error", reasoning
+    comp2 = r2.completion or ""
+    # A forced reply with a verdict is a valid commit; without one it is a genuine
+    # non-conclusion (log-worthy), NOT a fake tie -- mark no_commit so it is excluded.
+    return comp2, ("forced" if parse(comp2) is not None else "no_commit"), reasoning
+
+
+async def _call(model, prompt, form_key, case, pair_str, parse, force_instr=None):
+    """Generate (cache+log) for one prompt -> (parsed, truncated). Runs the two-phase
+    production cure (agent._judge_sample) so the gym proves what runs live. Truncated /
+    error / no_commit replies are NOT cached so a re-run retries exactly those."""
     k = _key(prompt)
     if k in _CACHE:
         comp, stop = _CACHE[k]["completion"], _CACHE[k]["stop_reason"]
     else:
-        reasoning = ""
-        try:
-            r = await asyncio.wait_for(model.generate(prompt), timeout=600)
-            comp, stop = (r.completion or ""), str(getattr(r, "stop_reason", "") or "")
-            content = getattr(getattr(r, "message", None), "content", None)
-            if isinstance(content, list):
-                reasoning = "\n".join(getattr(c, "reasoning", "") for c in content if getattr(c, "reasoning", ""))
-        except Exception as e:
-            comp, stop = "", "error"
-            print(f"  !! {form_key} {case['case_id']} {pair_str}: {type(e).__name__}: {e}", flush=True)
+        comp, stop, reasoning = await _cured_generate(
+            model, prompt, parse, force_instr, form_key, case, pair_str)
         if stop not in _TRUNC:
             _CACHE[k] = {"completion": comp, "stop_reason": stop}
         _log_reply({"key": k, "model": _MODEL_NAME, "form": form_key, "case": case["case_id"],
@@ -540,7 +585,8 @@ async def judge_pair(model, form_key, case, ra, rb):
             return None, (ta or tb)
         return ("A" if pa > pb else "B" if pb > pa else "tie"), (ta or tb)
     prompt = render(form_key, case["axis"], case["situation"], ra["text"], rb["text"])
-    return await _call(model, prompt, form_key, case, f'{ra["label"]}|{rb["label"]}', parse_verdict)
+    return await _call(model, prompt, form_key, case, f'{ra["label"]}|{rb["label"]}',
+                       parse_verdict, force_instr=VERDICT_FORCE)
 
 
 def _is_misjudged(case):
@@ -593,29 +639,23 @@ async def score_form(model, form_key, cases):
             "orig_acc": orig_acc, "orig_n": orig_n}
 
 
-async def run(form_keys, model_name, reasoning="", temp=0.0):
+async def run(form_keys, model_name, temp=0.0):
     global _MODEL_NAME
     _load_env()
-    # Tag the cache with the reasoning+temp settings so a capped/hot run is NOT served the
-    # baseline cached replies (the key is model+prompt, and the prompt is byte-identical).
-    _MODEL_NAME = (model_name + (f"|reasoning={reasoning}" if reasoning else "")
-                   + (f"|temp={temp}" if temp else ""))
+    # "|cure" tags a fresh cache namespace: the two-phase bounded-think+force-answer path
+    # (agent._judge_sample) is a different regime from the old single-generate replies, so
+    # it must NOT be served the stale ones. temp only tags when nonzero (rating single-call).
+    _MODEL_NAME = model_name + "|cure" + (f"|temp={temp}" if temp else "")
     _load_cache()
     from inspect_ai.model import get_model, GenerateConfig
-    # max_tokens BIG: qwen3.5-9b is a reasoning model and burns the whole budget in
-    # <think> on the complex forms -- at 4096 the completion came back EMPTY, which
-    # is what made unparsed look like 'tie'. 16000 lets the reasoning finish and a
-    # verdict appear. temp 0 makes the judge deterministic so the cache is exact.
-    # --reasoning caps the <think> instead of feeding it: an int -> reasoning_tokens hard
-    # cap, a word (low/minimal) -> reasoning_effort. Tests whether forcing the 9b to commit
-    # cuts the overthink-into-no-verdict ties (RJ 2026-07-03 f).
-    reason_cfg = ({"reasoning_tokens": int(reasoning)} if reasoning.isdigit()
-                  else {"reasoning_effort": reasoning} if reasoning else {})
+    # Base config: the CURE sets max_tokens per phase (JUDGE_THINK_BUDGET in phase 1, 256 in
+    # phase 2) and owns reasoning (phase 1 uncapped think, phase 2 reasoning_effort=none), so
+    # no model-level max_tokens/reasoning here. max_tokens below is only the fallback for
+    # rating forms' single call. Sampling temp comes from JUDGE_THINK/JUDGE_FORCE, matching live.
     from csm.config import OPENROUTER_PROVIDER
     model = get_model(model_name,
                       config=GenerateConfig(max_connections=16, timeout=300,
                                             max_retries=4, max_tokens=16000, temperature=temp,
-                                            **reason_cfg,
                                             extra_body={"provider": OPENROUTER_PROVIDER}))
     if _CACHE:
         print(f"cache: {len(_CACHE)} prior replies loaded from {REPLIES.relative_to(REPO)}")
@@ -658,12 +698,11 @@ if __name__ == "__main__":
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--forms", default="A,B,C,D,E")
     ap.add_argument("--model", default="openrouter/qwen/qwen3.5-9b")
-    ap.add_argument("--reasoning", default="",
-                    help="cap judge reasoning: int (reasoning_tokens) or low/minimal (reasoning_effort)")
     ap.add_argument("--temp", type=float, default=0.0,
-                    help="judge sampling temperature (live keep judge runs at 1.0; gym default 0.0)")
+                    help="rating-form single-call temperature; pairwise verdict forms use "
+                         "the cure's JUDGE_THINK/JUDGE_FORCE sampling (matches live)")
     args = ap.parse_args()
     if args.show_forms or not args.run:
         show_forms()
     if args.run:
-        asyncio.run(run([f.strip() for f in args.forms.split(",")], args.model, args.reasoning, args.temp))
+        asyncio.run(run([f.strip() for f in args.forms.split(",")], args.model, args.temp))
