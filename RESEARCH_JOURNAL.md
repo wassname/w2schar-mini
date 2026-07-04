@@ -42,7 +42,12 @@ humans in charge of destiny); V3 = thin act ("commits to the better act"); V4 = 
 above; full rubric texts in `docs/judge_rubric_drafts.md`.
 Ofb2b's first run truncated to a 57-parsed denominator (4 no_commit + 2 unparsed even after
 the cure); the clean re-run above re-sampled only those 6 uncached calls and held 86% on the
-full 59 (`gym_ofb2b_rerun.log`).
+full 59 (`gym_ofb2b_rerun.log`). A third, fully fresh sampling (all calls re-run, separate
+cache namespace) then flipped the order: `A ... misjudged 86%` vs `Ofb2b ... 2 truncated ...
+misjudged 84%` (`gym_reasoning_read.log`). So across three samplings the A-vs-Ofb2b gap ran
++3, +3, -2 -- a sign-flip, which I read as strong confirmation the two are indistinguishable
+on this fixture and that Ofb2b's apparent edge was sampling noise. Ofb2b truncated on two of
+the three runs; A on none, so A is the more robust framing against no_commit.
 
 Reasoning evidence. Judges save their CoT to `out/judgment_gym/replies.jsonl`; I read
 Ofb2b and A on the babyeating and petrov cases. On petrov, Ofb2b's completion:
