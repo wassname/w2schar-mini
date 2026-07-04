@@ -57,11 +57,13 @@ pair-variance-dominated" finding).
 
 SHIPPED (judge hygiene + rare-case recovery, NOT the tie-count fix): `_judge_graded` now
 judges GREEDY (temp0, presence_penalty0) -- reproducible keep/drop + 4pts accuracy (85 vs
-81) -- and `_parse_score_quote` returns `found`, so a no-SCORE reply is retried; on the
-no-answer branch it INTERRUPT-AND-REQUERIES with reasoning DISABLED (effort=none, the only
-honored knob) to force a direct commit rather than silently voting 0, and if still absent
-`loguru.warning`s it. Reasoning-off is used ONLY to rescue an overthink-past-budget
-non-answer (rare), never as the default (it is the worse 75%/11-tie judge).
+81) -- and `_parse_score_quote` returns `found`, so a no-SCORE reply is retried with a forcing prompt
+and, if still absent, `loguru.warning`ed instead of silently voting 0. NOTE: an
+interrupt-requery-with-reasoning-off was attempted and REVERTED -- per-call
+reasoning_effort='none' MERGES with the base reasoning_tokens=40000 into a both-set config
+OpenRouter rejects ("one of effort OR max_tokens"), so it wouldn't disable reasoning;
+doing it cleanly needs a separate model handle and yields the worse 75%/11-tie judge
+anyway, not worth it for a rare overthrow-past-budget non-answer.
 
 CONCLUSION for the tie/auto-reject goal: the judge is not fixable into fewer ties via
 sampling/reasoning config -- exhausted and verified. The real levers are (1) upstream axis
