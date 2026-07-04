@@ -176,7 +176,7 @@ All forms via the production cure (bounded-think + force-answer), ~59 pairs each
 
 | form | frame | hard-acc | note |
 |------|-------|---------:|------|
-| Ofb2b | positive open-ended (fable v2b) | 86% | 57 parsed, 4 truncated -- caveat |
+| Ofb2b | positive open-ended (fable v2b) | 86% | clean re-run: 59 parsed, 0 trunc (was 57) |
 | A     | reasons deeply / holds under pressure (thin) | 83% | clean baseline |
 | CEV   | wiser, kinder, more knowledgeable (Yudkowsky) | 81% | best of new framings |
 | Ogpt  | docs checklist (gpt) | 81% | |
@@ -207,11 +207,15 @@ for "X beats Y" is a gap of ~13-14pt. Fresh-eyes subagent corrected an earlier t
   tracks the committed act 83% of the time without asking for it.
 - CEV (81%) confirms the winning SHAPE (short + one resonant concept) but did not exceed depth.
 
-Ofb2b caveat (subagent): its 86% is NOT comparable -- 57 parsed vs 59, plus 2 unparsed + 4
-truncated, and truncation can preferentially drop the HARD cases. +3 over A is inside noise
-regardless, but the honest call is "re-run on a full-59 denominator," not silent dismissal.
-=> clean Ofb2b re-run queued.
+Ofb2b clean re-run (gym_ofb2b_rerun.log): 86% on a FULL 59 parsed, 0 truncated, 0 unparsed --
+identical to its truncated run, so the 86% was not a denominator artifact. Two-proportion z vs
+A=83: gap 3 / SE_diff 0.067 = z~0.45, p~0.65 -- inside noise, NOT a real beat. But Ofb2b is the
+CONSISTENT nominal leader (+3 in both runs), so it is the candidate if we ever move off A, not a
+form to dismiss.
 
-Decision: keep thin-A as the production judge -- nothing beat it within noise, it is the simplest
-and already deployed, and no action-target form ties it. Pending only the Ofb2b clean re-run to
-close the one degraded-denominator question.
+Decision: keep thin-A as the production judge. It ties the top cluster within noise, is the
+simplest (one line), is already deployed, and no ACTION-target form beats it (ACT, the form built
+to score action, was worst). Ofb2b (positive open-ended) is the only consistent nominal +3 and
+the one alternative worth a live A/B if we later want to challenge A -- but on this fixture the
+gap is noise, so there is nothing to swap TO now. Production swap independently gated on task-147
+finishing (do not change the instrument mid-run).
