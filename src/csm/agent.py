@@ -562,10 +562,16 @@ async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[int, bool]:
     if not found:
         logger.warning(f"keep-judge force-answer returned NO SCORE "
                        f"(stop={getattr(r2, 'stop_reason', '?')}); logging 0/tie -- NON-conclusion")
+    elif not _quote_ok(score, quote, a, b):
+        # ~43% of samples arrive via this forced path (out/gym_bounded_judge/report.md) and,
+        # unlike phase 1, the quote anchor is unenforced here. FLAG, don't veto: zeroing it
+        # would recreate the tie->auto-reject failure. The score stands; the log shows the miss.
+        logger.warning(f"keep-judge forced score={score:+d} without a verbatim quote from the "
+                       f"wiser side -- unanchored verdict, kept (flag not gate)")
     return score, True
 
 
-async def _judge_graded(model, axis_h: str, a: str, b: str, ground: str = "") -> int:
+async def _judge_graded(model, axis_h: str, a: str, b: str, ground: str = "") -> float:
     """Signed -5..+5: how much wiser B is than A, averaged over JUDGE_N samples.
     The judge uses bounded thinking and sampled repeats; reproducibility comes from
     averaging samples, not from greedy decoding."""
@@ -573,7 +579,10 @@ async def _judge_graded(model, axis_h: str, a: str, b: str, ground: str = "") ->
     base = ground + GRADED_JUDGE_PROMPT.format(axis=axis_h, a=a, b=b, length_hint=hint)
     jm = _judge_model(model)
     samples = await asyncio.gather(*[_judge_sample(jm, base, a, b) for _ in range(JUDGE_N)])
-    return round(sum(s for s, _ in samples) / len(samples))
+    # Float mean, NOT rounded: with N=2 the mean lands on 0.5 steps, so rounding shifts a
+    # direction by up to 0.5 (= KEEP_DEADBAND/2, enough to flip a vote) and diverges from
+    # the reducer the UAT measured (scripts/gym_bounded_judge.py keeps floats).
+    return sum(s for s, _ in samples) / len(samples)
 
 
 async def _blind_ab_votes(pre: dict, post: dict, axis: str,
