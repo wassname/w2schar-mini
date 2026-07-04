@@ -168,3 +168,41 @@ degraded near-random verdict, exactly where the thin rubric spent its whole budg
 comparison that matters.
 
 Both V3/V4 to be scored on the cured gym vs baseline A=83% (task #21).
+
+## Combined cured-gym result (task #21, 2026-07-04)
+
+All forms via the production cure (bounded-think + force-answer), ~59 pairs each. `misjudged`
+= hard-subset accuracy, higher better. Follow-up forms all ran clean (0 truncated).
+
+| form | frame | hard-acc | note |
+|------|-------|---------:|------|
+| Ofb2b | positive open-ended (fable v2b) | 86% | 57 parsed, 4 truncated -- caveat |
+| A     | reasons deeply / holds under pressure (thin) | 83% | clean baseline |
+| CEV   | wiser, kinder, more knowledgeable (Yudkowsky) | 81% | best of new framings |
+| Ogpt  | docs checklist (gpt) | 81% | |
+| V4    | full-page 5-step act rubric | 80% | |
+| Ofab  | docs checklist (fable) | 79% | |
+| V3    | thin act-anchored | 78% | |
+| Veil  | Rawls original position / veil of ignorance | 78% | |
+| Ofb2a | positive open-ended (fable v2a) | 78% | |
+| Ogrok | docs checklist (grok) | 78% | |
+| IDO   | impartial ideal observer (Bostrom gloss) | 74% | |
+| Ogem  | docs checklist (gemini) | 67% | |
+| Dest  | keep humans in charge of destiny | 62% | |
+| ACT   | heavy docs checklist | 59% | |
+
+Read (SE ~5% on n=59 -> ~+-10pt CI, so a single-form diff under ~10pt is noise):
+- The whole 78-86% band is a statistical wash. No framing CLEARLY beats thin-A.
+- Only the BOTTOM clears the noise floor: ACT (59), Dest (62), Ogem (67) are genuinely worse
+  than the top cluster (83-62 = 21pt >> noise).
+- Narrow-value framings self-sabotage: Dest (a scenario-specific "who has power" value) nearly
+  matched the heavy checklist ACT -- it misfires on honesty/comfort/win-win cases where power
+  isn't the axis. The doc's GENERAL frames (CEV) held; its SPECIFIC ones (Dest) did not.
+- Act-anchoring did NOT help the weak judge: V3/V4 (act) <= A (depth), though action is the real
+  target. "First name the act" (V4 Step 1) is the harder task that overloads the 9b; the depth
+  gestalt tracks the committed act 83% of the time without asking for it.
+- CEV (81%) confirms the winning SHAPE (short + one resonant concept) but did not exceed depth.
+
+Decision: keep thin-A as the production judge -- nothing beat it within noise, and it is the
+simplest and already deployed. Ofb2b's 86% is the only edge but rides a truncated denominator;
+a clean re-run would be needed to call it a real win, and even then it's ~1 SE over A.
