@@ -1,12 +1,8 @@
-"""gym_persona_axis: does a persona (pos,neg) pair actually MOVE OUR student along the
-intended character axis (and not just style/length)? Blinded A/B judging over OpenRouter.
+"""Measure whether persona pairs move the student along the intended character axis.
 
-The persona-axis gym (renamed from validate_persona_axes_openrouter). Sibling gyms:
-gym_question (does a QUESTION elicit character), judgment_gym / gym_rate_pairs (teacher
-judge/rate FORMS), gym_bounded_judge (the keep-judge). This one is for persona_cells /
-axis-menu work: keep the axes that differentiate, cull the ones that don't (or that script
-a reflex). Defaults to OUR ACTUAL models (student generator, teacher judge) so the reading
-is exact, not a proxy.
+For each axis, the gym generates both persona poles with the student, blinds their
+order, and asks a judge to rate target movement and style/confound differences.
+Use it before adding or removing persona cells from the live menu.
 
 Stricter than scripts/validate_persona_pool.py:
 * calls OpenRouter directly through the OpenAI client, not inspect-ai or pi;
@@ -380,24 +376,15 @@ PROFILE_AXES: dict[str, Axis] = {
     ),
 }
 
-# LADDER_AXES -- the residual rungs the 3 coarse PROFILE_AXES saturate into.
-# task-123 collapsed because the menu was only coarse ACTION axes (do the right
-# thing vs the wrong thing); once the stack steers the student virtuous it will
-# not generate the wrong-action neg pole, so contrast dies. These are FINER
-# lenses on the SAME virtues -- both poles take the right action, they differ in
-# HOW (under pressure, with perspective, win-win, acting-vs-signaling) -- so the
-# on-policy contrast survives saturation. The loop can then climb cares ->
-# behaves -> under pressure -> wisdom/perspective -> win-win.
+# Finer axes for when coarse "right action vs wrong action" contrasts stop
+# producing useful negative poles. Here both poles may take an acceptable action;
+# the contrast is how they act, such as under pressure or with a real tradeoff.
 #
-# Sources for MORE axes (mine these to grow the pool):
-#   - docs/personas_kept.md         : 39 axes judged KEEP on >4B students (the
-#                                     high-prior set; skill_* above are from here)
-#   - /root/.agents/skills/persona-steering/references : template-library folklore
-#   - w2s-ics-cws/docs/character_inspirations.md       : higher-level wisdom axes
-#   - docs/2026_forethought_on_the_importance_of_ai_character.md Appendix 2:
-#                                     a catalogue of character BEHAVIOURS
-#                                     (whistleblow, win-win, de-escalate, push back,
-#                                     honest-when-uncomfortable, option-value)
+# Sources for more axes:
+#   - docs/personas_kept.md
+#   - /root/.agents/skills/persona-steering/references
+#   - w2s-ics-cws/docs/character_inspirations.md
+#   - docs/2026_forethought_on_the_importance_of_ai_character.md Appendix 2
 #   - steer-heal-love, persona-steering-template-library READMEs
 LADDER_AXES: dict[str, Axis] = {
     "weigh_who_is_affected": Axis(
@@ -489,16 +476,12 @@ LADDER_AXES: dict[str, Axis] = {
     ),
 }
 
-# GAP_AXES -- 2 concrete axes per Forethought Appendix-2 behaviour category and
-# per character_inspirations wisdom dimension, to fill rungs the first 18 missed.
-# LESSON from the first measurement: an axis only loads if the model will GENERATE
-# both poles. The neg must be a real disposition it will roleplay (helps-concentrate-
-# power, serves-narrow-interest, reacts-regardless), NOT a non-action (signals-without-
-# acting) -- those measured axis_delta~0. So every neg here is a concrete behaviour.
+# Concrete axes from Forethought Appendix 2 and character_inspirations.md. The
+# negative pole must be a disposition the model will actually roleplay; pure
+# non-actions like "signals without acting" do not create reliable contrast.
 GAP_AXES: dict[str, Axis] = {
-    # act-fork replacements now live in MULTI_AXIS_PERSONA_CELLS (prompts.py); registered
-    # here so this validator can re-measure them on our own student. Behaviours copied
-    # verbatim from prompts.CANDIDATE_PERSONA_AXES so the two stay in sync by eye.
+    # Keep these in sync with prompts.CANDIDATE_PERSONA_AXES so this gym can
+    # re-measure live-menu axes on the same student.
     "wellbeing_actfork_c": Axis(
         id="wellbeing_actfork_c",
         pos_descriptor="gives up part of the goal to spare the people in the way",
@@ -1606,11 +1589,8 @@ async def amain(args) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    # Defaults are OUR ACTUAL pipeline models so any agent measures the real thing, not a
-    # proxy: generator = the student, judge = the teacher (both on OpenRouter, cheap+exact).
-    # The teacher-as-axis-judge is family-blind via order-randomized third-person A/B, so
-    # qwen-judging-qwen self-preference is mitigated; override --judge-model to a neutral
-    # strong judge (e.g. google/gemini-3.1-flash-lite-preview) only for a cross-check.
+    # Defaults match the live pipeline. Override --judge-model when the judge is being
+    # used as a measurement instrument rather than as part of the weak-teacher loop.
     ap.add_argument("--generator-model", default="qwen/qwen3.6-27b")   # our student
     ap.add_argument("--judge-model", default="qwen/qwen3.5-9b")        # our teacher
     ap.add_argument("--gen-temperature", type=float, default=0.0,

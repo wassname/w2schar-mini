@@ -1,8 +1,6 @@
 """Per-model run config registry.
 
-Lifted from `weight-steering-lite/src/wsl/prompts.py:CONFIGS`, trimmed
-to the two profiles we plan to validate first. Hard-won numbers stay
-here (the agent never sees them).
+The agent sees named profiles, not these implementation constants.
 """
 from __future__ import annotations
 
@@ -14,23 +12,20 @@ from csm.prompts import (CORE_THREE_AXIS_PERSONA_CELLS, DEFAULT_PERSONA_CELLS,
                          DEFAULT_PERSONA_TEMPLATES, DISCERNMENT_PERSONA_CELLS,
                          MULTI_AXIS_PERSONA_CELLS, WELLBEING_SMOKE_PERSONA_CELLS)
 
-# Teacher sampling, single source for live (agent.py) + gym: Qwen3.5 card "Thinking mode, general tasks" -- greedy breaks thinking mode, presence_penalty=1.5 is the anti-loop lever.
+# Teacher sampling, shared by live runs and the prompt gyms.
 TEACHER_SAMPLING = dict(temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5)
-# Teacher reasoning budget (live): backstop for non-termination only, above qwen3.5-9b's 17-29k output-tok/task envelope (Artificial Analysis Intelligence Index); presence_penalty handles loops, this just kills infinite ones.
+# Backstop for non-termination. Presence penalty is the first loop-control lever.
 TEACHER_REASONING_TOKENS = 40000
-# OpenRouter routing: prefer DeepInfra but allow fallback (cheaper/consistent quant on qwen). Passed as extra_body to the OpenAI-compat client; "order" is a preference, allow_fallbacks keeps the run alive if DeepInfra is down.
+# Passed as OpenRouter extra_body. Prefer DeepInfra, but allow provider fallback.
 OPENROUTER_PROVIDER = dict(order=["deepinfra"], allow_fallbacks=True)
 
-# Keep-judge (agent._judge_graded) is a THINKING call bounded so it always commits.
-# Phase 1 thinks at the Qwen thinking params (temp0 loops a thinking model -- OOD) up to
-# JUDGE_THINK_BUDGET tokens; if it hasn't emitted SCORE by then we force-answer (phase 2)
-# at the INSTRUCT params with reasoning OFF so it commits directly instead of re-entering
-# <think>. Sampled JUDGE_N times and the numeric scores averaged -- reproducibility comes
-# from N, not from an OOD greedy temp (RJ 2026-07-03: user correction on temp0 looping).
+# Keep-judge: phase 1 lets Qwen think up to JUDGE_THINK_BUDGET; phase 2 disables
+# thinking and asks for a direct SCORE if phase 1 did not commit. Use sampling plus
+# JUDGE_N repeats instead of greedy decoding, because greedy can loop in thinking mode.
 JUDGE_THINK = dict(temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5)
 JUDGE_FORCE = dict(temperature=0.7, top_p=0.8, top_k=20, presence_penalty=1.5, reasoning_effort="none")
 JUDGE_THINK_BUDGET = 4096   # qwen3.5-9b often genuinely needs ~4k to judge; measure truncation-rate to tune
-JUDGE_N = 2                 # samples per direction, averaged (the user's "times 2")
+JUDGE_N = 2                 # samples per direction, averaged
 
 
 @dataclass
@@ -663,8 +658,8 @@ CONFIGS["gemma-27b-3keep"] = replace(
 # Rationale for a Qwen student at all: the AA open-weights index says the qwen3.5-9b
 # teacher WITH reasoning beats gemma-4-31b WITHOUT, so the only students above the
 # teacher are Qwen (3.6-27b, 3.5-27b). Same-family (qwen->qwen) is a w2s-generalization
-# confound we accept only because no accessible non-Qwen model is both strong enough
-# AND embodies the negative pole (gemma-2-27b too old; Qwen3-32B refused, RJ 2026-06-25a).
+    # confound we accept because no accessible non-Qwen model is both strong enough
+    # and willing to generate the needed negative pole.
 # Open risk: Qwen3.6 is newer Qwen with more safety training, so it may hit the SAME
 # neg-pole refusal; watch round00 poles and kill fast. Run with CSM_ATTN_IMPL=flash_attention_2.
 CONFIGS["qwen36-27b-3keep"] = replace(
@@ -674,7 +669,7 @@ CONFIGS["qwen36-27b-3keep"] = replace(
 
 # Cross-generation gemma w2s: a weak gemma-3-12b teacher steers the strong gemma-4-31b
 # student. Same validated job-139 harness as gemma-27b-3keep, only model+teacher swapped.
-# Why this pairing: gemma EMBODIES the negative pole (the qwen failure mode, RJ 2026-06-25a),
+# Why this pairing: gemma generates the negative pole that Qwen tended to refuse,
 # and gemma-4-31b clearly beats gemma-3-12b (one generation + 31b vs 12b), so the strength
 # gap is real. It is still same-family (gemma->gemma), so the cross-family w2s-generalization
 # confound remains; we trade that for working embodiment plus a clean gap. gemma-3-12b is the

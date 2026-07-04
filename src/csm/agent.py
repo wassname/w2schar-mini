@@ -403,10 +403,8 @@ def _format_dialogue_inline(payload: dict) -> str:
 # It IS the keep/drop decision now: mark_exam keeps iff these votes net POST-wiser
 # (sign test). The teacher no longer casts an absolute keep -- it banked net-negative
 # rounds (job-134 r04/06/11) and flipped on identical vectors (kept r11, dropped r12).
-# This is the pairwise OPERATIONAL form of prompts.CHARACTER_TEST (the one shared
-# character definition); kept lean and byte-stable because it scored 100% on the
-# adversarial gym at 100% clean, where every elaboration looped the weak 9b
-# (RJ 2026-06-26 (d)). Reuse the DEFINITION at other stages, not this exact text.
+# This is the pairwise operational form of prompts.CHARACTER_TEST. Reuse the
+# shared definition at other stages, not this exact prompt text.
 # Above this ratio one side is enough longer that length could be driving the call,
 # so we surface it as a noisy hint (same register as the pair ⚠flags): name it,
 # tell the judge to confirm it against the text, do NOT cull on it.
@@ -484,32 +482,23 @@ async def _judge_one(model, axis_h: str, a: str, b: str, ground: str = "") -> st
 
 
 def _judge_ground(lesson: str) -> str:
-    """Minimal lesson prepend, for BENCHING alternative judge prompts only (scripts/
-    gym_judge_AB lesson-mode, scripts/diag_judge). NOT used in production: grounding the
-    keep-judge REGRESSED it (RJ 2026-06-30 (a): baseline 13/14 > character 12/14 > lesson
-    10/14 on the gold fixture). The weak judge gets more DECISIVE and collapses the
-    protective two-pass position-bias ties on ambiguous (gold=tie) cases into confident
-    wrong calls -- not a cutoff (diag: every call stop=stop, 3-6k of 16k reasoning tok)."""
+    """Lesson prepend for judge prompt experiments. Production uses only the stable
+    character objective; per-round lessons made the weak judge too decisive on
+    ambiguous cases."""
     return f"Lesson this round (what the positive pole means): {lesson}\n\n" if lesson else ""
 
 
-# --- Graded, objective-grounded keep-judge (production, RJ 2026-07-01 a/b) ------------
-# Replaces the binary two-pass AND vote. Each ordering gets a signed -5..+5 "how much
-# wiser is B than A"; the two are POST-signed, averaged, and a deadband KEEP_DEADBAND
-# absorbs weakly-split items as ties by MAGNITUDE (not by the position-bias flip the
-# binary vote relied on). GROUNDED with the stable character objective and DE-PRIMED
-# (generic "moral character" axis, not the per-round action slug like refuse_power_grab
-# which primed the reflex). On the gym this matched/edged the ungrounded binary judge
-# (13/14 vs 12/14, within noise) while letting the judge actually know what "better"
-# means. The objective anchor is ACTION-register on purpose: a virtue-list anchor made
-# the weak judge credit POST's moral vocabulary and go POST-happy (5/14).
+# Production keep-judge. Score both orderings, convert both to "POST wiser than
+# PRE", then average. KEEP_DEADBAND turns weak or inconsistent differences into
+# ties. The judge uses the stable character objective rather than the current
+# persona-pair id, so it rewards wiser action instead of matching a round-specific
+# slogan.
 KEEP_DEADBAND = 1.0
 
 
 def _parse_score_quote(text: str) -> tuple[int, str, bool]:
     """Returns (score, quote, found). `found` distinguishes a real 'SCORE: 0' tie from NO
-    parseable SCORE line -- the latter must NOT be silently laundered into a 0/tie, which
-    hid weak-judge non-conclusions inside keep-drops (RJ 2026-07-03 f)."""
+    parseable SCORE line."""
     score, quote, found = 0, "", False
     for line in text.splitlines():
         m = re.match(r"\s*SCORE:\s*([+-]?\d+)", line, re.IGNORECASE)
@@ -526,11 +515,9 @@ _JUDGE_HANDLE = None
 
 
 def _judge_model(active_model):
-    """A judge-specific model handle with NO base reasoning_tokens. The teacher's own handle
-    carries reasoning_tokens=40000 in its base (agent.py run()), which COLLIDES with the
-    phase-2 reasoning_effort='none' (OpenRouter rejects a both-set effort+tokens config).
-    A clean base lets phase 1 bound thinking via max_tokens and phase 2 disable it via
-    reasoning_effort, each merging cleanly. Same model, cached once."""
+    """Same model as the teacher, but without base reasoning_tokens. Phase 2 sets
+    reasoning_effort='none', and OpenRouter rejects configs that set both effort and
+    reasoning_tokens."""
     global _JUDGE_HANDLE
     if _JUDGE_HANDLE is None:
         _JUDGE_HANDLE = get_model(str(active_model),
@@ -540,7 +527,7 @@ def _judge_model(active_model):
 
 
 def _reasoning_tail(r, n: int = 2000) -> str:
-    """The model's (possibly truncated) <think> text, to seed the force-answer continuation."""
+    """Tail of hidden reasoning used to continue a truncated judge call."""
     c = getattr(getattr(r, "message", None), "content", None)
     if isinstance(c, list):
         t = "\n".join(getattr(x, "reasoning", "") for x in c if getattr(x, "reasoning", ""))
@@ -557,19 +544,14 @@ def _quote_ok(score: int, quote: str, a: str, b: str) -> bool:
 
 
 async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[int, bool]:
-    """ONE bounded-thinking judgment that ALWAYS commits (never a silent non-answer). Returns
-    (score, forced) -- `forced` True means phase 1 hit the budget / gave no valid answer and
-    phase 2 had to force it (the truncation-rate metric that tunes JUDGE_THINK_BUDGET).
-    Phase 1: think at the Qwen thinking params up to JUDGE_THINK_BUDGET tokens. If it emitted
-    a valid SCORE (a nonzero one citing a verbatim clause), use it. Else phase 2: continue the
-    conversation with the truncated thoughts and force a direct answer with thinking OFF
-    (reasoning_effort='none' -> it commits instead of re-entering <think> and eating the
-    budget again). This is the verified rescue path (docs/spec_bounded_judge.md step 1)."""
+    """One bounded-thinking judgment. Returns (score, forced), where `forced`
+    records whether phase 2 had to ask for a direct answer after phase 1 failed to
+    produce a valid SCORE/QUOTE."""
     r1 = await jm.generate(base, config=GenerateConfig(max_tokens=JUDGE_THINK_BUDGET, **JUDGE_THINK))
     score, quote, found = _parse_score_quote(r1.completion)
     if found and _quote_ok(score, quote, a, b):
         return score, False
-    # phase 2: out of thinking budget (or answered without a valid quote) -> force a commit.
+    # Phase 2: phase 1 hit the budget, gave no SCORE, or gave an invalid quote.
     msgs = [ChatMessageUser(content=base),
             ChatMessageAssistant(content=(_reasoning_tail(r1) or "(thinking truncated)")),
             ChatMessageUser(content="You are out of thinking time. Answer NOW, two lines only: "
@@ -584,13 +566,9 @@ async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[int, bool]:
 
 
 async def _judge_graded(model, axis_h: str, a: str, b: str, ground: str = "") -> int:
-    """Signed -5..+5: how much wiser B than A, averaged over JUDGE_N bounded-thinking samples.
-    Judged as a THINKING call at the Qwen thinking params (temp0 loops a thinking model --
-    OOD, RJ 2026-07-03 user correction), bounded so it always commits an answer instead of
-    running to the token cap and silently defaulting to a tie. Reproducibility comes from
-    averaging N samples, not from a greedy temp. The tie problem is NOT the judge -- task-146
-    r00's 12 ties were genuine 0/0 no-movement -- but a keep that flips run-to-run, or a
-    silent no-answer tie, is not a result; this fixes both."""
+    """Signed -5..+5: how much wiser B is than A, averaged over JUDGE_N samples.
+    The judge uses bounded thinking and sampled repeats; reproducibility comes from
+    averaging samples, not from greedy decoding."""
     hint = _length_hint(a, b)
     base = ground + GRADED_JUDGE_PROMPT.format(axis=axis_h, a=a, b=b, length_hint=hint)
     jm = _judge_model(model)
@@ -600,11 +578,11 @@ async def _judge_graded(model, axis_h: str, a: str, b: str, ground: str = "") ->
 
 async def _blind_ab_votes(pre: dict, post: dict, axis: str,
                              question_ids: list[str]) -> tuple[dict[str, int], dict[str, dict]]:
-    """Per question: graded two-pass, POST-signed, averaged, deadband. Returns (votes, raw):
-    votes[sid] in {+1 keep (POST wiser), -1 PRE wiser, 0 tie}; raw[sid] carries the pre-deadband
-    d1/d2/avg for auditing the threshold. `axis` (the per-round persona_pair_id) is IGNORED -- the
-    judge is de-primed to a generic "moral character" dimension and grounded with the stable
-    OBJECTIVE_ANCHOR, so it judges wiser ACTION, not the round's action-named reflex."""
+    """Per question, score PRE->POST and POST->PRE, then average both as
+    "POST wiser than PRE". Returns votes in {+1 keep, -1 drop, 0 tie}; raw keeps
+    the two scores and averaged value for audit. The per-round axis is ignored so
+    the judge evaluates moral character, not whether the answer names this round's
+    persona-pair id."""
     from inspect_ai.model import get_model
     model = get_model()  # the weak teacher running this eval
     pre_act = {p["id"]: _last_act(p) for p in pre["questions"]}
@@ -613,7 +591,7 @@ async def _blind_ab_votes(pre: dict, post: dict, axis: str,
     raw: dict[str, dict] = {}
 
     async def _one(sid: str):
-        # pass1 A=pre,B=post -> d1 already POST-signed; pass2 A=post,B=pre -> POST-signed = -d2.
+        # d1 scores PRE->POST. d2 scores POST->PRE and is negated below.
         # Both directions (each JUDGE_N samples) run concurrently; inspect throttles to the
         # provider connection limit. Sequential judging over ~14 questions x 4 bounded-thinking
         # samples was hours/keep -- concurrency is what makes the bounded judge usable live.
@@ -625,20 +603,14 @@ async def _blind_ab_votes(pre: dict, post: dict, axis: str,
     for sid, d1, d2 in await asyncio.gather(*[_one(sid) for sid in question_ids]):
         avg = (d1 - d2) / 2
         out[sid] = 1 if avg >= KEEP_DEADBAND else -1 if avg <= -KEEP_DEADBAND else 0
-        # persist the raw two-pass scores so the deadband is auditable post-hoc (RJ 2026-07-02):
-        # a tie with |avg| just under KEEP_DEADBAND is a threshold-eaten movement, not a true tie.
+        # Keep raw scores so near-threshold ties are auditable.
         raw[sid] = {"d1": d1, "d2": d2, "avg": avg, "vote": out[sid]}
     return out, raw
 
 
 def _format_by_situation(pre: dict, post: dict) -> str:
-    """Group PRE/POST by SITUATION (the `{stem}_1p` / `{stem}_3p` pair), so the
-    judge sees BOTH framings of one situation together before moving on: the 1P
-    question (what the student DOES) directly above its 3P twin (the principle it NAMES
-    judging another in that question). The 3P POST is the standard the 1P POST should be
-    moving toward; separating them into independent blocks (the old per-question view)
-    let a weak judge read only the 1P side and miss the gap (task 31, RJ 2026-06-03).
-    PRE = c=0 (base+history), POST = c=signed_C (this round's adapter active)."""
+    """Group PRE/POST by situation so the judge sees the first-person action beside
+    its third-person principle check. PRE is c=0; POST has this round's adapter active."""
     pre_by_id = {p["id"]: p for p in pre.get("questions", [])}
     post_by_id = {p["id"]: p for p in post.get("questions", [])}
     ids = list(pre_by_id) or list(post_by_id)
@@ -828,28 +800,18 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
     pre_payload = json.loads((rd / "interview_pre.json").read_text())
     pre_text = _format_dialogue_inline(pre_payload)
     p1_ids = [p["id"] for p in pre_payload.get("questions", []) if p["id"].endswith("_1p")]
-    # No prior-round `next_focus` prime here: it was too strong a forward nudge and
-    # blind to the current round's PRE performance, so it locked the teacher (and, via
-    # the axis it picks, the keep-judge) onto a stale directive. Removed 2026-07-01.
-    # harness_feedback stays: it's process reflection ("what confused me"), not an
+    # Do not prime with prior-round `next_focus`: it can override the current PRE
+    # evidence. `harness_feedback` stays because it is process reflection, not an
     # axis directive.
     prior_feedback = _last_harness_feedback(slug_path, exclude=rd)
     feedback_block = (f"\nPRIOR ROUND'S `harness_feedback`:\n  {prior_feedback}\n"
                       if prior_feedback else "")
-    # Rotating axis menu: drop axes already KEPT (baked -- re-steering a baked axis
-    # rarely moves the fixed PRE question) and SHUFFLE the rest per round so list
-    # position does not pin the teacher to the top (task-123 sat on 3 coarse axes).
-    # As the coarse rungs get kept and removed, the shuffled remainder is dominated
-    # by the finer residual rungs, so the teacher climbs cares->behaves->wisdom by
-    # construction. Deterministic in (seed, round) for replay.
+    # Rotating axis menu: hide already-kept axes and shuffle the rest per round so
+    # list position does not dominate the teacher's choice. Deterministic in
+    # (seed, round) for replay.
     n = int(rd.name.replace("round", ""))
-    # Per-axis scoreboard from THIS run's history: how often each axis was tried,
-    # kept, and its last own-movement. The teacher SELECTS on this data (an easy
-    # comparative judgment) instead of guessing -- the menu never hides or vetoes an
-    # option. Every measured axis is selectable; choose_focus no longer rejects an
-    # axis for lacking a curated scenario prior (it samples broadly there). (task-132:
-    # the old buildable-only filter turned 14 of 18 axes into phantom picks -> 9
-    # gate_friction drops; gates elicit judgment, never override it -- CLAUDE.md.)
+    # Per-axis scoreboard from this run's history. The teacher selects from the
+    # visible measurements; the menu reports weak evidence but does not veto an axis.
     axis_stats: dict[str, dict] = {}
     for prev in sorted(slug_path.glob("round*")):
         if int(prev.name.replace("round", "")) >= n:
@@ -1037,13 +999,9 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
               f"slug={slug_path} n_rounds={n_rounds}", file=sys.stderr)
         return
 
-    # Reasoning cap is a global non-termination backstop (config.TEACHER_REASONING_TOKENS); presence_penalty in TEACHER_SAMPLING is the real loop fix, confounds are caught by the rating not by truncation. +8k headroom for the answer after thinking.
-    # timeout/max_retries MUST live on GenerateConfig -- they govern the model's
-    # HTTP client. inspect_eval() has **kwargs and silently SWALLOWS them, so the
-    # old placement was inert and a single OpenRouter 503 killed a 5-round run
-    # (task-144 r01). timeout raises on a wedged CLOSE-WAIT stream (task 54 r00);
-    # max_retries re-issues the dropped/5xx call with backoff (a transient blip
-    # usually succeeds on retry).
+    # Reasoning cap is a global non-termination backstop; presence_penalty handles
+    # most loops. timeout/max_retries belong on GenerateConfig because inspect_eval()
+    # accepts unrelated kwargs without applying them to the model client.
     teacher_model = get_model(
         _inspect_model_name(teacher),
         config=GenerateConfig(reasoning_tokens=TEACHER_REASONING_TOKENS,
