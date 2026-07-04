@@ -109,6 +109,14 @@ A weak model copies a literal example exactly (a sample `{"on_axis": 5}` becomes
 rating, a null template after "output exactly this JSON" becomes empty/looping replies),
 so write `on_axis (1..5)` and `{"on_axis": <1-5>}` placeholders, never concrete values.
 
+### A weak reasoning model overthinks ambiguity into no-answer -- cap its reasoning
+
+On an ambiguous judge/rate call the 9b deliberates to the max-token budget and emits no
+verdict, which silently defaults to tie/0 and auto-rejects the round (RJ 2026-07-03 f).
+Cap reasoning to force a commit (`GenerateConfig(reasoning_effort='low')` /
+`reasoning_tokens=N`), never hand it a multi-step classifier to chew on, and `loguru.warn`
+(never silently 0) when it returns no conclusion.
+
 ### Lean the teacher's tasks toward the EASY end of the judgment ladder
 
 Task difficulty for a weak teacher, hardest -> easiest:
@@ -223,17 +231,19 @@ something, improve `.claude/commands/audit-run.md`, don't just patch the finding
 
 ### The gyms (what each is for)
 
-Four cheap test harnesses, each isolating one part so you don't need a full GPU run
-to validate a change. Match the change to the gym:
+Four test harnesses, each isolating one part so you don't need a full GPU run
+to validate a change. Costs differ a lot -- run the cheap ones freely, batch the
+one that costs real money. Match the change to the gym:
 
-- **`just smoke`** -- full end-to-end on tiny-random, no network, ~1 min. Every stage
-  runs (choose_focus -> rate -> select -> train -> c_scan -> mark_exam) so it catches
-  RUNTIME errors and schema breaks. Stubs both models, so it proves PLUMBING, not
-  judgment quality. Run after ANY code edit.
-- **`just smoke-prompts N`** (the "full"/teacher gym) -- real OpenRouter teacher
-  (qwen3.5-9b), stubbed student, ~$2/round. The ONLY weak-model evidence that a
-  teacher-facing change (prompts.py, tool schema, gate text) is followable. Batch all
-  brief edits, run ONCE, READ the artifacts. Required before relying on a brief change live.
+- **`just smoke`** (FREE) -- full end-to-end on tiny-random, no network, ~1 min.
+  Every stage runs (choose_focus -> rate -> select -> train -> c_scan -> mark_exam)
+  so it catches RUNTIME errors and schema breaks. Stubs both models, so it proves
+  PLUMBING, not judgment quality. Run after ANY code edit; costs nothing, so no reason not to.
+- **`just smoke-prompts N`** (the "full"/teacher gym, ~$1/round -- the only one that
+  costs real money) -- real OpenRouter teacher (qwen3.5-9b), stubbed student. The ONLY
+  weak-model evidence that a teacher-facing change (prompts.py, tool schema, gate text)
+  is followable. Batch all brief edits, run ONCE, READ the artifacts. Required before
+  relying on a brief change live.
 - **`scripts/gym_question.py`** (the question gym) -- runs every interview QUESTION through the
   real student-class model (qwen3.6-27b, OpenRouter, thinking-off, no system, 512 tok =
   matches the live dialogue) and scores how much character it ELICITS (behaviour mode +
@@ -243,13 +253,18 @@ to validate a change. Match the change to the gym:
   judgment + low confound in a doing/judging/tradeoff mode; one that only elicits refusing
   is dead. Pennies. Caveat: OpenRouter bf16 vs the live local nf4 student; single-turn
   (multiturn questions like the console only show their setup turn).
-- **`scripts/judgment_gym.py` / `scripts/gym_rate_pairs.py`** -- labeled-fixture benches for the
+- **`scripts/judgment_gym.py` / `scripts/gym_rate_pairs.py`** (almost free -- a handful of
+  teacher calls over a fixed fixture) -- labeled-fixture benches for the
   TEACHER's judge/rate FORMS (does a depth-judge form catch a paraphrase-keep; does a rate
   form catch refusal/length/incoherence confounds). Use when changing how the teacher
   judges movement or rates pairs, to pick the form before wiring it into the brief.
-- Axis-menu validation lives UPSTREAM in the persona-steering-template-library
-  (`scripts/validate_persona_axes_openrouter.py`): blinded A/B axis judge + separate
-  confound rater. Use it for `persona_cells` work (tasks #29/#32), don't reinvent it here.
+- **`scripts/gym_persona_axis.py`** (the persona-axis gym, pennies) -- does a persona
+  (pos,neg) pair actually MOVE our student along the intended axis (not just style/length)?
+  Blinded A/B axis judge + separate confound rater, defaulting to OUR ACTUAL models
+  (generator = student qwen3.6-27b, judge = teacher qwen3.5-9b) so the reading is exact.
+  Use it for `persona_cells` / axis-menu work: keep the axes that differentiate, cull the
+  non-movers and reflex/directive poles. (Renamed from validate_persona_axes_openrouter;
+  same tool also lives upstream in the persona-steering-template-library.)
 
 ### Changing the teacher brief (prompts.py / gate text)
 
@@ -260,9 +275,11 @@ schema MUST be exercised in the prompt gym before it's considered done:
 just smoke-prompts 1   # real teacher (OpenRouter), stubbed student, ~1 min/round
 ```
 
-The gym hits the real OpenRouter teacher and costs real money (~$2/round, down
-from ~$10 after prompt slimming). So
-BATCH every pending brief edit and run the gym ONCE, then READ what it produced.
+Of the four gyms this is the only one that costs real money: it hits the real
+OpenRouter teacher (~$1/round, down from ~$10 after prompt slimming). The others
+(`just smoke` free, the judgment/rate benches almost free, the question gym pennies)
+you can run freely. So BATCH every pending brief edit and run this gym ONCE, then
+READ what it produced.
 Running it N times and reporting "gym passed Nx" without reading the artifacts is
 worthless AND expensive -- the run is only "verified" once you have read the
 output and confirmed the teacher did the new thing. One gym, read it.

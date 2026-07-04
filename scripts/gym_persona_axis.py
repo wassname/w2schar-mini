@@ -1,21 +1,26 @@
-"""Direct OpenRouter persona-axis validation with blinded A/B judging.
+"""gym_persona_axis: does a persona (pos,neg) pair actually MOVE OUR student along the
+intended character axis (and not just style/length)? Blinded A/B judging over OpenRouter.
 
-This is stricter than scripts/validate_persona_pool.py:
+The persona-axis gym (renamed from validate_persona_axes_openrouter). Sibling gyms:
+gym_question (does a QUESTION elicit character), judgment_gym / gym_rate_pairs (teacher
+judge/rate FORMS), gym_bounded_judge (the keep-judge). This one is for persona_cells /
+axis-menu work: keep the axes that differentiate, cull the ones that don't (or that script
+a reflex). Defaults to OUR ACTUAL models (student generator, teacher judge) so the reading
+is exact, not a proxy.
 
+Stricter than scripts/validate_persona_pool.py:
 * calls OpenRouter directly through the OpenAI client, not inspect-ai or pi;
 * randomizes response order before every judge call;
 * uses temperature=0 by default and sends OpenRouter's seed parameter;
 * judges the intended axis separately from style/tone nuisance dimensions;
-* defaults to non-sycophancy axes, with honest/flattering only as an optional
-  canary;
 * gates examples on per-example confounds, not just mean Likert scores.
 
-Usage:
-  OPENROUTER_API_KEY=... uv run python scripts/validate_persona_axes_openrouter.py \\
-    --n 3 --family character --out out/persona_axes_direct.json
+Usage (defaults: generator=qwen/qwen3.6-27b student, judge=qwen/qwen3.5-9b teacher):
+  set -a; source .env; set +a
+  uv run python scripts/gym_persona_axis.py --n 6 --axes <ids> --out out/persona_axes.json
 
 Dry-run without network:
-  uv run python scripts/validate_persona_axes_openrouter.py --dry-run --n 1
+  uv run python scripts/gym_persona_axis.py --dry-run --n 1
 """
 from __future__ import annotations
 
@@ -1601,8 +1606,13 @@ async def amain(args) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--generator-model", default="qwen/qwen3.5-27b")
-    ap.add_argument("--judge-model", default="google/gemini-3.1-flash-lite-preview")
+    # Defaults are OUR ACTUAL pipeline models so any agent measures the real thing, not a
+    # proxy: generator = the student, judge = the teacher (both on OpenRouter, cheap+exact).
+    # The teacher-as-axis-judge is family-blind via order-randomized third-person A/B, so
+    # qwen-judging-qwen self-preference is mitigated; override --judge-model to a neutral
+    # strong judge (e.g. google/gemini-3.1-flash-lite-preview) only for a cross-check.
+    ap.add_argument("--generator-model", default="qwen/qwen3.6-27b")   # our student
+    ap.add_argument("--judge-model", default="qwen/qwen3.5-9b")        # our teacher
     ap.add_argument("--gen-temperature", type=float, default=0.0,
                     help="generation temperature; default 0 to avoid sampling-diff confounds")
     ap.add_argument("--family", default="character",
