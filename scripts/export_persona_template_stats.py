@@ -1,6 +1,6 @@
 """Export upload-friendly stats from persona template validation artifacts.
 
-Input is the JSON written by scripts/validate_persona_axes_openrouter.py.
+Input is the JSON written by scripts/gym_persona_axis.py.
 Outputs:
   <out-prefix>_template_stats.jsonl       one row per template
   <out-prefix>_template_pair_stats.jsonl  one row per template × persona pair

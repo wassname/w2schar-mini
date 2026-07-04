@@ -143,7 +143,7 @@ class RunConfig:
     by design. See pipeline._degenerate_gen."""
     restrict_validated_prompts: bool = False
     """Restrict the character family to prompts that survived the OpenRouter screen
-    (scripts/validate_persona_axes_openrouter.py -> pool_validated.json). Removes
+    (scripts/gym_persona_axis.py -> pool_validated.json). Removes
     length-skewed / no-contrast prompts but, with the current ~8-prompt-per-axis
     pool, also pushes the thin axes (care, fairness) below min_pairs_to_train --
     only the rich autonomy axis survives. OFF by default; on only where the pool is

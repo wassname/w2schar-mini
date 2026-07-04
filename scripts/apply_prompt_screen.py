@@ -1,6 +1,6 @@
 """Freeze a prompt-screen result into the committed validated-prompt set.
 
-`scripts/validate_persona_axes_openrouter.py` writes a screen artifact under
+`scripts/gym_persona_axis.py` writes a screen artifact under
 out/ (gitignored). This reads its `kept_prompts` and writes the committed
 `src/csm/gen/pool_validated.json`, which `rows_for_family("character")` filters
 against -- so the harness only samples prompts that survive the screen.
@@ -19,7 +19,7 @@ OUT = Path(__file__).resolve().parents[1] / "src/csm/gen/pool_validated.json"
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("screen", help="screen artifact json from validate_persona_axes_openrouter.py")
+    ap.add_argument("screen", help="screen artifact json from gym_persona_axis.py")
     args = ap.parse_args()
     scr = json.loads(Path(args.screen).read_text())
     kept = scr["kept_prompts"]

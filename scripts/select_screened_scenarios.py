@@ -1,6 +1,6 @@
 """Select the scenario-gym passers into a committed keep-list the pool build honors.
 
-Reads a scenario-screen artifact (scripts/validate_persona_axes_openrouter.py
+Reads a scenario-screen artifact (scripts/gym_persona_axis.py
 --out) + the screened jsonl (for source mapping), then keeps:
   - the top PER_SOURCE by harness_clean_rate from EACH source (diversity floor), then
   - the top EXTRA from all remaining by clean_rate (merit),

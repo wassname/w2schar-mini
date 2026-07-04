@@ -19,7 +19,7 @@ generation. The contract every emitted row satisfies:
 Rows return {text, axes, source, source_id}. build_pool.py adds config/tags and
 applies the shared eval-leak shingle guard. Axis tags are a COARSE keyword/label
 sampling prior, not ground truth -- the scenario gym
-(scripts/validate_persona_axes_openrouter.py) is what actually screens each
+(scripts/gym_persona_axis.py) is what actually screens each
 prompt for on-axis separation vs refusal/length confound before training.
 
 Loaders were drafted+tested per-dataset (2026-06-28). Usable fractions and

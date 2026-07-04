@@ -649,7 +649,7 @@ FORETHOUGHT_SEEDS = [
         "source_id": "utility_reserve_commit",
     },
     # Second batch (2026-06-28): over-generate broadly, then let the scenario gym
-    # (scripts/validate_persona_axes_openrouter.py) cull any that produce a refusal
+    # (scripts/gym_persona_axis.py) cull any that produce a refusal
     # or length confound instead of on-axis separation. All AI-seat, two-sided,
     # advisory (no prescribed-content, no refuse-vs-comply trap).
     # -- honesty / non-deception (vs comfort, sycophancy, spin) --
