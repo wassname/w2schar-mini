@@ -75,41 +75,42 @@ async def main():
                               d2=[_sample(better, worse) for _ in range(JUDGE_N)]))  # expect -
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    hdr = ["case", "ranks", "d1(w,b)", "d2(b,w)", "avg", "vote", "verdict", "forced"]
-    rows_md = ["| " + " | ".join(hdr) + " |", "|" + "---|" * len(hdr)]
-    correct = tie = total = n_forced = n_samples = n_noncommit = n_split = 0
+    done = []                                        # rows as they resolve (append-safe: single-threaded)
 
-    for p in pairs:
-        sc1 = await asyncio.gather(*p["d1"])         # [(score, forced), ...]
-        sc2 = await asyncio.gather(*p["d2"])
-        d1 = mean(s for s, _ in sc1)
-        d2 = mean(s for s, _ in sc2)
-        avg = (d1 - d2) / 2
-        vote = 1 if avg >= KEEP_DEADBAND else -1 if avg <= -KEEP_DEADBAND else 0
-        ok = vote == 1
-        correct += ok; tie += (vote == 0); total += 1
-        for sc in (sc1, sc2):
-            for s, f in sc:
-                n_forced += f; n_samples += 1
-            signs = {s > 0 for s, _ in sc if s != 0}
-            if len(signs) > 1:
-                n_split += 1
-        rows_md.append("| " + " | ".join(str(x) for x in (
-            p["case"], p["ranks"], f"{d1:+.1f}", f"{d2:+.1f}", f"{avg:+.2f}",
-            {1: "BETTER", -1: "worse", 0: "tie"}[vote],
-            "ok" if ok else ("--" if vote == 0 else "WRONG"),
-            f"{sum(f for sc in (sc1,sc2) for _,f in sc)}/{2*JUDGE_N}")) + " |")
+    def _flush():
+        hdr = ["case", "ranks", "d1(w,b)", "d2(b,w)", "avg", "vote", "verdict", "forced"]
+        rows_md = ["| " + " | ".join(hdr) + " |", "|" + "---|" * len(hdr)]
+        correct = tie = n_forced = n_samples = n_split = 0
+        for r in done:
+            rows_md.append("| " + " | ".join(str(x) for x in (
+                r["case"], r["ranks"], f"{r['d1']:+.1f}", f"{r['d2']:+.1f}", f"{r['avg']:+.2f}",
+                {1: "BETTER", -1: "worse", 0: "tie"}[r["vote"]], r["verdict"],
+                f"{r['forced']}/{2*JUDGE_N}")) + " |")
+            correct += r["vote"] == 1; tie += r["vote"] == 0
+            n_forced += r["forced"]; n_samples += 2 * JUDGE_N; n_split += r["split"]
+        t = len(done)
         summary = (
             f"\n**budget={JUDGE_THINK_BUDGET} N={JUDGE_N} deadband={KEEP_DEADBAND}** "
-            f"(partial: {total}/{len(pairs)} pairs)\n\n"
-            f"- accuracy (better wins): {correct}/{total} = {correct/total:.0%}\n"
-            f"- ties (deadband ate it): {tie}/{total} = {tie/total:.0%}\n"
-            f"- forced-rate (hit budget -> phase2): {n_forced}/{n_samples} = {n_forced/max(1,n_samples):.0%}\n"
-            f"- N-sign-splits (samples disagreed): {n_split}/{2*total}\n")
+            f"({t}/{len(pairs)} pairs)\n\n"
+            f"- accuracy (better wins): {correct}/{t} = {correct/max(1,t):.0%}\n"
+            f"- ties (deadband ate it): {tie}/{t} = {tie/max(1,t):.0%}\n"
+            f"- forced-rate (hit budget -> phase2): {n_forced}/{max(1,n_samples)} = {n_forced/max(1,n_samples):.0%}\n"
+            f"- N-sign-splits (samples disagreed): {n_split}/{2*max(1,t)}\n")
         OUT.write_text("# Bounded keep-judge UAT\n\n" + "\n".join(rows_md) + "\n" + summary)
-        print(f"[{total}/{len(pairs)}] {p['case']} {p['ranks']}: avg={avg:+.2f} "
-              f"vote={vote} forced={sum(f for sc in (sc1,sc2) for _,f in sc)}/{2*JUDGE_N}", flush=True)
 
+    async def do_pair(p):
+        sc1, sc2 = await asyncio.gather(asyncio.gather(*p["d1"]), asyncio.gather(*p["d2"]))
+        d1, d2 = mean(s for s, _ in sc1), mean(s for s, _ in sc2)
+        avg = (d1 - d2) / 2
+        vote = 1 if avg >= KEEP_DEADBAND else -1 if avg <= -KEEP_DEADBAND else 0
+        split = sum(len({s > 0 for s, _ in sc if s != 0}) > 1 for sc in (sc1, sc2))
+        done.append(dict(case=p["case"], ranks=p["ranks"], d1=d1, d2=d2, avg=avg, vote=vote,
+                         verdict="ok" if vote == 1 else ("--" if vote == 0 else "WRONG"),
+                         forced=sum(f for sc in (sc1, sc2) for _, f in sc), split=split))
+        _flush()
+        print(f"[{len(done)}/{len(pairs)}] {p['case']} {p['ranks']}: avg={avg:+.2f} vote={vote}", flush=True)
+
+    await asyncio.gather(*[do_pair(p) for p in pairs])
     print("\n" + OUT.read_text())
     print(f"wrote {OUT}")
 
