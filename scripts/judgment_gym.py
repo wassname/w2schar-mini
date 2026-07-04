@@ -614,12 +614,12 @@ VERDICT_FORCE = ("You are out of thinking time. Answer NOW, one line only, exact
                  "VERDICT: A      (or B, or tie)")
 
 
-def _reasoning_tail(r, n: int = 2000) -> str:
-    """Tail of the hidden reasoning, used to continue a truncated judge call."""
+def _reasoning_full(r) -> str:
+    """The model's FULL hidden reasoning (CoT). Logged in full for values-audit; the
+    force-answer phase slices its own tail inline (recent context is what a commit needs)."""
     c = getattr(getattr(r, "message", None), "content", None)
     if isinstance(c, list):
-        t = "\n".join(getattr(x, "reasoning", "") for x in c if getattr(x, "reasoning", ""))
-        return t[-n:]
+        return "\n".join(getattr(x, "reasoning", "") for x in c if getattr(x, "reasoning", ""))
     return ""
 
 
@@ -641,12 +641,13 @@ async def _cured_generate(model, prompt, parse, force_instr, form_key, case, pai
         print(f"  !! {form_key} {case['case_id']} {pair_str} p1: {type(e).__name__}: {e}", flush=True)
         return "", "error", ""
     comp1 = r1.completion or ""
-    reasoning = _reasoning_tail(r1)
+    reasoning = _reasoning_full(r1)
     if force_instr is None or parse(comp1) is not None:
         return comp1, str(getattr(r1, "stop_reason", "") or ""), reasoning
     # Phase 2: phase 1 hit the budget / gave no verdict. Force a commit, reasoning off.
+    # Feed back only the reasoning TAIL (recent context is what a commit needs).
     msgs = [ChatMessageUser(content=prompt),
-            ChatMessageAssistant(content=(reasoning or "(thinking truncated)")),
+            ChatMessageAssistant(content=(reasoning[-2000:] or "(thinking truncated)")),
             ChatMessageUser(content=force_instr)]
     try:
         r2 = await asyncio.wait_for(
@@ -676,7 +677,7 @@ async def _call(model, prompt, form_key, case, pair_str, parse, force_instr=None
         _log_reply({"key": k, "model": _MODEL_NAME, "form": form_key, "case": case["case_id"],
                     "pair": pair_str, "stop_reason": stop, "verdict": parse(comp),
                     "completion": comp, "reasoning_len": len(reasoning),
-                    "reasoning": reasoning[:4000], "prompt": prompt})
+                    "reasoning": reasoning, "prompt": prompt})
     return parse(comp), stop in _TRUNC
 
 
