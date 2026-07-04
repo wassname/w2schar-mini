@@ -21,6 +21,17 @@ TEACHER_REASONING_TOKENS = 40000
 # OpenRouter routing: prefer DeepInfra but allow fallback (cheaper/consistent quant on qwen). Passed as extra_body to the OpenAI-compat client; "order" is a preference, allow_fallbacks keeps the run alive if DeepInfra is down.
 OPENROUTER_PROVIDER = dict(order=["deepinfra"], allow_fallbacks=True)
 
+# Keep-judge (agent._judge_graded) is a THINKING call bounded so it always commits.
+# Phase 1 thinks at the Qwen thinking params (temp0 loops a thinking model -- OOD) up to
+# JUDGE_THINK_BUDGET tokens; if it hasn't emitted SCORE by then we force-answer (phase 2)
+# at the INSTRUCT params with reasoning OFF so it commits directly instead of re-entering
+# <think>. Sampled JUDGE_N times and the numeric scores averaged -- reproducibility comes
+# from N, not from an OOD greedy temp (RJ 2026-07-03: user correction on temp0 looping).
+JUDGE_THINK = dict(temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5)
+JUDGE_FORCE = dict(temperature=0.7, top_p=0.8, top_k=20, presence_penalty=1.5, reasoning_effort="none")
+JUDGE_THINK_BUDGET = 4096   # qwen3.5-9b often genuinely needs ~4k to judge; measure truncation-rate to tune
+JUDGE_N = 2                 # samples per direction, averaged (the user's "times 2")
+
 
 @dataclass
 class RunConfig:
