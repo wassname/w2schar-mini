@@ -191,18 +191,27 @@ All forms via the production cure (bounded-think + force-answer), ~59 pairs each
 | Dest  | keep humans in charge of destiny | 62% | |
 | ACT   | heavy docs checklist | 59% | |
 
-Read (SE ~5% on n=59 -> ~+-10pt CI, so a single-form diff under ~10pt is noise):
-- The whole 78-86% band is a statistical wash. No framing CLEARLY beats thin-A.
-- Only the BOTTOM clears the noise floor: ACT (59), Dest (62), Ogem (67) are genuinely worse
-  than the top cluster (83-62 = 21pt >> noise).
+Read (per-form CI is ~+-10pt at n=59; a DIFFERENCE of two forms has SE ~1.4x, so the honest bar
+for "X beats Y" is a gap of ~13-14pt. Fresh-eyes subagent corrected an earlier too-lenient +-10):
+- The whole 78-86% band is a statistical wash. No framing CLEARLY beats thin-A (confirmed).
+- Clears the difference-bar vs A=83: ACT (gap 24, z~3.0, p~.003) and Dest (gap 21, z~2.6,
+  p~.009) are genuinely worse. Ogem (gap 16, z~2.0, p~.04) is only SUGGESTIVE -- borderline and
+  does not survive multiple-comparison correction across ~15 forms. Do not call it "genuinely worse."
 - Narrow-value framings self-sabotage: Dest (a scenario-specific "who has power" value) nearly
   matched the heavy checklist ACT -- it misfires on honesty/comfort/win-win cases where power
   isn't the axis. The doc's GENERAL frames (CEV) held; its SPECIFIC ones (Dest) did not.
-- Act-anchoring did NOT help the weak judge: V3/V4 (act) <= A (depth), though action is the real
-  target. "First name the act" (V4 Step 1) is the harder task that overloads the 9b; the depth
-  gestalt tracks the committed act 83% of the time without asking for it.
+- Act-anchoring did NOT help the weak judge, and ACT (the form PURPOSE-BUILT for action-forking)
+  scored WORST (z~3 below A) -- that is real signal, not noise floor. So there is no action-aligned
+  form that ties A and could be preferred on target grounds; keeping A costs no action-target win.
+  "First name the act" (V4 Step 1) is the harder task that overloads the 9b; the depth gestalt
+  tracks the committed act 83% of the time without asking for it.
 - CEV (81%) confirms the winning SHAPE (short + one resonant concept) but did not exceed depth.
 
-Decision: keep thin-A as the production judge -- nothing beat it within noise, and it is the
-simplest and already deployed. Ofb2b's 86% is the only edge but rides a truncated denominator;
-a clean re-run would be needed to call it a real win, and even then it's ~1 SE over A.
+Ofb2b caveat (subagent): its 86% is NOT comparable -- 57 parsed vs 59, plus 2 unparsed + 4
+truncated, and truncation can preferentially drop the HARD cases. +3 over A is inside noise
+regardless, but the honest call is "re-run on a full-59 denominator," not silent dismissal.
+=> clean Ofb2b re-run queued.
+
+Decision: keep thin-A as the production judge -- nothing beat it within noise, it is the simplest
+and already deployed, and no action-target form ties it. Pending only the Ofb2b clean re-run to
+close the one degraded-denominator question.
