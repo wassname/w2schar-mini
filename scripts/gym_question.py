@@ -258,7 +258,11 @@ async def _judge(client: AsyncOpenAI, question: str, reply: str) -> dict:
         extra_body={"provider": OPENROUTER_PROVIDER},
         messages=[{"role": "user", "content": prompt}],
     )
-    return json.loads(r.choices[0].message.content)
+    msg = r.choices[0].message
+    out = json.loads(msg.content)
+    # Save the judge's hidden CoT too (values-audit), alongside its structured `reason`.
+    out["judge_reasoning"] = getattr(msg, "reasoning", "") or ""
+    return out
 
 
 async def main() -> None:
