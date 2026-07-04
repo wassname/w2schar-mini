@@ -180,7 +180,7 @@ All forms via the production cure (bounded-think + force-answer), ~59 pairs each
 | A     | reasons deeply / holds under pressure (thin) | 83% | clean baseline |
 | CEV   | wiser, kinder, more knowledgeable (Yudkowsky) | 81% | best of new framings |
 | Ogpt  | docs checklist (gpt) | 81% | |
-| V4    | full-page 5-step act rubric | 80% | |
+| V4    | full-page 5-step act rubric | 79% | |
 | Ofab  | docs checklist (fable) | 79% | |
 | V3    | thin act-anchored | 78% | |
 | Veil  | Rawls original position / veil of ignorance | 78% | |
