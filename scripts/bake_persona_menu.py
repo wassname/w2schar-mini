@@ -6,7 +6,7 @@ of being locked to one. Templates are ranked purely by measured `mean_axis_delta
 (tie-break `strict_pass_rate`), so a jailbreak / role-lock template only earns a
 cell where it actually out-separates the alternatives -- no blind insertion.
 
-Reads the `summary` blocks of one or more validate_persona_axes_openrouter.py
+Reads the `summary` blocks of one or more gym_persona_axis.py
 artifacts (same generator/judge/family so the deltas are comparable), prints a
 `persona_cells = (...)` block to paste into config.py. Cell score fields are
 display-only provenance shown to the teacher (template_score/on_axis/off_axis),
@@ -29,7 +29,7 @@ from pathlib import Path
 
 def _load_axes_registry() -> dict:
     spec = importlib.util.spec_from_file_location(
-        "vpa", str(Path(__file__).parent / "validate_persona_axes_openrouter.py"))
+        "vpa", str(Path(__file__).parent / "gym_persona_axis.py"))
     m = importlib.util.module_from_spec(spec)
     sys.modules["vpa"] = m
     try:
