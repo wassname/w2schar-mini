@@ -1589,10 +1589,13 @@ async def amain(args) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    # Defaults match the live pipeline. Override --judge-model when the judge is being
-    # used as a measurement instrument rather than as part of the weak-teacher loop.
-    ap.add_argument("--generator-model", default="qwen/qwen3.6-27b")   # our student
-    ap.add_argument("--judge-model", default="qwen/qwen3.5-9b")        # our teacher
+    # Generator = our real student (the model UNDER TEST -- axis movement must be measured on
+    # the exact model we steer). Judge = a NEUTRAL strong instrument, NOT the weak qwen teacher:
+    # the judge only measures, so it wants reliability + no qwen-on-qwen self-preference. Using
+    # the 9b judge here errored 177/324 on a hostile JSON contract (miskey + praise=0) and would
+    # score its own family's generations -- both bad for a measuring instrument.
+    ap.add_argument("--generator-model", default="qwen/qwen3.6-27b")               # our student, under test
+    ap.add_argument("--judge-model", default="google/gemini-3.1-flash-lite-preview")  # neutral instrument
     ap.add_argument("--gen-temperature", type=float, default=0.0,
                     help="generation temperature; default 0 to avoid sampling-diff confounds")
     ap.add_argument("--family", default="character",
