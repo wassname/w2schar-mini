@@ -18,15 +18,33 @@ Same failure, same cause elsewhere: the judgment-gym ACT form timed out 155/155 
 the 9b thought forever on an unresolvable two-step classifier (RJ e29eb46). Overthinking
 under ambiguity is a general weak-reasoning-model failure, not an ACT-form quirk.
 
-Fix (validated in the judge gym before wiring live): cap the judge's reasoning via
-OpenRouter's `reasoning` param (inspect-ai `GenerateConfig(reasoning_effort=...)` /
-`reasoning_tokens=...`), per-call on `_judge_graded` only so other teacher calls keep
-their budget. Forcing the judge to commit should convert underpowered ties into signal
-(journal (e): the ties are exact zeros, so the deadband is not the lever -- decisiveness
-is). PLUS surface the no-conclusion path with `loguru.warning` when the judge hits max
-tokens with no `SCORE:` and we log it as 0, so it stops hiding inside the drop. Note the
-round02-05 drops are a DIFFERENT failure (externality_actfork pairs starving the
-`different_action` gate), not the judge.
+OUTCOME -- both judge-config hypotheses REFUTED in the gym (form A = live judge, 59
+fixtures, out/judgment_gym/*.log):
+
+| judge cfg | pair-acc | inconclusive | unparsed |
+|-----------|----------|--------------|----------|
+| uncapped temp0 (baseline) | 85% | 5 | 0 |
+| reasoning=low | 87% | 2 | 4 |
+| reasoning=medium | 87% | 3 | 5 |
+| temp=1.0 (the LIVE setting) | 81% | 5 | 0 |
+
+Capping reasoning does NOT help (non-monotonic; provider likely ignores reasoning_effort
+for qwen3.5-9b; and the judge never overthinks-to-no-verdict at 16k, 0 unparsed -- so
+there is no overthink problem ON THE JUDGE to cap; that was the ACT-FORM's problem). Temp
+does not change the tie count (5 both) -- the 5 gym ties are the same genuinely-ambiguous
+fixtures. And the DECISIVE live read: task-146 round00's 12 ties are ALL exact 0/0 (d1=0
+AND d2=0, zero deadband-eaten), while the judge scored a clean +5/-5 on baby_eating (the
+one real difference) and -1 on garbage_truck. So the judge WORKS; the 12 zeros are genuine
+PRE=POST no-movement from a weak adapter. journal (e) confirmed: the judge is NOT the
+bottleneck; the lever is upstream adapter/pair movement (same root as the round02-05
+externality_actfork same-action starvation, and the task-140/141 "movement is
+pair-variance-dominated" finding).
+
+SHIPPED anyway (judge hygiene, NOT the tie fix): `_judge_graded` now judges GREEDY
+(temp0, presence_penalty0) -- reproducible keep/drop + 4pts accuracy (85 vs 81) -- and
+`_parse_score_quote` returns `found`, so a no-SCORE reply is retried and, if still absent,
+`loguru.warning`ed instead of silently voting 0. Confirms genuine-0 vs silent-0 in future
+runs.
 
 ## 2026-07-03 (e) -- ab_judge_raw adjudicates: judge-strictness REFUTED, first live keep is MIXED, canary passed-and-missed
 

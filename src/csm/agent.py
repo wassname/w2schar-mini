@@ -503,34 +503,53 @@ def _judge_ground(lesson: str) -> str:
 KEEP_DEADBAND = 1.0
 
 
-def _parse_score_quote(text: str) -> tuple[int, str]:
-    score, quote = 0, ""
+def _parse_score_quote(text: str) -> tuple[int, str, bool]:
+    """Returns (score, quote, found). `found` distinguishes a real 'SCORE: 0' tie from NO
+    parseable SCORE line -- the latter must NOT be silently laundered into a 0/tie, which
+    hid weak-judge non-conclusions inside keep-drops (RJ 2026-07-03 f)."""
+    score, quote, found = 0, "", False
     for line in text.splitlines():
         m = re.match(r"\s*SCORE:\s*([+-]?\d+)", line, re.IGNORECASE)
         if m:
             score = max(-5, min(5, int(m.group(1))))
+            found = True
         q = re.match(r"\s*QUOTE:\s*(.+)", line, re.IGNORECASE)
         if q:
             quote = q.group(1).strip().strip("\"'“”")
-    return score, quote
+    return score, quote, found
 
 
 async def _judge_graded(model, axis_h: str, a: str, b: str, ground: str = "") -> int:
     """Signed -5..+5: how much wiser B than A. A non-zero score must cite a verbatim clause
-    from the wiser side (else re-ask, then fall to 0)."""
+    from the wiser side (else re-ask, then fall to 0). Judged GREEDY (temp0, no
+    presence_penalty), NOT at the teacher's creative temp1 sampling: the keep-judge is
+    MEASURED, so greedy makes keep/drop reproducible across identical runs and is +4pts
+    more accurate (gym form A: 85% temp0 vs 81% temp1); presence_penalty distorts the tiny
+    SCORE/QUOTE output. RJ 2026-07-03 f. The tie problem is NOT the judge -- task-146 r00's
+    12 ties were all exact 0/0 (judge saw genuine PRE=POST no-movement) -- but a temp1
+    keep that flips run-to-run is still not a result."""
     hint = _length_hint(a, b)
     base = ground + GRADED_JUDGE_PROMPT.format(axis=axis_h, a=a, b=b, length_hint=hint)
+    cfg = GenerateConfig(temperature=0.0, presence_penalty=0.0)
     prompt = base
     for _ in range(_QUOTE_RETRIES + 1):
-        r = await model.generate(prompt)
-        score, quote = _parse_score_quote(r.completion)
+        r = await model.generate(prompt, config=cfg)
+        score, quote, found = _parse_score_quote(r.completion)
+        if not found:
+            prompt = base + ("\n\nERROR: no SCORE line found. Answer EXACTLY two lines -- "
+                             "SCORE: <int -5..+5> then QUOTE: <clause, or blank if 0>.")
+            continue
         if score == 0:
-            return 0
+            return 0                       # genuine tie: judge read a real SCORE: 0
         wiser = b if score > 0 else a
         if quote and _norm(quote) in _norm(wiser):
             return score
         prompt = base + (f"\n\nERROR: your QUOTE {quote!r} is not verbatim in the side you "
                          f"scored wiser. Re-read it and quote an exact phrase, or SCORE: 0.")
+    # Exhausted retries with no parseable SCORE: a NON-conclusion, not a real tie. Surface
+    # it (loud) rather than silently voting 0 -- if this fires often the judge is failing.
+    logger.warning(f"keep-judge reached retry limit with no parseable SCORE "
+                   f"(stop={getattr(r, 'stop_reason', '?')}); logging 0/tie -- NON-conclusion")
     return 0
 
 
