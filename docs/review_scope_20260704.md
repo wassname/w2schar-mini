@@ -30,9 +30,16 @@ Commits: 5349858, 35cc483, 50af4c8 (judge + UAT + journal); c8f051d, fdd983b (Go
    axis that just had bad scenarios. Q: cull vs fix-the-scenarios; is 15 axes enough
    diversity or is a backfill of measured strong movers needed?
 
-4. **Axis-gym self-preference.** The gym now judges qwen3.5-9b(teacher)-on-qwen3.6-27b
-   (student). Order-randomized third-person A/B mitigates family self-preference but does not
-   eliminate it. Q: does judge=teacher bias the axis rankings vs the neutral gemini judge?
+4. **Axis-gym judge default -- teacher-as-judge FAILED (measured).** I switched the gym
+   default to judge=teacher (qwen3.5-9b) per "use real models", and re-ran: 177 of 324 pairs
+   ERRORED (out/persona_axes_live18_realjudge.json, n_success=147/324). The weak 9b cannot
+   reliably emit the structured axis-judgment -- which is WHY gemini-flash-lite was the
+   original default. Lesson: the generator SHOULD be our real student (a thing under test),
+   but the axis-gym JUDGE is a measuring INSTRUMENT, not a pipeline component, so it should be
+   a reliable strong judge, not the weak teacher. OPEN DECISION: revert --judge-model default
+   to a neutral strong judge (keep --generator-model = student), or accept a partial/biased
+   measurement. Also unresolved: qwen-on-qwen self-preference if we did keep teacher-judge.
+   Until this is settled the Goal B cull still rests only on the gemini n=6 run.
 
 5. **Hooks** are separately scoped in ~/.claude/hooks/REVIEW_PROMPT.md. Headline risks: the
    TaskCompleted hard-block can become goodhart theatre (a rubber-stamp subagent passes it);
