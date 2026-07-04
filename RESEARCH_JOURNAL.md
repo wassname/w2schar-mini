@@ -28,11 +28,26 @@ fixtures, out/judgment_gym/*.log):
 | reasoning=medium | 87% | 3 | 5 |
 | temp=1.0 (the LIVE setting) | 81% | 5 | 0 |
 
-Capping reasoning does NOT help (non-monotonic; provider likely ignores reasoning_effort
-for qwen3.5-9b; and the judge never overthinks-to-no-verdict at 16k, 0 unparsed -- so
-there is no overthink problem ON THE JUDGE to cap; that was the ACT-FORM's problem). Temp
-does not change the tie count (5 both) -- the 5 gym ties are the same genuinely-ambiguous
-fixtures. And the DECISIVE live read: task-146 round00's 12 ties are ALL exact 0/0 (d1=0
+VERIFIED (measured reasoning_len in replies.jsonl, form A, not assumed) that the reasoning
+knobs were INERT -- the first "refuted" was almost invalid:
+
+| reasoning cfg | median reasoning_len | pair-acc | inconclusive |
+|---------------|----------------------|----------|--------------|
+| ON (uncapped) | 4776 | 85% | 5 |
+| effort=low | 5199 (UNCHANGED) | 87% | 2 |
+| effort=medium | 5386 (UNCHANGED) | -- | -- |
+| reasoning_tokens=500 | 5458 (UNCHANGED, 0/16 <=600) | -- | -- |
+| effort=none (DISABLE) | 0 (WORKS) | 75% | 11 |
+
+So the provider IGNORES every reasoning-BUDGET knob for qwen3.5-9b (low/medium/tokens leave
+reasoning_len unchanged) but HONORS disable (none -> 0). And disabling makes the judge
+WORSE: ties DOUBLE (5 -> 11 inconclusive) and accuracy drops (85 -> 75). Less thinking =
+MORE position-bias ties, the opposite of the "cut reasoning to force commitment" intuition
+-- the weak 9b needs its reasoning to be decisive. So reasoning control cannot lower the
+tie count. (The judge also never overthinks-to-no-verdict at 16k: 0 unparsed -- so the
+overthink-no-answer is rare at adequate budget; it was the ACT-FORM's problem, not the
+keep-judge's.) Temp does not change the tie count either (5 both). And the DECISIVE live
+read: task-146 round00's 12 ties are ALL exact 0/0 (d1=0
 AND d2=0, zero deadband-eaten), while the judge scored a clean +5/-5 on baby_eating (the
 one real difference) and -1 on garbage_truck. So the judge WORKS; the 12 zeros are genuine
 PRE=POST no-movement from a weak adapter. journal (e) confirmed: the judge is NOT the
@@ -40,11 +55,20 @@ bottleneck; the lever is upstream adapter/pair movement (same root as the round0
 externality_actfork same-action starvation, and the task-140/141 "movement is
 pair-variance-dominated" finding).
 
-SHIPPED anyway (judge hygiene, NOT the tie fix): `_judge_graded` now judges GREEDY
-(temp0, presence_penalty0) -- reproducible keep/drop + 4pts accuracy (85 vs 81) -- and
-`_parse_score_quote` returns `found`, so a no-SCORE reply is retried and, if still absent,
-`loguru.warning`ed instead of silently voting 0. Confirms genuine-0 vs silent-0 in future
-runs.
+SHIPPED (judge hygiene + rare-case recovery, NOT the tie-count fix): `_judge_graded` now
+judges GREEDY (temp0, presence_penalty0) -- reproducible keep/drop + 4pts accuracy (85 vs
+81) -- and `_parse_score_quote` returns `found`, so a no-SCORE reply is retried; on the
+no-answer branch it INTERRUPT-AND-REQUERIES with reasoning DISABLED (effort=none, the only
+honored knob) to force a direct commit rather than silently voting 0, and if still absent
+`loguru.warning`s it. Reasoning-off is used ONLY to rescue an overthink-past-budget
+non-answer (rare), never as the default (it is the worse 75%/11-tie judge).
+
+CONCLUSION for the tie/auto-reject goal: the judge is not fixable into fewer ties via
+sampling/reasoning config -- exhausted and verified. The real levers are (1) upstream axis
+MOVEMENT so PRE!=POST (validate axes move OUR student; drop non-movers), (2) removing
+behavior-SCRIPTING personas (they teach a reflex, and same-action poles produce 0/0 ties),
+and possibly (3) a HOW-discriminating judge prompt that resolves same-action-different-
+character pairs. (1)+(2) = the persona/axis work (next).
 
 ## 2026-07-03 (e) -- ab_judge_raw adjudicates: judge-strictness REFUTED, first live keep is MIXED, canary passed-and-missed
 

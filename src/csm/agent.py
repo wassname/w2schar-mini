@@ -531,12 +531,21 @@ async def _judge_graded(model, axis_h: str, a: str, b: str, ground: str = "") ->
     hint = _length_hint(a, b)
     base = ground + GRADED_JUDGE_PROMPT.format(axis=axis_h, a=a, b=b, length_hint=hint)
     cfg = GenerateConfig(temperature=0.0, presence_penalty=0.0)
+    # Interrupt-and-requery for the one recoverable no-answer: the judge overthinks past its
+    # token budget and returns NO SCORE (silent 0/tie otherwise). We requery with reasoning
+    # DISABLED (effort=none) to force a direct commit. This is the ONLY reasoning knob the
+    # provider honors -- low/medium/reasoning_tokens are IGNORED for qwen3.5-9b (verified,
+    # RJ f). Reasoning-off is used ONLY to rescue a non-answer, never as the default: judging
+    # with no reasoning is WORSE (gym form A 75%/11-tie vs 85%/5-tie with reasoning).
+    commit_cfg = GenerateConfig(temperature=0.0, presence_penalty=0.0, reasoning_effort="none")
+    force_commit = False
     prompt = base
     for _ in range(_QUOTE_RETRIES + 1):
-        r = await model.generate(prompt, config=cfg)
+        r = await model.generate(prompt, config=commit_cfg if force_commit else cfg)
         score, quote, found = _parse_score_quote(r.completion)
         if not found:
-            prompt = base + ("\n\nERROR: no SCORE line found. Answer EXACTLY two lines -- "
+            force_commit = True            # overthought past budget -> requery reasoning-off
+            prompt = base + ("\n\nYou did not answer. Reply with ONLY two lines -- "
                              "SCORE: <int -5..+5> then QUOTE: <clause, or blank if 0>.")
             continue
         if score == 0:
@@ -546,8 +555,9 @@ async def _judge_graded(model, axis_h: str, a: str, b: str, ground: str = "") ->
             return score
         prompt = base + (f"\n\nERROR: your QUOTE {quote!r} is not verbatim in the side you "
                          f"scored wiser. Re-read it and quote an exact phrase, or SCORE: 0.")
-    # Exhausted retries with no parseable SCORE: a NON-conclusion, not a real tie. Surface
-    # it (loud) rather than silently voting 0 -- if this fires often the judge is failing.
+    # Exhausted retries with no parseable SCORE even reasoning-off: a NON-conclusion, not a
+    # real tie. Surface it (loud) rather than silently voting 0 -- if this fires the judge is
+    # failing, not the pair tying.
     logger.warning(f"keep-judge reached retry limit with no parseable SCORE "
                    f"(stop={getattr(r, 'stop_reason', '?')}); logging 0/tie -- NON-conclusion")
     return 0
