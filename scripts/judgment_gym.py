@@ -475,12 +475,13 @@ async def score_form(model, form_key, cases):
             "orig_acc": orig_acc, "orig_n": orig_n}
 
 
-async def run(form_keys, model_name, reasoning=""):
+async def run(form_keys, model_name, reasoning="", temp=0.0):
     global _MODEL_NAME
     _load_env()
-    # Tag the cache with the reasoning setting so a capped-reasoning run is NOT served the
-    # uncapped cached replies (the key is model+prompt, and the prompt is byte-identical).
-    _MODEL_NAME = model_name + (f"|reasoning={reasoning}" if reasoning else "")
+    # Tag the cache with the reasoning+temp settings so a capped/hot run is NOT served the
+    # baseline cached replies (the key is model+prompt, and the prompt is byte-identical).
+    _MODEL_NAME = (model_name + (f"|reasoning={reasoning}" if reasoning else "")
+                   + (f"|temp={temp}" if temp else ""))
     _load_cache()
     from inspect_ai.model import get_model, GenerateConfig
     # max_tokens BIG: qwen3.5-9b is a reasoning model and burns the whole budget in
@@ -495,7 +496,7 @@ async def run(form_keys, model_name, reasoning=""):
     from csm.config import OPENROUTER_PROVIDER
     model = get_model(model_name,
                       config=GenerateConfig(max_connections=16, timeout=300,
-                                            max_retries=4, max_tokens=16000, temperature=0.0,
+                                            max_retries=4, max_tokens=16000, temperature=temp,
                                             **reason_cfg,
                                             extra_body={"provider": OPENROUTER_PROVIDER}))
     if _CACHE:
@@ -541,8 +542,10 @@ if __name__ == "__main__":
     ap.add_argument("--model", default="openrouter/qwen/qwen3.5-9b")
     ap.add_argument("--reasoning", default="",
                     help="cap judge reasoning: int (reasoning_tokens) or low/minimal (reasoning_effort)")
+    ap.add_argument("--temp", type=float, default=0.0,
+                    help="judge sampling temperature (live keep judge runs at 1.0; gym default 0.0)")
     args = ap.parse_args()
     if args.show_forms or not args.run:
         show_forms()
     if args.run:
-        asyncio.run(run([f.strip() for f in args.forms.split(",")], args.model, args.reasoning))
+        asyncio.run(run([f.strip() for f in args.forms.split(",")], args.model, args.reasoning, args.temp))
