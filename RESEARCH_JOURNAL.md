@@ -1,5 +1,61 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-04 (g) -- bounded-thinking judge (budget+force+N=2); latency was contention, not the budget; live-axis movement on our student
+
+Goal A (user: "get judgment working in a real run, with the token budget but still answer,
+and times 2"). Replaced the temp0 greedy judge -- temp0 is OOD for a thinking model and
+loops (user correction, journal (f) shipped temp0 as "better", now reverted) -- with a
+bounded THINKING call that always commits (`agent._judge_sample`):
+- phase 1 thinks at the Qwen thinking params (temp1.0/top_p0.95/top_k20/pp1.5) up to
+  `JUDGE_THINK_BUDGET=4096`; if it emits a valid SCORE (nonzero must cite a verbatim
+  clause), use it;
+- phase 2 (only if not) continues the same conversation with thinking OFF
+  (`reasoning_effort=none`) and forces a direct SCORE -- the verified rescue path
+  (trace_bounded_judge3.txt);
+- `JUDGE_N=2` samples averaged (reproducibility from N, not from a greedy temp).
+A dedicated `_judge_model` handle (no base reasoning_tokens) is REQUIRED: the teacher
+handle carries reasoning_tokens=40000, which collides with effort=none (OpenRouter rejects
+a both-set config) -- the bug that made the earlier interrupt-requery unshippable.
+
+LATENCY: a single solo real sample at budget=4096 is 45s (`score=4 forced=False` on
+babyeating best-vs-2nd), and a trivial-prompt probe is 9s with only 589 reasoning chars --
+so the 4096 budget does NOT force 4096 tokens; the model stops when done. My first probe
+timed out >300s and I nearly reported "the bounded judge is too slow": that was a BUG in the
+instrument, not a result -- it was pure CONTENTION (I had the Goal B axis-validation job
+hammering the same OpenRouter endpoint concurrently). Solo it is 45s. Verify the instrument
+before trusting the reading (ml-debug).
+
+FIX shipped alongside: `_blind_ab_votes` now judges all questions x both side-swap
+directions x N samples CONCURRENTLY (`asyncio.gather`); it was sequential, which at
+45s/sample x ~56 samples would be ~40 min/keep. Concurrent (throttled to inspect's
+connection limit) a keep is ~minutes. smoke PASS (state.json=done) on the parallel path.
+UAT = `scripts/gym_bounded_judge.py` (real teacher over the labelled fixture): first pairs
+show the two-pass side-swap correctly calling a subtle best-vs-2nd (starwisp 1v2) a TIE
+(d1=+2 d2=+2, same sign under swap = position bias, avg 0) rather than a false keep --
+the side-swap doing its job. forced-rate ~75% on the hardest items (they think to budget),
+~0 on easy ones. [full-fixture accuracy: UAT still streaming at write time -- do not cite as
+validated until read.]
+
+Goal B (user: "test which axes are good and lead to differentiation, remove the ones that
+tell it how to trick the teacher"). Ran the persona-axis validator on OUR student
+(`out/persona_axes_live18_qwen36.json`, generator qwen/qwen3.6-27b, gemini-flash-lite judge,
+n=6, all 18 live-menu axes; registered the two act-forks in the validator first). Best
+template per axis, mean_axis_delta (movement) / off-axis / word_delta_frac:
+- strong+clean movers: `sanctity_individual_utilitarian` 8.00/2.17/0.12,
+  `society_over_user_interest` 5.17/2.17/0.21 (strict 0.67), `skill_cooperative_zero_sum`
+  7.50/2.83/0.17.
+- WEAK movers (cull candidates): `externality_actfork` 2.33 and
+  `genuine_care_not_paternalist` 2.33 -- barely differentiate the student. Notable:
+  externality_actfork is one of the act-fork replacements I added to the live menu (c32c5ec)
+  and it is near the BOTTOM on our own student. The upstream numbers that justified it were
+  a different judge/generator.
+- high movement but length-confounded: `long_term_flourishing` word 0.58,
+  `autonomy_coercion` word 0.41; high off-axis: `skill_unwavering_cowering` off 4.67.
+- ALL 18 recommended=False under the strict per-axis-template gate (strict_pass 0.0-0.67),
+  though the per-PROMPT screen passed 6/6. PENDING: read the generations for
+  directive/reflex ("trick the teacher") personas + decide the culls; the movement data
+  above is one input, not the verdict.
+
 ## 2026-07-03 (f) -- weak-judge overthinking is the tie/auto-reject mechanism
 
 Symptom (task-146, act-fork run): round00 dropped with 13 of 14 questions tied
