@@ -543,10 +543,12 @@ def _quote_ok(score: int, quote: str, a: str, b: str) -> bool:
     return bool(quote) and _norm(quote) in _norm(wiser)
 
 
-async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[int, bool]:
+async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[int | None, bool]:
     """One bounded-thinking judgment. Returns (score, forced), where `forced`
     records whether phase 2 had to ask for a direct answer after phase 1 failed to
-    produce a valid SCORE/QUOTE."""
+    produce a valid SCORE/QUOTE. score=None means NO parseable SCORE even after the
+    force-answer -- a non-conclusion, NOT a tie: laundering it into 0 let a broken
+    judge form silently turn every question into a tie and auto-reject every round."""
     r1 = await jm.generate(base, config=GenerateConfig(max_tokens=JUDGE_THINK_BUDGET, **JUDGE_THINK))
     score, quote, found = _parse_score_quote(r1.completion)
     if found and _quote_ok(score, quote, a, b):
@@ -561,8 +563,9 @@ async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[int, bool]:
     score, quote, found = _parse_score_quote(r2.completion)
     if not found:
         logger.warning(f"keep-judge force-answer returned NO SCORE "
-                       f"(stop={getattr(r2, 'stop_reason', '?')}); logging 0/tie -- NON-conclusion")
-    elif not _quote_ok(score, quote, a, b):
+                       f"(stop={getattr(r2, 'stop_reason', '?')}); NON-conclusion (None, not a tie)")
+        return None, True
+    if not _quote_ok(score, quote, a, b):
         # ~43% of samples arrive via this forced path (out/gym_bounded_judge/report.md) and,
         # unlike phase 1, the quote anchor is unenforced here. FLAG, don't veto: zeroing it
         # would recreate the tie->auto-reject failure. The score stands; the log shows the miss.
@@ -579,10 +582,20 @@ async def _judge_graded(model, axis_h: str, a: str, b: str, ground: str = "") ->
     base = ground + GRADED_JUDGE_PROMPT.format(axis=axis_h, a=a, b=b, length_hint=hint)
     jm = _judge_model(model)
     samples = await asyncio.gather(*[_judge_sample(jm, base, a, b) for _ in range(JUDGE_N)])
+    valid = [s for s, _ in samples if s is not None]
+    if not valid:
+        # Structural fail-loud: the judge emitted NO parseable SCORE in any of the N
+        # samples for this direction. That is an instrument failure (broken form/model),
+        # not a tie -- averaging it in as 0 cascaded to all-tie -> drop-every-round.
+        raise RuntimeError(f"keep-judge: all {JUDGE_N} samples returned no parseable SCORE "
+                           f"for one direction -- judge form/model is broken, fix it")
+    if len(valid) < len(samples):
+        logger.warning(f"keep-judge: {len(samples) - len(valid)}/{len(samples)} samples were "
+                       f"non-conclusions; averaging the {len(valid)} that committed")
     # Float mean, NOT rounded: with N=2 the mean lands on 0.5 steps, so rounding shifts a
     # direction by up to 0.5 (= KEEP_DEADBAND/2, enough to flip a vote) and diverges from
     # the reducer the UAT measured (scripts/gym_bounded_judge.py keeps floats).
-    return sum(s for s, _ in samples) / len(samples)
+    return sum(valid) / len(valid)
 
 
 async def _blind_ab_votes(pre: dict, post: dict, axis: str,
