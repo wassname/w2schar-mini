@@ -1,5 +1,36 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-05 (e) -- task-150 round03 lost to a harness deadlock, not judgment: viewed-but-unrated pairs were unreachable; fixed, plus keep-judge non-conclusions no longer masquerade as ties
+
+Evidence (cold context-free audit per `.claude/commands/audit-run.md`, report at
+`out/iter/20260705T012815_iter_qwen-qwen3.6-27b/audit_20260705_r03r04.md`):
+
+- round03 dropped `early_abort` with 81/96 pairs rated. The teacher's rate_pairs calls emitted
+  the `ratings` array as a JSON STRING ~1/6 of the time (35x across the run, "is not of type
+  'array'"); 15 pairs' ratings died that way, and view_pairs served only never-VIEWED pairs, so
+  the stranded 15 could never be re-shown: select_pairs said "15 of 96 clean pairs are unrated"
+  while view_pairs said "All pairs viewed." (both quoted in the audit from
+  round03/submit_rejects.jsonl + the log). The teacher diagnosed it correctly in its monologue
+  ("This appears to be a state inconsistency") and dropped the round -- under a FALSE stake,
+  since the gate text threatened "run aborts after 3" where the code drops the round.
+- Fixes (3f6d260, smoke PASS): view_pairs re-serves viewed-but-unrated pairs once all are
+  viewed (coverage gate always satisfiable; pagination unchanged -- a first attempt that served
+  by-unrated-only hung the smoke's view-all-then-rate flow, caught before commit); rate_pairs
+  accepts the string form through the same pydantic validation; reject text says round, not
+  run; PRE progress label counts baked history adapters (was "base+0 kept" with 1 baked).
+- Separately (679c592, smoke PASS): a keep-judge phase-2 no-SCORE is now None (excluded from
+  the direction mean) instead of a fake 0/tie, and a direction whose N samples ALL fail to
+  parse raises. Interpretation: a broken judge form now fails loud at the first mark_exam
+  instead of silently tying every question and auto-rejecting every adapter (the journal-(f)
+  cascade class). Genuine SCORE:0 ties still count.
+
+Interpretation, calibrated: r03's loss was mechanical, not a teacher-judgment failure (near
+certain -- the deadlock reproduces from pipeline code + log). The run itself stays healthy
+(1 keep, 3 drops of 12; verdict CONTINUE). Two measurement items filed, deliberately NOT
+touched mid-run for attribution: the c_scan rep canary passes at c=1.333 while the teacher
+reports POST token loops every trained round (task #4); choose_focus recycles the same anchor
+questions across r01-r03 with a sign flip on foreign_spy_rollup (task #5).
+
 ## 2026-07-05 (d) -- task-150 round02: axis-collapse worry resolves NO; a decoder loop in one question is being scored as a character deficit and picked the round's whole axis
 
 This entry closes the round02 re-audit of task-150. A fresh context-free subagent re-ran
