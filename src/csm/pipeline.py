@@ -400,7 +400,8 @@ def prepare_round(slug_dir: Path, round_dir: Path) -> None:
                                enable_thinking=cfg.enable_thinking)
             with mem_stage("dialogue_pre"):
                 dialogue(model, tok, QUESTIONS, pre_path,
-                         hist_specs=None, current_spec=None, c=0.0, cfg=dcfg)
+                         hist_specs=None, current_spec=None, c=0.0, cfg=dcfg,
+                         n_hist_baked=len(hist_specs))
     finally:
         del model
         gc.collect()
@@ -1276,9 +1277,21 @@ def view_pairs(round_dir: Path, *, count: int = 5) -> dict:
     clean = [(it, c) for it in data["items"] for c in it["pairs"] if c.get("kept")]
     viewed = _load_viewed(round_dir)
     seen = set(viewed)
-    batch = [(it, c) for (it, c) in clean if c["survivor_id"] not in seen][:count]
+    unviewed = [(it, c) for (it, c) in clean if c["survivor_id"] not in seen]
+    if unviewed:
+        batch = unviewed[:count]
+    else:
+        # RECOVERY: all pairs viewed but some never got a stored rating (a rate_pairs
+        # call died on the arg schema). Before this, view_pairs said "all viewed" while
+        # select_pairs demanded full rating coverage -- an unsatisfiable dead end that
+        # cost task-150 round03 (81/96 rated, 15 stranded -> early_abort). Re-serve the
+        # unrated so the coverage gate always has a path. Same rated-definition as the
+        # gate and the already-rated check (row exists AND ratings non-empty).
+        rated = {sid for sid, row in _load_ratings(round_dir).items() if row.get("ratings")}
+        batch = [(it, c) for (it, c) in clean if c["survivor_id"] not in rated][:count]
     for _, c in batch:
-        viewed.append(c["survivor_id"])
+        if c["survivor_id"] not in seen:
+            viewed.append(c["survivor_id"])
     _viewed_path(round_dir).write_text(json.dumps(viewed, indent=2))
     n_total = len(clean)
     return {
@@ -1288,7 +1301,7 @@ def view_pairs(round_dir: Path, *, count: int = 5) -> dict:
         "n_shown_now": len(batch),
         "n_viewed_total": len(viewed),
         "n_total": n_total,
-        "n_remaining": n_total - len(viewed),
+        "n_remaining": max(0, n_total - len(viewed)),
         "done": len(viewed) >= n_total,
     }
 

@@ -83,7 +83,8 @@ def dialogue(model, tok, questions: list[dict], out_path: Path,
              *, hist_specs: Optional[list[AdapterSpec]] = None,
              current_spec: Optional[AdapterSpec] = None,
              c: float = 0.0,
-             cfg: DialogueCfg = DialogueCfg()) -> dict:
+             cfg: DialogueCfg = DialogueCfg(),
+             n_hist_baked: int = 0) -> dict:
     """Replay all questions under a `baked()` context combining history +
     optional current-round adapter. Writes JSON to `out_path`.
 
@@ -102,8 +103,11 @@ def dialogue(model, tok, questions: list[dict], out_path: Path,
     if current_spec is not None and c != 0.0:
         cs = [s.default_c for s in hist_specs] + [c]
 
+    # n_hist_baked: kept adapters the CALLER already merged into the weights (it then
+    # passes hist_specs=None) -- without it this label read "base+0 kept" on a PRE that
+    # actually had 1 kept adapter baked (task-150 audit).
     desc = (f"dialogue @ c={c:+.3f}" if current_spec is not None and c != 0.0
-            else f"dialogue @ c=0 (base+{len(hist_specs)} kept)")
+            else f"dialogue @ c=0 (base+{len(hist_specs) + n_hist_baked} kept)")
     pbar = tqdm(questions, desc=desc, mininterval=10, leave=False)
     with baked(model, adapters, c_overrides=cs):
         for p in pbar:

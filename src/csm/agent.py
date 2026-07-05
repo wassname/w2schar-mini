@@ -49,7 +49,7 @@ from csm.prompts import (AB_JUDGE_PROMPT, AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
                          TOOL_TRAIN_STUDENT)
 from csm.state import allowed_after, ValidationError, read_state
 from csm.ws.history import kept_history_dirs
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
 
 
 class GenPairRating(BaseModel):
@@ -156,9 +156,12 @@ def _bump_reject(rejects_path: Path, tool: str, reason: str) -> int:
 
 
 def _reject_tail(n: int) -> str:
-    return (f"\n(reject {n} — run aborts after {MAX_SUBMIT_REJECTS})"
+    # Say ROUND, not run: >MAX drops the round (see MAX_SUBMIT_REJECTS above). The old
+    # "run aborts" wording made the task-150 r03 teacher weigh a false stake ("reject 3
+    # means run aborts") when deciding to drop a round with 81 good ratings.
+    return (f"\n(reject {n} — round drops after {MAX_SUBMIT_REJECTS})"
             if n <= MAX_SUBMIT_REJECTS
-            else f"\n(reject {n} > {MAX_SUBMIT_REJECTS} — aborting run)")
+            else f"\n(reject {n} > {MAX_SUBMIT_REJECTS} — dropping round)")
 
 
 @tool(name="choose_focus", parallel=False)
@@ -321,12 +324,16 @@ def view_pairs_tool(slug: str) -> Tool:
             n = _bump_reject(rejects_path, "view_pairs", msg)
             return msg + _reject_tail(n)
         if res["done"] and not res["batch"]:
-            return ("All pairs viewed. If every one is rated, call "
-                    "select_pairs(lesson=...).")
+            return "All pairs rated. Call select_pairs(lesson=...)."
         lines = [f"Batch: {res['n_shown_now']} pairs "
                  f"({res['n_viewed_total']}/{res['n_total']} viewed, "
                  f"{res['n_remaining']} left after this). Rate THESE now, then "
                  f"view_pairs() again.\n"]
+        if res["done"]:
+            # Recovery re-serve: shown before, but the rating call never landed.
+            lines[0] = (f"Re-serving {res['n_shown_now']} pairs you saw before whose "
+                        f"ratings were NEVER RECORDED (the rate_pairs call was rejected). "
+                        f"Rate THESE now, then view_pairs() again.\n")
         for c in res["batch"]:
             flag = f"  ⚠flags={c['flags']}" if c["flags"] else ""
             lines.append(f"--- {c['survivor_id']} (scenario {c['scenario_id']}){flag}\n"
@@ -340,7 +347,7 @@ def view_pairs_tool(slug: str) -> Tool:
 
 @tool(name="rate_pairs", parallel=False)
 def rate_pairs_tool(slug: str) -> Tool:
-    async def execute(ratings: list[GenPairRating]) -> str:
+    async def execute(ratings: list[GenPairRating] | str) -> str:
         """Rate viewed, unrated pairs.
         Read the batch returned by view_pairs(), rate each pair once, then
         call view_pairs() again until every clean pair is rated. The harness
@@ -354,6 +361,18 @@ def rate_pairs_tool(slug: str) -> Tool:
         """
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
+        if isinstance(ratings, str):
+            # The weak 9b emits the array as a JSON STRING in ~1/6 calls (35x in
+            # task-150; 15 unreachable ratings -> round03 early_abort). Accept the
+            # string and validate through the SAME pydantic model; an unparseable
+            # string is still an explicit reject the teacher sees, never silent.
+            try:
+                ratings = [GenPairRating.model_validate(r) for r in json.loads(ratings)]
+            except (json.JSONDecodeError, TypeError, PydanticValidationError) as e:
+                msg = (f"rate_pairs rejected — ratings arrived as a string that does not "
+                       f"parse as a JSON array of rating objects: {e}")
+                n = _bump_reject(rejects_path, "rate_pairs", msg)
+                return msg + _reject_tail(n)
         try:
             res = _rate_pairs_pipeline(
                 round_dir, ratings=[r.model_dump() for r in ratings])
