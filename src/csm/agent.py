@@ -42,7 +42,7 @@ from csm.prompts import (AB_JUDGE_PROMPT, AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
                          AFTER_TRAIN,
                          COMPACTION_BANNER, COMPACTION_INSTRUCTIONS,
                          GRADED_JUDGE_PROMPT, INITIAL_TASK, OBJECTIVE_ANCHOR,
-                         ON_CONTINUE_NUDGE, PERSONA_MENU_HEADER,
+                         ON_CONTINUE_NUDGE, FORCE_COMMIT_NUDGE, PERSONA_MENU_HEADER,
                          PRE_DIALOGUE_INSTRUCTIONS, REACT_PROMPT,
                          TOOL_CHOOSE_FOCUS, TOOL_MARK_EXAM,
                          TOOL_RATE_PAIRS, TOOL_SELECT_PAIRS,
@@ -904,6 +904,24 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
                 f">= {max_rounds} rounds with target {keep_target} unmet — stopping "
                 f"(unproductive run / broken harness, NOT success).")
             return False
+        # React-stage force-commit -- the same cure as the keep-judge's phase-2
+        # (agent._judge_sample): a turn that hit the token budget while THINKING and
+        # emitted NO tool call gets one hard nudge to commit the call now rather than
+        # deliberate more. Applies to every react stage (choose_focus, rate_pairs,
+        # mark_exam) uniformly. Each fire bumps the reject counter, so a teacher that
+        # keeps truncating drops the round via the MAX_SUBMIT_REJECTS breaker below.
+        rd = latest_round_dir(slug_path)
+        st = read_state(rd)
+        stop = getattr(state.output, "stop_reason", None)
+        last_msg = state.messages[-1] if state.messages else None
+        if (stop in ("max_tokens", "model_length") and not getattr(last_msg, "tool_calls", None)
+                and st.state != "done"):
+            n_rej = _bump_reject(_rejects_path(rd), "<truncated>", f"stop={stop}, no tool call")
+            logger.warning(f"teacher turn truncated (stop={stop}) with no tool call in "
+                           f"{rd.name}; force-commit nudge (reject {n_rej}/{MAX_SUBMIT_REJECTS})")
+            if n_rej <= MAX_SUBMIT_REJECTS:
+                return FORCE_COMMIT_NUDGE.format(next_action=allowed_after(st.state))
+            # over cap: fall through to the gate-friction drop below
         # A teacher that can't clear a gate keeps retrying and bumps the
         # per-round reject counter. One stuck round must NOT kill a run with
         # banked keeps — DROP this round gracefully and continue. The run's
