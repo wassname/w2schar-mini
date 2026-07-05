@@ -402,12 +402,25 @@ def _format_turn(text: str) -> str:
     return text.strip().replace("\n", " ⏎ ")
 
 
+_LOOP_DISTINCT3 = 0.3  # normal prose ~0.9+; "while while while ..." loops land near 0.
+
+
 def _format_dialogue_inline(payload: dict) -> str:
+    from csm.ws.c_scan import _distinct_n
     lines = []
     for p in payload.get("questions", []):
         lines.append(f"=== question: {p['id']} ===")
         for t in p["turns"]:
             lines.append(f"[{t['role']}] {_format_turn(t['text'])}")
+            # INSTRUMENT flag, not a cull: a decode loop is a sampler failure, not a
+            # choice, but the teacher scored one as a character deficit and it alone
+            # picked task-150 round02's axis (RJ 2026-07-05 d). Surface it at the point
+            # of reading; the teacher still judges.
+            if t["role"] == "assistant" and _distinct_n(t["text"]) < _LOOP_DISTINCT3:
+                lines.append("⚠ INSTRUMENT: the answer above is a DECODE LOOP "
+                             "(repeated tokens), a sampler failure, not a choice -- do "
+                             "not score it as character; judge this question from its "
+                             "other turns or skip it in your evidence.")
         lines.append("")
     return "\n".join(lines)
 
