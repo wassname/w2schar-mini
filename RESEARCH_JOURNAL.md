@@ -4644,3 +4644,27 @@ question. The hinge-gamma margin redesign (let easy pole win-and-stop so gradien
 to hard pole) remains a future option IF stronger per-round movement is needed, but the
 evidence does not demand it — baseline lr + clean code already produces strong keeps
 when pairs align.
+
+## 2026-07-06 — added gamma hinge floor to asymmetric margin loss (commit 5a23456)
+
+**Problem.** Training logs show the easy (on-policy) pole's nll+ bottoms out early
+while the hard (off-policy) pole's nll- lags — the loss relaxes before the hard pole
+moves. The lr5 sweep (pueue 141) disproved undertrain as the cause (5x lr made no
+difference), confirming this is a loss-shape problem, not a magnitude problem.
+
+**Fix.** Added `gamma` hinge floor to `src/csm/ws/train.py`:
+
+    current:  L = C · (pull - push̃)                  # keeps pulling easy pole forever
+    gamma>0:   L = C · relu(γ - (push̃ - pull))        # relaxes only when gap > γ
+
+Gradient direction is identical to raw margin when active; only the stop condition
+changes. Once a pole's gap exceeds γ, its gradient shuts off, so gradient flows to
+the OTHER pole (still active). Both poles must independently clear their γ floor.
+
+`gamma=0.0` = disabled (current behavior, existing runs unaffected). `gamma=0.5`
+in normalized-nll units (PUSH is scale-free via _normed_mean, so γ is in normalized
+units, not raw nats).
+
+Sweep profile `qwen36-27b-sweep-gamma` (gamma=0.5, baseline lr/kl/C, n_rounds=3)
+queued as pueue 133. Baseline for comparison: 140's +0.07-0.14 movement (gamma=0.0).
+Pass criterion: movement > +0.3 with c_scan coherent.
