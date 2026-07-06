@@ -239,6 +239,36 @@ def choose_focus_tool(slug: str) -> Tool:
                 pre_question_evidence=pre_question_evidence,
                 force=force)
         except (ValidationError, ValueError) as e:
+            # Auto-redirect: the weak teacher flails — calls choose_focus 4x in
+            # select_pairs state, ignoring the rejection hint. Instead of rejecting,
+            # serve the right tool's output so the loop unblocks. This is plumbing
+            # routing, NOT a keep/drop judgment override.
+            try:
+                st = read_state(round_dir)
+            except Exception:
+                st = None
+            if st and st.state == "select_pairs":
+                try:
+                    vr = _view_pairs_pipeline(round_dir)
+                    if vr["done"] and not vr["batch"]:
+                        return ("You are in the select_pairs stage — all pairs are rated. "
+                                "Call select_pairs(lesson=...).")
+                    lines = [f"You are in select_pairs, not choose_focus. Here is the "
+                             f"next batch to rate ({vr['n_viewed_total']}/{vr['n_total']} "
+                             f"viewed, {vr['n_remaining']} left). Rate THESE, then "
+                             f"view_pairs() again.\n"]
+                    for c in vr["batch"]:
+                        flag = f"  ⚠flags={c['flags']}" if c["flags"] else ""
+                        lines.append(f"--- {c['survivor_id']} (scenario {c['scenario_id']}){flag}\n"
+                                     f"prompt: {c['prompt']}\n"
+                                     f"Cho: {c['cho']}\n"
+                                     f"Rej: {c['rej']}\n")
+                    return "\n".join(lines)
+                except Exception:
+                    pass  # fall through to normal rejection
+            if st and st.state in ("train_student", "mark_exam"):
+                return (f"You are in the {st.state} stage — choose_focus is for a new "
+                        f"round. Call {'train_student()' if st.state == 'train_student' else 'mark_exam(...)'} next.")
             msg = (_format_validation_error(e) if isinstance(e, ValidationError)
                    else f"choose_focus rejected — {e}")
             n = _bump_reject(rejects_path, "choose_focus", msg)
