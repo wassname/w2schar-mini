@@ -4668,3 +4668,44 @@ units, not raw nats).
 Sweep profile `qwen36-27b-sweep-gamma` (gamma=0.5, baseline lr/kl/C, n_rounds=3)
 queued as pueue 133. Baseline for comparison: 140's +0.07-0.14 movement (gamma=0.0).
 Pass criterion: movement > +0.3 with c_scan coherent.
+
+## 2026-07-06 — gamma sweep (133) partial verdict: gamma helps movement, but new bottleneck (scenario differentiation)
+
+gamma=0.5 sweep (pueue 133, slug 20260706T174510), 4 rounds (round04 running):
+
+| round | action | movement | drop_cause | signed_C |
+|-------|--------|----------|------------|----------|
+| 00 | keep | +0.214 (3 pos / 0 neg) | — | 1.333 |
+| 01 | drop | — | early_abort | — |
+| 02 | drop | — | early_abort | — |
+| 03 | drop | — | early_abort | — |
+
+**Gamma verdict: PARTIALLY POSITIVE.** Round00 movement +0.214 is the strongest round00
+keep on this HEAD (vs 140 baseline: r00=-0.071 drop, r01=+0.143 keep; vs 130: r04=+0.429
+but that was round04 not round00). Gamma did NOT hit the >+0.3 pass criterion, but it
+improved over baseline's +0.143. One round is pair-variance, but the direction is positive.
+
+**Auto-redirect fix (4b698b2) WORKED.** Zero gate_friction drops (vs job-130's 3/7).
+The choose_focus-in-wrong-state flail is gone. The few rejects are rate_pairs (already
+rated / not shown) and select_pairs (undifferentiated), which are real content issues,
+not state-machine confusion.
+
+**New bottleneck: scenario-bank differentiation (3/4 early_abort).** All 3 drops are
+select_pairs failing because "only 14 of 100 pairs clear the differentiation threshold."
+Teacher feedback is consistent across all 3:
+- r01: "Scenario bank for protocol-harm lacked clear institutional-rule-abuse cases"
+- r02: "Bank appears biased toward morally-unambiguous scenarios where both poles act
+  identically; need conflict forcing competing values not convergent good"
+- r03: "Bank needs prompts forcing competing coercive outcomes—not convergent moral
+  stewardship—to reveal different_action signal"
+
+This is NOT contamination (fix active: 0 off-axis across all rounds) and NOT gate_friction
+(auto-redirect working). The axis-filtered scenarios are too morally convergent — the
+pos/neg personas produce identical responses because the scenarios don't force a
+genuine value tradeoff. The contamination fix may have OVER-filtered: restricting to one
+axis yields scenarios where both poles agree on the action.
+
+**Implication.** The harness is now clean (0 contamination, 0 gate_friction, c_scan
+coherent). The problem moved upstream to scenario design: the axis-filtered pool needs
+scenarios that force COMPETING values within the axis, not convergent ones. This is a
+data-curation issue (scenario bank quality), not a loss/hparam/gamma issue.

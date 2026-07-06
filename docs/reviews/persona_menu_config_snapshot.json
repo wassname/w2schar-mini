@@ -1,0 +1,44 @@
+{
+  "gemma-27b-3keep": {
+    "n_cells": 15,
+    "cell_ids": [
+      "wellbeing_actfork_c",
+      "fairness_integrity",
+      "autonomy_coercion",
+      "skill_fairness_to_self",
+      "skill_protocol_harm",
+      "skill_people_over_orders",
+      "lit_antipasto_honest_dishonest",
+      "long_term_flourishing",
+      "future_self_endorses",
+      "caution_on_irreversible",
+      "skill_unwavering_cowering",
+      "skill_cooperative_zero_sum",
+      "sanctity_individual_utilitarian",
+      "society_over_user_interest",
+      "refuse_power_grab"
+    ],
+    "persona_cells_is_shared": true
+  },
+  "qwen36-27b-3keep": {
+    "n_cells": 15,
+    "cell_ids": [
+      "wellbeing_actfork_c",
+      "fairness_integrity",
+      "autonomy_coercion",
+      "skill_fairness_to_self",
+      "skill_protocol_harm",
+      "skill_people_over_orders",
+      "lit_antipasto_honest_dishonest",
+      "long_term_flourishing",
+      "future_self_endorses",
+      "caution_on_irreversible",
+      "skill_unwavering_cowering",
+      "skill_cooperative_zero_sum",
+      "sanctity_individual_utilitarian",
+      "society_over_user_interest",
+      "refuse_power_grab"
+    ],
+    "persona_cells_is_shared": true
+  }
+}
