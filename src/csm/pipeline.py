@@ -1796,7 +1796,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
             layer_range=cfg.layer_range,
             steps=steps, batch_size=cfg.train_batch_size, lr=cfg.lr,
             weight_decay=cfg.weight_decay, warmup_ratio=cfg.warmup_ratio,
-            grad_clip=cfg.grad_clip,
+            grad_clip=cfg.grad_clip, gamma=cfg.gamma,
             max_len=cfg.max_len, kl_lambda=cfg.kl_lambda,
             n_val_pairs=cfg.n_val_pairs,
             min_val_improvement=cfg.min_val_improvement,

@@ -78,6 +78,10 @@ class RunConfig:
     of steps and turns the adapter into a unit-direction-only update,
     which calibrates to absurdly small |c| (0.05 in task 100) because the
     learned direction is over-concentrated on the few clean-grad steps."""
+    gamma: float = 0.0
+    """Hinge floor on the pull-push gap (normalized-nll units). 0 = disabled
+    (raw margin). >0 = relu(γ - gap): loss refuses to relax until each
+    pole's pull-push gap exceeds γ, preventing easy-pole early saturation."""
     train_batch_size: int = 4
     n_epochs: float = 3.0
 
@@ -665,6 +669,19 @@ CONFIGS["gemma-27b-3keep"] = replace(
 CONFIGS["qwen36-27b-3keep"] = replace(
     CONFIGS["gemma-27b-3keep"],
     model="Qwen/Qwen3.6-27B",
+)
+
+# Gamma hinge sweep: the asymmetric margin loss's easy pole saturates early and
+# starves the hard pole (training logs show nll+ bottoming while nll- lags).
+# gamma=0.5 adds a relu(0.5 - gap) hinge: loss refuses to relax until each
+# pole's pull-push gap exceeds 0.5 normalized-nll. Gradient direction is
+# identical to raw margin when active; only the stop condition changes.
+# Baseline (gamma=0.0) is qwen36-27b-3keep above. n_rounds=3 for fast signal.
+# WATCH: if gamma too high, both poles never clear the floor and loss stays
+# maxed (no movement). If gamma is right, movement should exceed baseline's
+# +0.07-0.14 range. Signed_C, lr, kl all at baseline (isolate gamma).
+CONFIGS["qwen36-27b-sweep-gamma"] = replace(
+    CONFIGS["qwen36-27b-3keep"], gamma=0.5, n_rounds=3,
 )
 
 # Cross-generation gemma w2s: a weak gemma-3-12b teacher steers the strong gemma-4-31b

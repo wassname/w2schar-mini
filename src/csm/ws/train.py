@@ -6,6 +6,12 @@ Per (prompt, cho, rej), train at fixed C = 1:
     L_pos_nll = C · (mean_b nll(cho|+C) − mean_b nll̃(rej|+C))
     L_neg_nll = C · (mean_b nll(rej|−C) − mean_b nll̃(cho|−C))
 
+With gamma > 0, the raw margin becomes a hinge floor:
+    L_pos_nll = C · relu(γ − (nll̃(rej|+C) − nll(cho|+C)))
+    L_neg_nll = C · relu(γ − (nll̃(cho|−C) − nll(rej|−C)))
+The loss only relaxes when each pole's pull-push gap exceeds γ, preventing
+the easy (on-policy) pole from saturating early and starving the hard pole.
+
 Margin formulation: subtraction cancels the shared-fluency direction
 (both cho and rej would lower nll under a fluency-only adapter), so
 the surviving gradient component is the persona axis.
@@ -65,6 +71,12 @@ class TrainCfg:
     down if eval Δ stays at noise."""
     pcgrad: bool = True
     """Project only conflicting margin gradients; KL stays unprojected."""
+    gamma: float = 0.0
+    """Hinge floor on the pull-push gap (normalized-nll units). 0 = disabled
+    (raw margin, current behavior). >0 = relu(γ - gap): the loss refuses to
+    relax until each pole's pull-push gap exceeds γ, so the easy (on-policy)
+    pole cannot saturate early and starve the hard pole. Gradient direction
+    is identical to raw margin when active; only the *stop condition* changes."""
     seed: int = 42
     # ─ PiSSA-only ─ (ignored for ModulatedLoRA)
     pissa_selection_score: str = "cho_rej_min_std"
@@ -243,6 +255,7 @@ def pcgrad_train_step(
     C: float,
     pcgrad: bool = True,
     kl_lambda: float = 0.0,
+    gamma: float = 0.0,
 ) -> dict:
     """One step: margin NLL on both poles + (optional) KL anchor to c=0.
     PCGrad operates on the (margin_pos, margin_neg) gradients only — KL
@@ -295,7 +308,17 @@ def pcgrad_train_step(
         # dominance — on-policy rej-pull learned from step 1, cho-pull stuck).
         # PUSH (rej away from labels): keep the 1/nll cap — maximizing nll is
         # the unbounded ∇(-log p)∝1/p runaway _normed_mean was built to tame.
-        L_pos_nll = C * (nll_cho_p_b.mean() - _normed_mean(nll_rej_p_b))
+        pull_cho_p = nll_cho_p_b.mean()
+        push_rej_p = _normed_mean(nll_rej_p_b)
+        if gamma > 0:
+            # Hinge: relu(γ - gap) where gap = push - pull (positive when cho
+            # preferred). Loss only relaxes when gap > γ, so the easy pole
+            # can't saturate early and starve the hard pole. Gradient
+            # direction is identical to raw margin when active.
+            gap_pos = push_rej_p - pull_cho_p
+            L_pos_nll = C * torch.relu(gamma - gap_pos)
+        else:
+            L_pos_nll = C * (pull_cho_p - push_rej_p)
         mean_nll_p = nll_cho_p_b.mean().detach().item()
         if use_kl:
             kl_p = _kl_topk_base(out_cp.logits, base_top_logp_p, base_top_idx_p, lp)
@@ -316,7 +339,13 @@ def pcgrad_train_step(
         out_cn = model(input_ids=ip, attention_mask=ap)
         nll_cho_n_b = _per_sample_nll(out_cn.logits.float(), lp)
         # PULL (rej toward labels) raw; PUSH (cho away) capped — see L_pos.
-        L_neg_nll = C * (nll_rej_n_b.mean() - _normed_mean(nll_cho_n_b))
+        pull_rej_n = nll_rej_n_b.mean()
+        push_cho_n = _normed_mean(nll_cho_n_b)
+        if gamma > 0:
+            gap_neg = push_cho_n - pull_rej_n
+            L_neg_nll = C * torch.relu(gamma - gap_neg)
+        else:
+            L_neg_nll = C * (pull_rej_n - push_cho_n)
         mean_nll_n = nll_rej_n_b.mean().detach().item()
         if use_kl:
             kl_n = _kl_topk_base(out_rn.logits, base_top_logp_n, base_top_idx_n, ln)
@@ -570,7 +599,7 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
         C = 1.0
         trace = pcgrad_train_step(
             model, lora, ip, lp, ap, in_, ln, an, params,
-            C=C, pcgrad=cfg.pcgrad, kl_lambda=cfg.kl_lambda,
+            C=C, pcgrad=cfg.pcgrad, kl_lambda=cfg.kl_lambda, gamma=cfg.gamma,
         )
 
         gn_pre = float(torch.nn.utils.clip_grad_norm_(params, cfg.grad_clip))
