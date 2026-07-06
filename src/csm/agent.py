@@ -373,6 +373,14 @@ def rate_pairs_tool(slug: str) -> Tool:
                        f"parse as a JSON array of rating objects: {e}")
                 n = _bump_reject(rejects_path, "rate_pairs", msg)
                 return msg + _reject_tail(n)
+        # Inspect sometimes passes list items as raw dicts instead of validated
+        # GenPairRating models (function-calling layer quirk). Normalize so
+        # .model_dump() doesn't blow up on 'dict' object has no attribute.
+        if isinstance(ratings, list):
+            ratings = [
+                r if isinstance(r, GenPairRating) else GenPairRating.model_validate(r)
+                for r in ratings
+            ]
         try:
             res = _rate_pairs_pipeline(
                 round_dir, ratings=[r.model_dump() for r in ratings])
