@@ -60,7 +60,7 @@ class Cfg:
 def _human_canonical_vec() -> np.ndarray:
     """Mean Clifford-2015 human label distribution over `classic` vignettes.
     A 7-vec on the simplex; the star marker on the scatter."""
-    from tinymfv.data import load_vignettes
+    from moralmaps.data import load_vignettes
     keys = ["human_Care", "human_Fairness", "human_Loyalty", "human_Authority",
             "human_Sanctity", "human_Liberty", "human_SocialNorms"]
     rows = []
