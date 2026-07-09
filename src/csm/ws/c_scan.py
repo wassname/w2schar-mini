@@ -291,7 +291,7 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
         ANY register fails), rep_mean, valid_json count, ppx_json (geo-mean), and KL on
         the multiturn probes. `per_probe` keeps the breakdown for the log."""
     if n_vignettes > 0:
-        from tinymfv import evaluate as tinymfv_evaluate, load_vignettes
+        from moralmaps import evaluate as tinymfv_evaluate, load_vignettes
 
         vignettes = load_vignettes("classic")[:n_vignettes]
         with lora(model, c=c):

@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from loguru import logger
-from tinymfv import evaluate, load_vignettes
+from moralmaps import evaluate, load_vignettes
 from tqdm.auto import tqdm
 
 from csm.config import config_by_model, config_for_run
