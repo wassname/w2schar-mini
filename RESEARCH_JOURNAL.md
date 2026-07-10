@@ -4709,3 +4709,43 @@ axis yields scenarios where both poles agree on the action.
 coherent). The problem moved upstream to scenario design: the axis-filtered pool needs
 scenarios that force COMPETING values within the axis, not convergent ones. This is a
 data-curation issue (scenario bank quality), not a loss/hparam/gamma issue.
+
+## 2026-07-10 — task-136 cold post-mortem: count floor force-dropped 12/13 rounds; gate -> rank top-up
+
+Cold /audit-run (context-free subagent) + independent grep of thoughts/feedback on
+slug 20260709T021106 (pueue 136, "greedy pairs / auto-progress / no early drop;
+resolve >=3 keeps"). Full report:
+out/iter/20260709T021106_iter_qwen-qwen3.6-27b/audit_cold_20260710.md
+
+| result | detail |
+|--------|--------|
+| 1 keep (r01) | A/B 3 pos / 0 neg / 11 tie, movement +0.214; verified real acts (successor_handoff flag->abort "the window must close"; baby_eating "end humanity"->"suicide destroys the witness") |
+| 12 drops | ALL the same trigger: select_pairs ValidationError "only N of M clear ... need >= 40 ... This round will be dropped" |
+| independent eval | flat: top1 0.9545 -> 0.9470 on the keep |
+
+**Root cause (mechanical, not the teacher).** The run went out on a dirty tree
+(run.json git_dirty=true; edits later stashed) that raised min_pairs_to_train
+20->40. Honest pass counts were 9-30/round, so the floor vetoed training 12x --
+third recurrence of the forbidden gate class (min_val_improvement task-139,
+sub-band veto). The teacher rated honestly (r02 on_axis {1:4,2:9,5:70};
+spot-read r06 s10c1 confirmed its same-act call) and diagnosed the real data
+problem 12 rounds running: poles converge on parallel refusals (~30%
+different_action), with a concrete prescription in r05 ("either verify X AND
+report it, or decline entirely").
+
+**Note on ladder evidence:** on_axis Likert saturated at 5.0 in r00/r01 BEFORE any
+gate rejection printed the formula (so not gate-taught inflation, contra the cold
+subagent's hint); the bool different_action did all the discriminating. Rate vs
+bool ladder confirmed again.
+
+**Fixes landed (b3d9fcb, 374ec03, 6a76c3e, 9aaf4f9):** stash committed as-ran
+(attribution + stops jobs running moving code); select_pairs count floor ->
+rank top-up (train all passing, fill to target=20 from the teacher's own ranking,
+fills flagged rank_filled/FILL; empty bank = only structural stop); choose_focus
+pre-check structural-only; dead batch rate_pairs tool removed; dict-args-as-string
+coerced (22+3 rejects); gym train stub floor -> warning (4th instance of the class,
+caught by the prompt gym).
+
+**Next:** 12-round run on the fix alone (read n_passing/n_rank_filled per round to
+watch bank quality separately), THEN screen the 2550-row pool for act-fork yield
+(the expansion removed the screen keep-list, so rows are plenty-but-unvalidated).
