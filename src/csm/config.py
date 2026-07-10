@@ -645,12 +645,16 @@ CONFIGS["gemma-27b-3keep"] = replace(
     # Generate surplus pairs: the same_action auto-filter prunes ~67% of
     # convergent pairs, so we need 3x the target clean count. With 500 scenarios
     # → generate in batches of n_headroom_prompts → stop at n_clean_target=120
-    # clean pairs → teacher rates → ~40 pass differentiation threshold.
+    # clean pairs → teacher rates.
     n_scenarios=500,
     n_headroom_prompts=150,
     n_clean_target=120,
     n_gen_pairs=1,
-    min_pairs_to_train=40,
+    # TARGET, not a wall: select_pairs trains every pair the teacher passes and
+    # tops up to this count from its own ranking when fewer pass (fills flagged
+    # rank_filled). The task-136 floor of 40 force-dropped 12/13 rounds (honest
+    # banks pass 9-30); as a top-up target 20 keeps fills modest.
+    min_pairs_to_train=20,
     # All pool rows are validated -- no separate validated set.
     restrict_validated_prompts=False,
 )

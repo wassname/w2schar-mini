@@ -809,20 +809,26 @@ def _gen_pair_summary(pairs: dict) -> str:
 
 def _selected_pair_review(audit_rows: list[dict]) -> str:
     """Ranked dashboard of every clean pair by its viewed-batch
-    differentiation rating: passing (trained) first, then dropped, each with the
+    differentiation rating: passing (trained) first, then rank-filled (also
+    trained, topped up to min_pairs_to_train), then dropped, each with the
     on/off scores, rating count, length ratio, and first sentence of each pole."""
     ranked = sorted(
         audit_rows,
-        key=lambda r: (not r["passes"], -r["on_axis_mean"], r["off_axis_mean"]),
+        key=lambda r: (not r["passes"], not r.get("rank_filled"),
+                       -r["on_axis_mean"], r["off_axis_mean"]),
     )
     n_pass = sum(1 for r in ranked if r["passes"])
+    n_fill = sum(1 for r in ranked if r.get("rank_filled"))
     lines = [
         f"{n_pass}/{len(ranked)} pairs cleared the differentiation threshold "
         f"(different_action AND on_axis >= {ON_AXIS_KEEP:g} AND "
-        f"off_axis <= {OFF_AXIS_KEEP:g}):"
+        f"off_axis <= {OFF_AXIS_KEEP:g})"
+        + (f"; {n_fill} more FILLED by rank to reach the train target -- weigh "
+           "the fills when you judge this round at mark_exam" if n_fill else "")
+        + ":"
     ]
     for r in ranked:
-        mark = "KEEP" if r["passes"] else "drop"
+        mark = "KEEP" if r["passes"] else ("FILL" if r.get("rank_filled") else "drop")
         flagstr = f" flags={r['flags']}" if r.get("flags") else ""
         lines.append(
             f"## [{mark}] {r['survivor_id']} (scenario {r['scenario_id']}) "
@@ -1299,11 +1305,12 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
     if generic_reason is not None:
         logger.warning(f"pair pool flagged generic: {generic_reason} — surfaced to "
                        "the teacher, NOT blocked; it judges the survivors and decides.")
-    # Pre-check: need at least min_pairs_to_train CLEAN pairs so the round can
-    # plausibly reach the train floor after differentiation thresholding. The real
-    # floor is at select_pairs (on the teacher's viewed-batch ratings); this only
-    # ensures the menu is non-trivial.
-    enough = n_clean >= cfg.min_pairs_to_train
+    # Pre-check is STRUCTURAL only: an empty bank means there is nothing to rate,
+    # so re-loop choose_focus. A thin-but-nonzero bank proceeds -- select_pairs
+    # tops up to min_pairs_to_train from the teacher's own ranking (no count veto;
+    # the old >= min_pairs_to_train pre-check bounced choose_focus repeatedly in
+    # task-136 for the same forbidden reason as the select_pairs floor).
+    enough = n_clean > 0
     set_state(round_dir, "select_pairs" if enough else "choose_focus",
               note=f"{n_clean} clean pairs over {n_with_survivor} scenarios")
     return {
@@ -1503,9 +1510,13 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
     """Train on EVERY clean pair that clears the viewed-batch rating threshold
     (different_action AND on_axis >= ON_AXIS_KEEP AND off_axis <= OFF_AXIS_KEEP).
     No hand-pick, no per-scenario cap: the teacher's own ratings select the training
-    set. Fails the round if fewer than
-    min_pairs_to_train clear -- a floor on the TEACHER's ratings, not a val-metric
-    veto (CLAUDE.md: gates elicit judgment, never override it)."""
+    set. NEVER blocks on count: if fewer than min_pairs_to_train clear, the bank
+    is topped up to that target from the teacher's OWN ranking (act_diff first,
+    then on desc / off asc), each fill flagged rank_filled in the review and
+    selection_audit.json. The old count floor force-dropped 12/13 rounds in
+    task-136 -- a veto built from the teacher's honest ratings, the gate class
+    CLAUDE.md forbids. Every round trains now; the blind A/B exam makes the
+    keep/drop call with PRE/POST evidence. Empty bank stays a structural stop."""
     require_state(round_dir, "select_pairs", "select_pairs")
     cand_path = round_dir / "gen_pairs.json"
     if not cand_path.exists():
@@ -1553,17 +1564,33 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
     # dashboard of record (audit + report read it).
     _write_ratings(round_dir, stored)
     cfg = config_for_run(json.loads((round_dir.parent / "run.json").read_text()))
-    if len(selected) < cfg.min_pairs_to_train:
-        passing = [r["survivor_id"] for r in audit_rows if r["passes"]]
-        # Transition to mark_exam so the teacher can drop the round.
-        set_state(round_dir, "mark_exam", note=f"too few passing pairs ({len(selected)}/{cfg.min_pairs_to_train})")
-        raise ValidationError(
-            f"select_pairs: only {len(selected)} of {len(all_clean)} pairs clear "
-            f"the differentiation threshold (different_action AND on_axis >= "
-            f"{ON_AXIS_KEEP:g} AND off_axis <= {OFF_AXIS_KEEP:g}); need >= "
-            f"{cfg.min_pairs_to_train}. Your "
-            f"ratings left too few differentiated pairs (passing={passing}). "
-            f"This round will be dropped — call mark_exam(reason=..., harness_feedback=...) to commit the drop.")
+    if not all_clean:
+        # The one structural stop: literally nothing to train on.
+        raise ValidationError("select_pairs: 0 clean pairs this round; nothing to train on.")
+    n_passing = len(selected)
+    rank_filled_ids: list[str] = []
+    if n_passing < cfg.min_pairs_to_train:
+        # Top up to the target from the teacher's own ranking. GUIDANCE, not a
+        # veto: the round always trains and the blind A/B exam decides keep/drop
+        # (the old ValidationError here force-dropped 12/13 rounds in task-136).
+        ranked_rest = sorted(
+            (r for r in audit_rows if not r["passes"]),
+            key=lambda r: (not r["different_action_all"], -r["on_axis_mean"], r["off_axis_mean"]),
+        )
+        n_fill = min(cfg.min_pairs_to_train, len(all_clean)) - n_passing
+        for r in ranked_rest[:n_fill]:
+            item, cand = by_survivor[r["survivor_id"]]
+            selected.append({"prompt": item["prompt"], "cho": cand["cho"], "rej": cand["rej"]})
+            r["rank_filled"] = True
+            rank_filled_ids.append(r["survivor_id"])
+        n_filled_same_act = sum(
+            1 for r in audit_rows if r.get("rank_filled") and not r["different_action_all"])
+        logger.warning(
+            f"select_pairs [{round_dir.name}]: only {n_passing}/{len(all_clean)} pairs "
+            f"cleared the differentiation threshold; topped up to {len(selected)} by the "
+            f"teacher's own ranking ({n_filled_same_act} fills are same-act). "
+            "SHOULD: a healthy bank clears the target on its own. A heavy fill means a "
+            "convergent bank -- expect a weaker adapter; the A/B exam is the judge.")
     # Rubber-stamp FLAG (logged + persisted, NEVER gated): the gym showed a weak
     # teacher can hand every pair the same 5/1, which clears the threshold but
     # means the rating did NO discriminating -- only the upstream structural cull
@@ -1590,10 +1617,12 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
         "on_axis_keep": ON_AXIS_KEEP,
         "off_axis_keep": OFF_AXIS_KEEP,
         "n_clean_pairs": len(all_clean),
+        "n_passing": n_passing,
         "n_selected": len(selected),
+        "rank_filled": rank_filled_ids,
         "rubber_stamp_flag": rubber_stamp,
         "rated": audit_rows,
-        "selected": [r for r in audit_rows if r["passes"]],
+        "selected": [r for r in audit_rows if r["passes"] or r.get("rank_filled")],
     }, indent=2))
     review = _selected_pair_review(audit_rows)
     (round_dir / "selected_pair_review.md").write_text(review + "\n")
@@ -1601,6 +1630,8 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
     set_state(round_dir, "train_student", note=f"selected {len(pairs)} pairs")
     return {
         "n_pairs": len(pairs),
+        "n_passing": n_passing,
+        "n_rank_filled": len(rank_filled_ids),
         "n_clean_pairs": len(all_clean),
         "pairs_md": pairs_path.read_text(),
         "flags_table": pair_flags_table(pairs),

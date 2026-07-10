@@ -1,7 +1,7 @@
 """inspect-ai react driver for weak-select character steering.
 
-The live teacher tool path is choose_focus -> (view_pairs -> rate_pairs)
-looped in ~5-pair batches -> select_pairs -> train_student -> mark_exam.
+The live teacher tool path is choose_focus -> (view_pairs -> rate_pair)
+looped one pair at a time -> select_pairs -> train_student -> mark_exam.
 """
 from __future__ import annotations
 
@@ -29,7 +29,6 @@ from csm.config import (config_for_run, TEACHER_SAMPLING, TEACHER_REASONING_TOKE
                         OPENROUTER_PROVIDER, JUDGE_THINK, JUDGE_FORCE,
                         JUDGE_THINK_BUDGET, JUDGE_N)
 from csm.pipeline import (choose_focus as _choose_focus_pipeline,
-                          rate_pairs as _rate_pairs_pipeline,
                           rate_pair as _rate_pair_pipeline,
                           view_pairs as _view_pairs_pipeline,
                           init_run, latest_round_dir,
@@ -46,28 +45,10 @@ from csm.prompts import (AB_JUDGE_PROMPT, AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
                          ON_CONTINUE_NUDGE, FORCE_COMMIT_NUDGE, PERSONA_MENU_HEADER,
                          PRE_DIALOGUE_INSTRUCTIONS, REACT_PROMPT,
                          TOOL_CHOOSE_FOCUS, TOOL_MARK_EXAM,
-                         TOOL_RATE_PAIR, TOOL_RATE_PAIRS, TOOL_SELECT_PAIRS,
+                         TOOL_RATE_PAIR, TOOL_SELECT_PAIRS,
                          TOOL_TRAIN_STUDENT)
 from csm.state import allowed_after, ValidationError, read_state
 from csm.ws.history import kept_history_dirs
-from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
-
-
-class GenPairRating(BaseModel):
-    """One pair-pair rating. Typed so the function-calling layer enforces the
-    item shape (every field present, ids well-formed, scores in 1..5) instead of the
-    weak teacher hand-writing a free-form JSON blob -- the latter cost most of a round
-    to malformed-JSON / missing-field rejects (job-131 audit)."""
-    survivor_id: str = Field(description="the pair id copied exactly from the row you are rating; it carries both the scenario number and the pair number within it, not the scenario number on its own")
-    contrast: str = Field(description="one phrase naming the on-axis ACT Cho commits to that Rej does not, taken from this pair's text")
-    different_action: bool = Field(description="do the two poles COMMIT to different concrete acts (compare first lines)? The same act worded, justified, or hedged differently is false")
-    cho_more_on_axis: bool = Field(description="judged on its own: does Cho express the target disposition MORE than Rej does?")
-    rej_more_on_axis: bool = Field(description="judged on its own (the reverse direction): does Rej express the target disposition MORE than Cho does?")
-    refusal_confound: int = Field(ge=1, le=5, description="off-axis: does a pole refuse/disclaim rather than act? 1 = clean, 5 = severe; rate the worse pole")
-    length_confound: int = Field(ge=1, le=5, description="off-axis: is one pole much longer than the other? 1 = clean, 5 = severe")
-    incoherent_confound: int = Field(ge=1, le=5, description="off-axis: is a pole incoherent/degenerate? 1 = clean, 5 = severe")
-
-
 REPO = Path(__file__).resolve().parents[2]
 
 
@@ -279,14 +260,13 @@ def choose_focus_tool(slug: str) -> Tool:
             n = _bump_reject(rejects_path, "choose_focus", msg)
             return msg + _reject_tail(n)
         if not res["enough"]:
+            # STRUCTURAL: zero clean pairs -- nothing to rate. Thin banks proceed
+            # (select_pairs tops up to the train target from your own ranking).
             n = _bump_reject(rejects_path, "choose_focus",
-                             f"not enough clean pairs: n_clean={res['n_clean']} "
-                             f"< min_to_train={res['min_to_train']}")
+                             "0 clean pairs: nothing to rate")
             return (
-                f"Only {res['n_clean']} clean pairs this round (over "
-                f"{res['n_with_survivor']} scenarios); need >= {res['min_to_train']} to "
-                f"have a shot at the differentiation floor (you train every pair "
-                f"clearing on_axis>=3.5 AND every confound<=2.5, several per scenario). Choose a "
+                f"0 clean pairs survived generation this round (over "
+                f"{res['n_with_survivor']} scenarios) -- nothing to rate. Choose a "
                 f"different scenario_family or persona pair.\n{res['summary']}" + _reject_tail(n)
             )
         rejects_path.unlink(missing_ok=True)
@@ -375,64 +355,6 @@ def view_pairs_tool(slug: str) -> Tool:
                          f"Rej: {c['rej']}\n")
         return "\n".join(lines)
 
-    return execute
-
-
-@tool(name="rate_pairs", parallel=False)
-def rate_pairs_tool(slug: str) -> Tool:
-    async def execute(ratings: list[GenPairRating] | str) -> str:
-        """Rate viewed, unrated pairs.
-        Read the batch returned by view_pairs(), rate each pair once, then
-        call view_pairs() again until every clean pair is rated. The harness
-        takes the worst of the three confounds; train keeps on_axis>=3.5 AND every
-        confound<=2.5, so a refusal, a length-skew, or an incoherent pole each
-        culls the pair.
-
-        Args:
-            ratings: one GenPairRating per pair this batch (each field is typed
-                and required; see GenPairRating for what each scores).
-        """
-        round_dir = latest_round_dir(_slug_path(slug))
-        rejects_path = _rejects_path(round_dir)
-        if isinstance(ratings, str):
-            # The weak 9b emits the array as a JSON STRING in ~1/6 calls (35x in
-            # task-150; 15 unreachable ratings -> round03 early_abort). Accept the
-            # string and validate through the SAME pydantic model; an unparseable
-            # string is still an explicit reject the teacher sees, never silent.
-            try:
-                ratings = [GenPairRating.model_validate(r) for r in json.loads(ratings)]
-            except (json.JSONDecodeError, TypeError, PydanticValidationError) as e:
-                msg = (f"rate_pairs rejected — ratings arrived as a string that does not "
-                       f"parse as a JSON array of rating objects: {e}")
-                n = _bump_reject(rejects_path, "rate_pairs", msg)
-                return msg + _reject_tail(n)
-        # Inspect sometimes passes list items as raw dicts instead of validated
-        # GenPairRating models (function-calling layer quirk). Normalize so
-        # .model_dump() doesn't blow up on 'dict' object has no attribute.
-        if isinstance(ratings, list):
-            ratings = [
-                r if isinstance(r, GenPairRating) else GenPairRating.model_validate(r)
-                for r in ratings
-            ]
-        try:
-            res = _rate_pairs_pipeline(
-                round_dir, ratings=[r.model_dump() for r in ratings])
-        except (ValidationError, ValueError) as e:
-            msg = (_format_validation_error(e) if isinstance(e, ValidationError)
-                   else f"rate_pairs rejected — {e}")
-            n = _bump_reject(rejects_path, "rate_pairs", msg)
-            return msg + _reject_tail(n)
-        n_rated, n_total = res["n_rated"], res["n_clean_pairs"]
-        nxt = ("select_pairs(lesson=...) -- all pairs rated"
-               if n_rated >= n_total else
-               f"view_pairs() for the next batch ({n_total - n_rated} unrated)")
-        return (
-            f"OK — recorded {res['batch_size']} ratings.\n"
-            f"Coverage: {n_rated}/{n_total} rated, {res['n_viewed']}/{n_total} viewed.\n"
-            f"Next: {nxt}.\n"
-        )
-
-    execute.__doc__ = TOOL_RATE_PAIRS
     return execute
 
 
@@ -1141,7 +1063,6 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
             choose_focus_tool(slug),
             view_pairs_tool(slug),
             rate_pair_tool(slug),
-            rate_pairs_tool(slug),
             select_pairs_tool(slug),
             train_student_tool(slug),
             mark_exam_tool(slug),

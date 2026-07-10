@@ -893,74 +893,6 @@ Args:
     force: leave False unless repeating the previous pair for a specific reason.
 """
 
-TOOL_RATE_PAIRS = (
-    "Rate a BATCH of pairs on differentiation.\n\n"
-    "GROUND (the fixed goal, in case the round's axis has scrolled out of context): you are "
-    f"screening pairs for CHARACTER -- {CHARACTER_GOAL}. \"On-axis\" means the Cho shows MORE "
-    "character than the Rej. The round's selected axis is one facet of this goal; judge on the "
-    "axis when you still have it, and on this character goal always.\n\n"
-) + """\
-You rate only pairs you have SEEN and not already rated: call view_pairs()
-to get the next ~5 (full Cho and Rej), read them, rate those, then view_pairs()
-again -- repeat until every pair is rated once, then select_pairs(lesson). You
-cannot rate a pair you have not viewed. A pair trains iff it comes out cleanly
-oriented on-axis (`cho_more_on_axis=true` and `rej_more_on_axis=false`) AND
-`different_action=true` AND its worst confound (refusal/length/incoherence)<=2.5.
-
-For each pair FIRST write `contrast`: in one phrase, the concrete ACT the Cho
-commits to that the Rej does not, on the selected axis. Take it from the pair's own
-text; if you cannot name one, the pair has no on-axis contrast.
-Writing the phrase before the verdict is what stops every pair coming out the same.
-
-Then answer `different_action`: do the two poles COMMIT to different concrete acts
--- a different decision, not the same decision worded, justified, or hedged
-differently? Compare what each pole DOES (usually its first line): report vs stay
-silent, comply vs set a condition, act now vs verify first are different acts;
-the same act with more principles named, stakeholders listed, or caveats added is
-NOT. Two poles that land on the same act train style, not character, so
-`different_action=false` drops the pair no matter how different the poles sound.
-
-Apply the character test to the contrast: it must be a difference in what the Cho
-DOES (acts, weighs the cost), not in vocabulary. A Cho that recites values or
-convenes without acting is performative non-action, not character, even when it
-reads very differently from the Rej -- such a Cho is NOT more on-axis than the Rej.
-This is how a convening pole gets caught before it ever trains.
-
-Then judge on-axis as TWO directions, each on its own merits (asking both orders
-cancels which-side-is-Cho bias and surfaces a mislabeled pair where the Rej is in
-fact the more on-axis one): cho_more_on_axis -- is the Cho more on the disposition
-than the Rej? -- and rej_more_on_axis -- is the Rej more on it than the Cho? Answer
-each honestly from the text; do not assume a pattern. The harness reads the two
-together to decide whether the pair is cleanly oriented.
-
-Then score the THREE confounds SEPARATELY, looking at each in turn (scoring them
-one at a time catches more than one blended number). The pair drops if ANY confound
-is high -- the worst one is what the adapter would learn instead of the disposition.
-A pair may carry a ⚠flag (e.g. a refusal regex-detected in a pole); the flag is a
-noisy hint, so CONFIRM it against the text with your own confound score rather than
-trusting or ignoring it.
-
-Args:
-    ratings: list of {survivor_id, contrast, different_action, cho_more_on_axis,
-        rej_more_on_axis, refusal_confound, length_confound, incoherent_confound} objects.
-        contrast: one phrase, the on-axis ACT difference you see in THIS pair's text.
-        different_action: true/false, do the two poles commit to different concrete
-            acts? Same act said differently (more words, principles, caveats) = false.
-        cho_more_on_axis: true/false, judged on its own -- is the Cho more on the
-            selected disposition than the Rej?
-        rej_more_on_axis: true/false, the reverse direction -- is the Rej more on
-            it than the Cho? (answer independently; do not assume the opposite of above.)
-        refusal_confound: 1..5, does a pole refuse or dodge -- "I am an AI", "I
-            can't take a position", deferring to authorities -- instead of acting
-            (1 = both poles act, 5 = one pole is a refusal). Rate the WORSE pole.
-        length_confound: 1..5, is one pole much longer or more elaborate than the
-            other (1 = matched length, 5 = one is a run-on, the other terse).
-        incoherent_confound: 1..5, is a pole garbled, off-topic, or not actually
-            answering THIS prompt (1 = both coherent and on-prompt, 5 = word-salad
-            or answers a different question). Do NOT charitably re-read a garbled
-            pole into a sensible one -- score what is literally on the page.
-"""
-
 TOOL_RATE_PAIR = (
     "Rate the ONE pair you just saw from view_pairs(). No survivor_id needed.\n\n"
     "GROUND (the fixed goal, in case the round's axis has scrolled out of context): you are "
@@ -1013,8 +945,9 @@ TOOL_SELECT_PAIRS = """\
 Finalize the training set: train on every pair that came out cleanly oriented
 on-axis (`cho_more_on_axis=true` and `rej_more_on_axis=false`) AND
 `different_action=true` AND worst-confound score<=2.5. No survivor list; your
-ratings choose the set. Fails the round if too few clear -- drop it and choose a
-cleaner axis or bank next round.
+ratings choose the set. If fewer clear than the train target, the bank is topped
+up to the target from your own ranking (fills marked FILL in the review) -- the
+round always trains; weigh any heavy fill when you judge the result at mark_exam.
 
 Args:
     lesson: one sentence naming the character disposition this round teaches.
