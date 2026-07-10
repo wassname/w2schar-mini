@@ -82,7 +82,7 @@ This makes first-line action extraction reliable for auto-filtering.
 2. `sample_prompt_rows` (prompts_pool.py) — filters pool by required_axes, caps at n_scenarios
 3. `generate_pairs` (pairs.py) — generates cho/rej per scenario, greedy (do_sample=False)
 4. `_pair_flags` (pipeline.py) — auto-filters: empty, identical, degenerate, blur, etc.
-5. `STRUCTURAL_FLAGS` — frozenset of flags that auto-prune (currently empty — no auto-prune)
+5. `STRUCTURAL_FLAGS` — frozenset of flags that auto-prune: empty, identical, too_short, degenerate, same_action (soft flags like length_skew/persona_leak only surface as hints)
 6. Teacher rates remaining pairs via rate_pair tool
 7. `select_pairs` — selects pairs passing on_axis>=3.5 AND different_action AND off_axis<=3.0
 

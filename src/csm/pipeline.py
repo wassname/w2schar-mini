@@ -1178,7 +1178,10 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
                 for cand in all_raw_pairs:
                     if not cand.get("kept", True):
                         continue
-                    new_sid = prompt_to_sid.get(cand["prompt"], cand["scenario_id"])
+                    # Hard index: every cand's prompt came from a batch of scored
+                    # scenarios, so a miss is a real bug -- the old .get fallback
+                    # silently kept a stale batch-local id (corrupt state later).
+                    new_sid = prompt_to_sid[cand["prompt"]]
                     sid_counter[new_sid] = sid_counter.get(new_sid, 0) + 1
                     cand["scenario_id"] = new_sid
                     cand["pair_id"] = sid_counter[new_sid]
@@ -1225,11 +1228,16 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
             persona_cells=active_persona_cells)
 
     kept_prompts = [x["prompt"] for x in kept]
-    # Filter kept to only scenarios that have surviving pairs
+    # Filter kept to only scenarios that have surviving pairs. Surviving items KEEP
+    # their (now sparse) scenario_ids, so grouped must key by those ids -- the old
+    # dense range(1, len(kept)+1) KeyErrored on the real batched path the moment any
+    # scenario lost all its pairs to the same_action cull (task-137 + task-138
+    # round00 crashes, KeyError: 146). A cand sid absent from kept is impossible by
+    # construction (kept is filtered TO the cand sids), so hard indexing below stays.
     sids_with_pairs = {c["scenario_id"] for c in raw_pairs}
     kept = [item for item in kept if item["scenario_id"] in sids_with_pairs]
     kept_prompts = [x["prompt"] for x in kept]
-    grouped = {i: [] for i in range(1, len(kept) + 1)}
+    grouped = {item["scenario_id"]: [] for item in kept}
     for cand in raw_pairs:
         if not cand.get("flags"):
             # Not yet filtered (fake/replay path) — filter now
