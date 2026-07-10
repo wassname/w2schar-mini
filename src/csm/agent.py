@@ -150,14 +150,33 @@ def _reject_tail(n: int) -> str:
             else f"\n(reject {n} > {MAX_SUBMIT_REJECTS} — dropping round)")
 
 
+def _coerce_json_dict(name: str, val):
+    """The weak 9b sends dict args as JSON STRINGS in a fraction of calls (22
+    choose_focus rejects in task-136, same failure as task-150's rate_pairs).
+    Typing the arg `dict | str` lets the string past the function-calling schema
+    so we can parse it here; an unparseable string raises the same informative
+    ValidationError the schema layer would have given, never a silent default."""
+    if val is None or isinstance(val, dict):
+        return val
+    try:
+        parsed = json.loads(val)
+    except (json.JSONDecodeError, TypeError) as e:
+        raise ValidationError(
+            f"{name} arrived as a string that does not parse as a JSON object: {e}")
+    if not isinstance(parsed, dict):
+        raise ValidationError(f"{name} must be a JSON object keyed by question id, "
+                              f"got {type(parsed).__name__}")
+    return parsed
+
+
 @tool(name="choose_focus", parallel=False)
 def choose_focus_tool(slug: str) -> Tool:
     async def execute(mismatch_severity: float,
                       headroom: float,
                       bank_cleanliness: float,
                       evidence: str,
-                      pre_scores: dict[str, float],
-                      pre_question_evidence: dict[str, str],
+                      pre_scores: dict[str, float] | str,
+                      pre_question_evidence: dict[str, str] | str,
                       persona_pair_id: str | None = None,
                       scenario_family: str | None = None,
                       force: bool = False) -> str:
@@ -194,7 +213,8 @@ def choose_focus_tool(slug: str) -> Tool:
                 wrong, 1-5" rating is a different measurement. mark_exam scores POST
                 against this frozen PRE.
             pre_question_evidence: one quoted PRE clause per `_1p` question, keyed by the
-                same exact question ids, justifying its position.
+                same exact question ids, justifying its position. Send a JSON OBJECT
+                shaped {"<question_id>_1p": "<quoted PRE clause>", ...}, not a string.
             persona_pair_id: the id (from the measured-pair menu in the brief) of
                 the pair your `evidence` targets. REQUIRED when the profile measures
                 more than one pair -- omitting it then samples the first pair, NOT
@@ -213,6 +233,9 @@ def choose_focus_tool(slug: str) -> Tool:
         cfg = config_for_run(json.loads((_slug_path(slug) / "run.json").read_text()))
         scenario_family = scenario_family or cfg.allowed_scenario_families[0]
         try:
+            pre_scores = _coerce_json_dict("pre_scores", pre_scores)
+            pre_question_evidence = _coerce_json_dict(
+                "pre_question_evidence", pre_question_evidence)
             res = _choose_focus_pipeline(
                 _slug_path(slug), round_dir,
                 persona_pair_id=persona_pair_id,
@@ -792,7 +815,7 @@ def mark_exam_tool(slug: str) -> Tool:
     async def execute(reason: str,
                       next_focus: str = "",
                       harness_feedback: str = "",
-                      question_evidence: dict[str, str] | None = None) -> str:
+                      question_evidence: dict[str, str] | str | None = None) -> str:
         """Mark the student's exam. Commits the round.
 
         Keep/drop is decided by the harness, not you: a blind two-pass pair A/B judge
@@ -812,9 +835,15 @@ def mark_exam_tool(slug: str) -> Tool:
                 this round harder than it needed to be: weak question, bad
                 pairs, unclear axis wording, gate friction, or similar.
             question_evidence: one quoted POST clause or concrete note per _1p question
-                showing what the act was, on a trained round.
+                showing what the act was, on a trained round. Send a JSON OBJECT
+                shaped {"<question_id>_1p": "<quoted POST clause>", ...}, not a string.
         """
         round_dir = latest_round_dir(_slug_path(slug))
+        try:
+            # Coerce BEFORE the A/B judge so a malformed arg doesn't burn a judge pass.
+            question_evidence = _coerce_json_dict("question_evidence", question_evidence)
+        except ValidationError as e:
+            return _format_validation_error(e)
         # Run the blind two-pass pair A/B judge over frozen PRE vs this round's POST and
         # hand mark_exam the per-question directions; mark_exam keeps iff up > down.
         dirs = None
