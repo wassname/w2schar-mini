@@ -1239,8 +1239,12 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
     kept_prompts = [x["prompt"] for x in kept]
     grouped = {item["scenario_id"]: [] for item in kept}
     for cand in raw_pairs:
-        if not cand.get("flags"):
-            # Not yet filtered (fake/replay path) — filter now
+        if "flags" not in cand:
+            # Not yet filtered (fake/replay path) -- filter now. Key-absence test,
+            # NOT falsy: a real-path pair with ZERO flags (flags == []) was being
+            # re-filtered here with its sparse scenario_id as an index into the
+            # FILTERED prompt list -> _prompt_rank "146 is not in list" (run 139
+            # round00, every choose_focus retry regenerating ~6 min then failing).
             cand["survivor_id"] = f"s{cand['scenario_id']}c{cand['pair_id']}"
             flags = _pair_flags(
                 cand, kept_prompts, cand["scenario_id"] - 1,
