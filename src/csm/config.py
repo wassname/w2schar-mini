@@ -105,10 +105,13 @@ class RunConfig:
 
     # ─ data ─
     n_scenarios: int = 30
-    """Scenario-library rows sampled per round before headroom pruning."""
+    """Scenario-library rows sampled per round (the surplus pool)."""
     n_headroom_prompts: int = 15
-    """How many low-depth unprompted scenarios survive the headroom gate and
-    get pair generation."""
+    """Max scenarios to keep after headroom scoring (upper bound per batch)."""
+    n_clean_target: int = 120
+    """Target clean pairs after auto-filters. Generation loops in batches until
+    this many pairs pass structural flags (same_action, degenerate, etc) or the
+    scenario pool is exhausted. The teacher then rates these."""
     n_train_pairs: int = 15
     """Target selected training pairs per round after headroom and pair
     pruning. The teacher selects among student-generated pairs."""
@@ -639,16 +642,17 @@ CONFIGS["gemma-27b-3keep"] = replace(
     eval_batch_size=32,
     signed_C=2.0,
     persona_cells=MULTI_AXIS_PERSONA_CELLS,
-    # Big-student round-fail floor: >=20 pairs must clear the teacher's
-    # viewed-batch threshold (on_axis>=3.5 AND worst confound<=2.5) or the
-    # round fails. The pool is ~100 (20 headroom prompts x 5 pairs), the broad
-    # restrict_validated_prompts=False pool kept 51-76 clean pairs/round, so 20
-    # differentiated is comfortably satisfiable when the teacher rates honestly --
-    # and a round where it cannot find 20 differentiated pairs SHOULD fail. Trains on
-    # ALL passing (tens), not a hand-picked ~12. qwen-2b-3keep stays at 6 (thin
-    # per-axis pool). WATCH the gym/first-run pass rate: if a weak qwen-9b leaves
-    # <20 clearing every round, the threshold is too strict for it, not the student.
-    min_pairs_to_train=20,
+    # Generate surplus pairs: the same_action auto-filter prunes ~67% of
+    # convergent pairs, so we need 3x the target clean count. With 500 scenarios
+    # → generate in batches of n_headroom_prompts → stop at n_clean_target=120
+    # clean pairs → teacher rates → ~40 pass differentiation threshold.
+    n_scenarios=500,
+    n_headroom_prompts=150,
+    n_clean_target=120,
+    n_gen_pairs=1,
+    min_pairs_to_train=40,
+    # All pool rows are validated -- no separate validated set.
+    restrict_validated_prompts=False,
 )
 
 # Exactly the validated job-139 harness AND hyperparams (gemma-27b-3keep: MULTI_AXIS

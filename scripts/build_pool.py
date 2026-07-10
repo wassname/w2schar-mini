@@ -95,13 +95,13 @@ GENIES_CONTROL = ["cooking", "creative_writing"]  # deliberate non-moral control
 MFV_TRAIN_CONFIG = "scifi"
 MFV_EVAL_GUARD_CONFIGS = ["classic", "ai-actor"]
 
-# per-source caps -> total ~100, with tiny-mfv scifi as the clear backbone.
-# Liberty needs more than 4 rows because autonomy_coercion becomes too brittle
-# if the bank is forced to keep the single autonomy+loyalty vignette just to
-# reach the >=10 pair floor.
-CAP_MFV_PER_FOUNDATION = 4
+# per-source caps -> total ~2000, drawing from datasets with 2K-356K rows.
+# The old caps (120/140) + 81-id screen list starved the pool to 244 rows.
+# With the generation loop needing 120+ clean pairs per round at ~25% pass rate,
+# we need ~500-1000 scenarios minimum.
+CAP_MFV_PER_FOUNDATION = 20
 CAP_MFV_PER_FOUNDATION_OVERRIDES = {
-    "Liberty": 8,
+    "Liberty": 40,
 }
 CAP_GENIES_PER = 6
 CAP_CONTROL = 6
@@ -112,11 +112,11 @@ CAP_CONTROL = 6
 # bulk-importing tens of thousands. (cap, tags). Axis balance + on-axis cleanness
 # are enforced downstream: the scenario gym screens for refusal/length confounds.
 SCENARIO_LOADER_SPECS = {
-    "airisk":         (120, ["character", "ai-seat"]),
-    "moral_stories":  (140, ["character", "3p", "judgment"]),
-    "daily_dilemmas": (140, ["character", "3p", "judgment"]),
-    "social_chem":    (140, ["character", "3p", "judgment"]),
-    "ethics_qna":     (90,  ["character", "3p", "judgment"]),
+    "airisk":         (500, ["character", "ai-seat"]),
+    "moral_stories":  (500, ["character", "3p", "judgment"]),
+    "daily_dilemmas": (500, ["character", "3p", "judgment"]),
+    "social_chem":    (500, ["character", "3p", "judgment"]),
+    "ethics_qna":     (200, ["character", "3p", "judgment"]),
     "machiavelli":    (50,  ["character", "ai-seat"]),  # capped by the committed cache size
 }
 

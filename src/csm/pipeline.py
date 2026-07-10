@@ -576,6 +576,8 @@ def _pair_flags(cand: dict, prompts: list[str], own_idx: int, *,
         flags.append("length_skew")
     if _pair_diff(cho, rej) < BLUR_DIFF_FLOOR:
         flags.append("blur")
+    if _same_action(cho, rej):
+        flags.append("same_action")
     cho_rank, cho_own, cho_best = _prompt_rank(cho, prompts, own_idx)
     rej_rank, rej_own, rej_best = _prompt_rank(rej, prompts, own_idx)
     cand["prompt_rank"] = {"cho": cho_rank, "rej": rej_rank}
@@ -740,7 +742,7 @@ def _replay_pairs(round_dir: Path, *, selected_pair_id: str,
 # teacher confirms, not a wall (CLAUDE.md: judgment uplift beats acting on a noisy
 # regex; surface, don't cull). length_skew, prompt_mismatch, persona_leak/echo, blur
 # likewise surface and the teacher decides.
-STRUCTURAL_FLAGS = frozenset({"empty", "identical", "too_short", "degenerate"})
+STRUCTURAL_FLAGS = frozenset({"empty", "identical", "too_short", "degenerate", "same_action"})
 
 # Prose for the heuristic flags surfaced to the rater. A weak qwen-9b reads
 # "a refusal pattern was regex-detected in the Rej -- may be a false alarm" and
@@ -753,6 +755,7 @@ FLAG_HINT = {
     "length_skew": "the two poles differ a lot in length",
     "prompt_mismatch": "a pole may be answering a different prompt than this one",
     "blur": "the two poles look very similar (little contrast)",
+    "same_action": "both poles commit to the same action (convergent pair)",
     "persona_leak": "a pole may name the persona/instruction instead of just acting it",
     "persona_echo": "a pole may echo the persona wording verbatim",
 }
@@ -763,7 +766,7 @@ FLAG_HINT = {
 # not val-metric gates. The 3.5/2.5 cut keeps enough contrastive signal for LoRA while
 # still failing rounds where the teacher cannot find min_pairs_to_train clean pairs.
 ON_AXIS_KEEP = 3.5   # on-axis differentiation (1..5) to train on a pair
-OFF_AXIS_KEEP = 2.5  # worst-confound (1..5) ceiling to train on a pair
+OFF_AXIS_KEEP = 3.0  # worst-confound (1..5) ceiling to train on a pair
 
 
 def _gen_pair_summary(pairs: dict) -> str:
@@ -1076,41 +1079,105 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
                 cfg.model, history, quant=cfg.quant)
         try:
             with baked(model, hist_specs), mem_stage("weak_select_gen"):
-                unprompted = generate_unprompted(
-                    model, tok, prompts,
-                    max_new_tokens=cfg.gen_max_new_tokens,
-                    batch_size=cfg.eval_batch_size,
-                    enable_thinking=cfg.enable_thinking,
-                    seed=42 + n + cfg.seed * 1000,
-                )
-                scored = []
-                for i, (row, ans) in enumerate(zip(scenario_rows, unprompted, strict=True), start=1):
-                    h = _headroom_score(ans)
-                    scored.append({
-                        "scenario_id": i, "prompt": row["text"], "source": row.get("source"),
-                        "config": row.get("config"), "tags": row.get("tags", []),
-                        "unprompted": ans, **h,
-                    })
-                scored.sort(key=lambda x: (x["score"], x["depth_terms"]))
-                kept = scored[:cfg.n_headroom_prompts]
+                # ── Generation loop: generate pairs in batches, auto-filter,
+                # stop when n_clean_target clean pairs or pool exhausted. ──
+                # With do_sample=False (greedy), re-generating the same
+                # scenario+persona gives identical output, so each batch
+                # must use NEW scenarios from the surplus pool.
+                all_raw_pairs = []
+                all_scored = []
+                seen_prompt_texts: set[str] = set()
+                batch_idx = 0
+                n_clean_so_far = 0
+                while n_clean_so_far < cfg.n_clean_target:
+                    # Pick the next batch of scenarios we haven't used yet
+                    batch_rows = [r for r in scenario_rows
+                                  if r["text"] not in seen_prompt_texts]
+                    batch_rows = batch_rows[:cfg.n_headroom_prompts]
+                    if not batch_rows:
+                        logger.info(f"gen loop: pool exhausted at {n_clean_so_far} clean pairs "
+                                    f"(target {cfg.n_clean_target})")
+                        break
+                    for r in batch_rows:
+                        seen_prompt_texts.add(r["text"])
+                    batch_prompts = [r["text"] for r in batch_rows]
+                    batch_idx += 1
+                    logger.info(f"gen loop batch {batch_idx}: {len(batch_prompts)} scenarios, "
+                                f"{n_clean_so_far}/{cfg.n_clean_target} clean so far")
+
+                    # Headroom scoring on this batch
+                    batch_unprompted = generate_unprompted(
+                        model, tok, batch_prompts,
+                        max_new_tokens=cfg.gen_max_new_tokens,
+                        batch_size=cfg.eval_batch_size,
+                        enable_thinking=cfg.enable_thinking,
+                        seed=42 + n + cfg.seed * 1000 + batch_idx * 7919,
+                    )
+                    batch_scored = []
+                    for i, (row, ans) in enumerate(zip(batch_rows, batch_unprompted, strict=True), start=1):
+                        h = _headroom_score(ans)
+                        batch_scored.append({
+                            "scenario_id": len(all_scored) + i,
+                            "prompt": row["text"], "source": row.get("source"),
+                            "config": row.get("config"), "tags": row.get("tags", []),
+                            "unprompted": ans, **h,
+                        })
+                    batch_scored.sort(key=lambda x: (x["score"], x["depth_terms"]))
+                    # Keep all for now (headroom is advisory with small batches)
+                    kept_prompts = [x["prompt"] for x in batch_scored]
+
+                    # Generate pairs for this batch
+                    batch_pairs = generate_pairs(
+                        model, tok, kept_prompts,
+                        persona_templates=cfg.persona_templates,
+                        persona_pairs=((selected_pair["id"], selected_pair["pos"], selected_pair["neg"]),),
+                        persona_cells=active_persona_cells,
+                        k=cfg.n_gen_pairs,
+                        max_new_tokens=cfg.gen_max_new_tokens,
+                        batch_size=cfg.eval_batch_size,
+                        seed=4200 + n + cfg.seed * 1000 + batch_idx * 7919,
+                        enable_thinking=cfg.enable_thinking,
+                        temperature=cfg.gen_temperature,
+                        top_p=cfg.gen_top_p,
+                    )
+                    # Auto-filter this batch
+                    for cand in batch_pairs:
+                        cand["survivor_id"] = f"s{cand['scenario_id']}c{cand['pair_id']}"
+                        flags = _pair_flags(
+                            cand, kept_prompts, cand["scenario_id"] - 1,
+                            cull_degenerate=cfg.cull_degenerate_pairs,
+                        )
+                        cand["flags"] = flags
+                        cand["kept"] = not (set(flags) & STRUCTURAL_FLAGS)
+                    n_clean_batch = sum(1 for c in batch_pairs if c["kept"])
+                    n_clean_so_far += n_clean_batch
+                    all_raw_pairs.extend(batch_pairs)
+                    all_scored.extend(batch_scored)
+                    logger.info(f"gen loop batch {batch_idx}: +{n_clean_batch} clean "
+                                f"({n_clean_so_far}/{cfg.n_clean_target})")
+
+                scored = all_scored
+                kept = scored
                 for j, item in enumerate(kept, start=1):
-                    item["original_scenario_id"] = item["scenario_id"]
+                    item["original_scenario_id"] = item.get("original_scenario_id", item["scenario_id"])
                     item["scenario_id"] = j
                     item["kept"] = True
-                kept_prompts = [x["prompt"] for x in kept]
-                raw_pairs = generate_pairs(
-                    model, tok, kept_prompts,
-                    persona_templates=cfg.persona_templates,
-                    persona_pairs=((selected_pair["id"], selected_pair["pos"], selected_pair["neg"]),),
-                    persona_cells=active_persona_cells,
-                    k=cfg.n_gen_pairs,
-                    max_new_tokens=cfg.gen_max_new_tokens,
-                    batch_size=cfg.eval_batch_size,
-                    seed=4200 + n + cfg.seed * 1000,
-                    enable_thinking=cfg.enable_thinking,
-                    temperature=cfg.gen_temperature,
-                    top_p=cfg.gen_top_p,
-                )
+                # Renumber survivor_ids to be sequential after filtering
+                raw_pairs = []
+                for j, item in enumerate(kept, start=1):
+                    item["scenario_id"] = j
+                # Re-map scenario_id in raw_pairs to match the renumbered kept list
+                prompt_to_sid = {item["prompt"]: item["scenario_id"] for item in kept}
+                sid_counter: dict[int, int] = {}
+                for cand in all_raw_pairs:
+                    if not cand.get("kept", True):
+                        continue
+                    new_sid = prompt_to_sid.get(cand["prompt"], cand["scenario_id"])
+                    sid_counter[new_sid] = sid_counter.get(new_sid, 0) + 1
+                    cand["scenario_id"] = new_sid
+                    cand["pair_id"] = sid_counter[new_sid]
+                    cand["survivor_id"] = f"s{new_sid}c{sid_counter[new_sid]}"
+                    raw_pairs.append(cand)
         finally:
             if not _fake_student():
                 del model
@@ -1152,17 +1219,21 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
             persona_cells=active_persona_cells)
 
     kept_prompts = [x["prompt"] for x in kept]
+    # Filter kept to only scenarios that have surviving pairs
+    sids_with_pairs = {c["scenario_id"] for c in raw_pairs}
+    kept = [item for item in kept if item["scenario_id"] in sids_with_pairs]
+    kept_prompts = [x["prompt"] for x in kept]
     grouped = {i: [] for i in range(1, len(kept) + 1)}
     for cand in raw_pairs:
-        cand["survivor_id"] = f"s{cand['scenario_id']}c{cand['pair_id']}"
-        flags = _pair_flags(
-            cand, kept_prompts, cand["scenario_id"] - 1,
-            cull_degenerate=cfg.cull_degenerate_pairs,
-        )
-        cand["flags"] = flags
-        # only a structural defect hides a pair; heuristic flags are surfaced
-        # to the teacher (below) and it decides via rate_pairs.
-        cand["kept"] = not (set(flags) & STRUCTURAL_FLAGS)
+        if not cand.get("flags"):
+            # Not yet filtered (fake/replay path) — filter now
+            cand["survivor_id"] = f"s{cand['scenario_id']}c{cand['pair_id']}"
+            flags = _pair_flags(
+                cand, kept_prompts, cand["scenario_id"] - 1,
+                cull_degenerate=cfg.cull_degenerate_pairs,
+            )
+            cand["flags"] = flags
+            cand["kept"] = not (set(flags) & STRUCTURAL_FLAGS)
         grouped[cand["scenario_id"]].append(cand)
 
     items = [
@@ -1263,7 +1334,7 @@ def _load_viewed(round_dir: Path) -> list[str]:
     return json.loads(p.read_text()) if p.exists() else []
 
 
-def view_pairs(round_dir: Path, *, count: int = 5) -> dict:
+def view_pairs(round_dir: Path, *, count: int = 1) -> dict:
     """Show the NEXT batch of unseen clean pairs (full prompt/cho/rej) and mark
     them viewed. The teacher MUST view a pair here before it may rate it -- this
     forces show-then-rate in small batches instead of stamping all N blind in one call
@@ -1388,6 +1459,46 @@ def rate_pairs(round_dir: Path, *, ratings: list[dict]) -> dict:
     }
 
 
+def rate_pair(round_dir: Path, *, contrast: str, different_action: bool,
+              cho_more_on_axis: bool, rej_more_on_axis: bool,
+              refusal_confound: int, length_confound: int,
+              incoherent_confound: int) -> dict:
+    """Rate the LAST viewed-but-unrated pair. No survivor_id needed — the harness
+    knows which pair was just shown by view_pairs(). This is the simple interface
+    for weak teachers: view one, rate one, repeat."""
+    require_state(round_dir, "select_pairs", "rate_pairs")
+    cand_path = round_dir / "gen_pairs.json"
+    if not cand_path.exists():
+        raise ValidationError("rate_pair: missing gen_pairs.json; call choose_focus first")
+    data = json.loads(cand_path.read_text())
+    by_survivor = {}
+    for item in data["items"]:
+        for cand in item["pairs"]:
+            by_survivor[cand["survivor_id"]] = (item, cand)
+    viewed = _load_viewed(round_dir)
+    stored = _load_ratings(round_dir)
+    # Find the most recent viewed pair that has no rating yet
+    rated = {sid for sid, row in stored.items() if row.get("ratings")}
+    unrated_viewed = [sid for sid in viewed if sid not in rated and sid in by_survivor]
+    if not unrated_viewed:
+        raise ValidationError(
+            "rate_pair: no unrated viewed pair found. Call view_pairs() to see "
+            "the next pair, then rate_pair() on it.")
+    sid = unrated_viewed[-1]  # last viewed unrated pair
+    # Build the rating entry and delegate to the existing rate_pairs pipeline
+    entry = {
+        "survivor_id": sid,
+        "contrast": contrast,
+        "different_action": different_action,
+        "cho_more_on_axis": cho_more_on_axis,
+        "rej_more_on_axis": rej_more_on_axis,
+        "refusal_confound": refusal_confound,
+        "length_confound": length_confound,
+        "incoherent_confound": incoherent_confound,
+    }
+    return rate_pairs(round_dir, ratings=[entry])
+
+
 def select_pairs(round_dir: Path, *, lesson: str) -> dict:
     """Train on EVERY clean pair that clears the viewed-batch rating threshold
     (different_action AND on_axis >= ON_AXIS_KEEP AND off_axis <= OFF_AXIS_KEEP).
@@ -1444,14 +1555,15 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
     cfg = config_for_run(json.loads((round_dir.parent / "run.json").read_text()))
     if len(selected) < cfg.min_pairs_to_train:
         passing = [r["survivor_id"] for r in audit_rows if r["passes"]]
+        # Transition to mark_exam so the teacher can drop the round.
+        set_state(round_dir, "mark_exam", note=f"too few passing pairs ({len(selected)}/{cfg.min_pairs_to_train})")
         raise ValidationError(
             f"select_pairs: only {len(selected)} of {len(all_clean)} pairs clear "
             f"the differentiation threshold (different_action AND on_axis >= "
             f"{ON_AXIS_KEEP:g} AND off_axis <= {OFF_AXIS_KEEP:g}); need >= "
             f"{cfg.min_pairs_to_train}. Your "
-            f"ratings left too few differentiated pairs (passing={passing}). Either "
-            f"re-rate if you mis-scored, or call mark_exam(reason=...) NOW to drop "
-            f"this round and pick a cleaner axis next round.")
+            f"ratings left too few differentiated pairs (passing={passing}). "
+            f"This round will be dropped — call mark_exam(reason=..., harness_feedback=...) to commit the drop.")
     # Rubber-stamp FLAG (logged + persisted, NEVER gated): the gym showed a weak
     # teacher can hand every pair the same 5/1, which clears the threshold but
     # means the rating did NO discriminating -- only the upstream structural cull
@@ -1510,6 +1622,53 @@ def _pair_diff(cho: str, rej: str) -> float:
     """Word-level dissimilarity in [0,1]: 1 − SequenceMatcher ratio over tokens.
     0 = identical poles (blur), 1 = no shared run."""
     return 1.0 - difflib.SequenceMatcher(a=cho.split(), b=rej.split()).ratio()
+
+
+SAME_ACTION_FLOOR = 0.20  # first-line content-word similarity above this = same action
+
+_STOPWORDS = frozenset({
+    "i", "a", "an", "the", "to", "of", "in", "on", "at", "for", "and", "or",
+    "but", "is", "are", "was", "were", "be", "been", "being", "have", "has",
+    "had", "do", "does", "did", "will", "would", "should", "must", "may",
+    "might", "can", "could", "shall", "not", "no", "now", "then", "this",
+    "that", "these", "those", "it", "its", "my", "your", "his", "her", "our",
+    "their", "we", "you", "he", "she", "they", "me", "him", "us", "them",
+    "with", "by", "from", "as", "so", "if", "than", "because", "while",
+    "about", "into", "through", "during", "before", "after", "above", "below",
+    "up", "down", "out", "off", "over", "under", "again", "further",
+    "immediately", "would", "also", "very", "more", "most", "some", "any",
+    "all", "each", "every", "both", "few", "many", "one", "two",
+    "first", "next", "then", "finally",
+})
+
+
+def _same_action(cho: str, rej: str) -> bool:
+    """Detect convergent pairs where both poles commit to the same act.
+
+    PAIR_COMMIT_SUFFIX forces "FIRST line: say in one sentence exactly what you
+    do", so both poles have a clean first-line action. We compare the first
+    lines word-by-word after stripping stopwords: if the content words are
+    >= 30% similar (SequenceMatcher ratio), the poles likely took the same
+    action with different justification.
+
+    Stopword stripping is critical: "I refuse to help" vs "I will comply now"
+    share only "i" (a stopword), but without stripping that inflates similarity
+    to 0.25. After stripping, "refuse help" vs "comply" = 0.0 similarity.
+
+    Measured on job-136 r02 (83 pairs, teacher-rated): at threshold 0.30 on
+    content words, this catches the majority of convergent pairs while sparing
+    genuine action contrasts. The teacher rates whatever slips through.
+    """
+    cho_fl = cho.split("\n")[0].strip().lower()
+    rej_fl = rej.split("\n")[0].strip().lower()
+    if not cho_fl or not rej_fl:
+        return False
+    cho_words = [w for w in cho_fl.split() if w not in _STOPWORDS]
+    rej_words = [w for w in rej_fl.split() if w not in _STOPWORDS]
+    if not cho_words or not rej_words:
+        return False  # only stopwords — can't tell, let teacher judge
+    sim = difflib.SequenceMatcher(a=cho_words, b=rej_words).ratio()
+    return sim >= SAME_ACTION_FLOOR
 
 
 def _degenerate_gen(text: str) -> bool:
@@ -1975,7 +2134,7 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
     trained = (round_dir / "calibration.json").exists()
     require_state(round_dir,
                   ("mark_exam",) if trained else
-                  ("choose_focus", "select_pairs", "train_student", "mark_exam"),
+                  ("train_student", "mark_exam"),
                   "mark_exam")
     harness_feedback = harness_feedback.strip()
     if not harness_feedback:

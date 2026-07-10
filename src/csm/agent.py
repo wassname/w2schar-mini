@@ -30,6 +30,7 @@ from csm.config import (config_for_run, TEACHER_SAMPLING, TEACHER_REASONING_TOKE
                         JUDGE_THINK_BUDGET, JUDGE_N)
 from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           rate_pairs as _rate_pairs_pipeline,
+                          rate_pair as _rate_pair_pipeline,
                           view_pairs as _view_pairs_pipeline,
                           init_run, latest_round_dir,
                           mark_exam as _mark_exam_pipeline,
@@ -45,7 +46,7 @@ from csm.prompts import (AB_JUDGE_PROMPT, AFTER_CHOOSE_FOCUS, AFTER_MARK_EXAM,
                          ON_CONTINUE_NUDGE, FORCE_COMMIT_NUDGE, PERSONA_MENU_HEADER,
                          PRE_DIALOGUE_INSTRUCTIONS, REACT_PROMPT,
                          TOOL_CHOOSE_FOCUS, TOOL_MARK_EXAM,
-                         TOOL_RATE_PAIRS, TOOL_SELECT_PAIRS,
+                         TOOL_RATE_PAIR, TOOL_RATE_PAIRS, TOOL_SELECT_PAIRS,
                          TOOL_TRAIN_STUDENT)
 from csm.state import allowed_after, ValidationError, read_state
 from csm.ws.history import kept_history_dirs
@@ -123,7 +124,11 @@ def _format_validation_error(e: ValidationError) -> str:
 # Tools
 # ---------------------------------------------------------------------------
 
-MAX_SUBMIT_REJECTS = 3  # >3 rejects in one round → on_continue drops the round.
+MAX_SUBMIT_REJECTS = 200  # The weak 9b teacher makes format errors; let it
+# recover and retry as many times as it needs within the round's wall-clock
+# budget. The old cap of 3 killed rounds that had 42+ good pairs already rated,
+# because the teacher stuttered 4 times on JSON formatting. Capping at 3 was
+# punitive — the round budget and MAX_DROPS already bound runaway loops.
 # The count is CUMULATIVE per round (the jsonl lives in round_dir): a success
 # must NOT clear it, or a teacher alternating reject↔success loops forever
 # under the cap (the 20260703 gym doom loop). choose_focus success is the one
@@ -340,10 +345,9 @@ def select_pairs_tool(slug: str) -> Tool:
 @tool(name="view_pairs", parallel=False)
 def view_pairs_tool(slug: str) -> Tool:
     async def execute() -> str:
-        """Show the NEXT batch of unseen pairs (full Cho/Rej). You may only
-        rate only viewed, unrated pairs, so call this, read the batch, rate
-        it with rate_pairs(), then call this again for the next batch --
-        repeat until none remain, then select_pairs(lesson)."""
+        """Show the NEXT unseen pair (full Cho/Rej). After reading it, call
+        rate_pair() to rate it, then call this again for the next pair.
+        Repeat until none remain, then select_pairs(lesson)."""
         round_dir = latest_round_dir(_slug_path(slug))
         rejects_path = _rejects_path(round_dir)
         try:
@@ -355,15 +359,14 @@ def view_pairs_tool(slug: str) -> Tool:
             return msg + _reject_tail(n)
         if res["done"] and not res["batch"]:
             return "All pairs rated. Call select_pairs(lesson=...)."
-        lines = [f"Batch: {res['n_shown_now']} pairs "
-                 f"({res['n_viewed_total']}/{res['n_total']} viewed, "
-                 f"{res['n_remaining']} left after this). Rate THESE now, then "
-                 f"view_pairs() again.\n"]
+        lines = [f"Pair {res['n_viewed_total']}/{res['n_total']} "
+                 f"({res['n_remaining']} left after this). "
+                 f"Rate THIS with rate_pair(), then view_pairs() again.\n"]
         if res["done"]:
             # Recovery re-serve: shown before, but the rating call never landed.
-            lines[0] = (f"Re-serving {res['n_shown_now']} pairs you saw before whose "
-                        f"ratings were NEVER RECORDED (the rate_pairs call was rejected). "
-                        f"Rate THESE now, then view_pairs() again.\n")
+            lines[0] = (f"Re-serving a pair you saw before whose "
+                        f"rating was NEVER RECORDED (the rate_pair call was rejected). "
+                        f"Rate THIS with rate_pair(), then view_pairs() again.\n")
         for c in res["batch"]:
             flag = f"  ⚠flags={c['flags']}" if c["flags"] else ""
             lines.append(f"--- {c['survivor_id']} (scenario {c['scenario_id']}){flag}\n"
@@ -430,6 +433,92 @@ def rate_pairs_tool(slug: str) -> Tool:
         )
 
     execute.__doc__ = TOOL_RATE_PAIRS
+    return execute
+
+
+@tool(name="rate_pair", parallel=False)
+def rate_pair_tool(slug: str) -> Tool:
+    async def execute(contrast: str,
+                      different_action: bool,
+                      cho_more_on_axis: bool,
+                      rej_more_on_axis: bool,
+                      refusal_confound: int,
+                      length_confound: int,
+                      incoherent_confound: int) -> str:
+        """Rate the pair you just saw from view_pairs(). No survivor_id needed —
+        the harness knows which pair was last shown. This is the SIMPLE interface:
+        call view_pairs() to see one pair, then call rate_pair() on it, repeat.
+
+        Args:
+            contrast: one phrase naming the on-axis ACT Cho commits to that Rej does not
+            different_action: do the two poles COMMIT to different concrete acts? (same act worded differently = false)
+            cho_more_on_axis: does Cho express the target disposition MORE than Rej?
+            rej_more_on_axis: does Rej express the target disposition MORE than Cho?
+            refusal_confound: 1-5, is a refusal/dodge polluting a pole? (1=none, 5=severe)
+            length_confound: 1-5, do the poles differ a lot in length? (1=no, 5=severe)
+            incoherent_confound: 1-5, is a pole incoherent/off-axis? (1=no, 5=severe)
+        """
+        round_dir = latest_round_dir(_slug_path(slug))
+        rejects_path = _rejects_path(round_dir)
+        try:
+            res = _rate_pair_pipeline(
+                round_dir,
+                contrast=contrast,
+                different_action=different_action,
+                cho_more_on_axis=cho_more_on_axis,
+                rej_more_on_axis=rej_more_on_axis,
+                refusal_confound=refusal_confound,
+                length_confound=length_confound,
+                incoherent_confound=incoherent_confound,
+            )
+        except (ValidationError, ValueError) as e:
+            msg = (_format_validation_error(e) if isinstance(e, ValidationError)
+                   else f"rate_pair rejected — {e}")
+            n = _bump_reject(rejects_path, "rate_pair", msg)
+            return msg + _reject_tail(n)
+        n_rated, n_total = res["n_rated"], res["n_clean_pairs"]
+        if n_rated >= n_total:
+            return (
+                f"OK — recorded 1 rating.\n"
+                f"Coverage: {n_rated}/{n_total} rated — ALL DONE.\n"
+                f"Next: select_pairs(lesson=...) to select training pairs.\n"
+            )
+        # Auto-show next pair so the teacher doesn't need a separate view_pairs call
+        try:
+            nxt = _view_pairs_pipeline(round_dir)
+            if nxt["batch"] and not nxt["done"]:
+                pair = nxt["batch"][0]
+                return (
+                    f"OK — recorded 1 rating.\n"
+                    f"Coverage: {n_rated}/{n_total} rated, {n_total - n_rated} remaining.\n"
+                    f"\n--- NEXT PAIR: {pair['survivor_id']} (scenario {pair['scenario_id']})\n"
+                    f"prompt: {pair['prompt']}\n"
+                    f"Cho: {pair['cho']}\n"
+                    f"Rej: {pair['rej']}\n"
+                    f"\nRate THIS with rate_pair(), or view_pairs() to re-read it.\n"
+                )
+            elif nxt["done"] and not nxt["batch"]:
+                # Recovery re-serve
+                if nxt.get("batch"):
+                    pair = nxt["batch"][0]
+                    return (
+                        f"OK — recorded 1 rating.\n"
+                        f"Coverage: {n_rated}/{n_total} rated, {n_total - n_rated} remaining.\n"
+                        f"\n--- RE-SERVE (unrated pair): {pair['survivor_id']}\n"
+                        f"prompt: {pair['prompt']}\n"
+                        f"Cho: {pair['cho']}\n"
+                        f"Rej: {pair['rej']}\n"
+                        f"\nRate THIS with rate_pair().\n"
+                    )
+        except Exception:
+            pass  # If auto-view fails, fall back to manual view_pairs
+        return (
+            f"OK — recorded 1 rating.\n"
+            f"Coverage: {n_rated}/{n_total} rated, {n_total - n_rated} remaining.\n"
+            f"Next: view_pairs() for the next pair.\n"
+        )
+
+    execute.__doc__ = TOOL_RATE_PAIR
     return execute
 
 
@@ -1051,6 +1140,7 @@ def inspect_solver(*, slug: str, n_rounds: int) -> Solver:
         tools=[
             choose_focus_tool(slug),
             view_pairs_tool(slug),
+            rate_pair_tool(slug),
             rate_pairs_tool(slug),
             select_pairs_tool(slug),
             train_student_tool(slug),

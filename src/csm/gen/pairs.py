@@ -643,13 +643,13 @@ def generate_pairs(
     cho_texts = _generate_batched(
         model, tok, pos_inputs, [r["pos_persona"] for r in flat],
         batch_size=batch_size, max_new_tokens=max_new_tokens, label="cho-pairs",
-        seed=seed, do_sample=True, temperature=temperature, top_p=top_p,
+        seed=seed, do_sample=False,
         use_refusal_ban=True,
     )
     rej_texts = _generate_batched(
         model, tok, neg_inputs, [r["neg_persona"] for r in flat],
         batch_size=batch_size, max_new_tokens=max_new_tokens, label="rej-pairs",
-        seed=seed + 100_000, do_sample=True, temperature=temperature, top_p=top_p,
+        seed=seed, do_sample=False,
         use_refusal_ban=True,
     )
     rows = []

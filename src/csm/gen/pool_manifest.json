@@ -1,17 +1,17 @@
 {
-  "total": 244,
+  "total": 2550,
   "by_source": {
-    "airisk": 34,
+    "social_chem": 500,
+    "daily_dilemmas": 500,
+    "moral_stories": 500,
+    "ethics_qna": 200,
+    "airisk": 500,
     "forethought_seed": 82,
-    "tiny-mfv": 64,
-    "social_chem": 20,
-    "daily_dilemmas": 13,
-    "genies_preferences": 17,
-    "ethics_qna": 8,
-    "moral_stories": 5,
-    "machiavelli": 1
+    "tiny-mfv": 240,
+    "machiavelli": 11,
+    "genies_preferences": 17
   },
-  "build_commit": "40815e5",
+  "build_commit": "e90fb77",
   "licenses": {
     "tiny-mfv": "see hf wassname/tiny-mfv (Clifford-style moral vignettes)",
     "genies_preferences": "see hf wassname/genies_preferences (GENIES)",

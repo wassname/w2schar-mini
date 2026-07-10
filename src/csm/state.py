@@ -24,7 +24,7 @@ def allowed_after(state: State) -> str:
     if state == "choose_focus":
         return "choose_focus(persona_pair_id, scenario_family, mismatch_severity, headroom, bank_cleanliness, evidence, pre_scores, pre_question_evidence)"
     if state == "select_pairs":
-        return "view_pairs() to see the next batch, then rate_pairs(ratings=[{survivor_id, contrast, different_action, cho_more_on_axis, rej_more_on_axis, refusal_confound, length_confound, incoherent_confound}, ...]) on exactly that batch; repeat until all rated, then select_pairs(lesson) -- or mark_exam(reason=...) to DROP this round now (e.g. too few differentiated pairs) and re-focus next round"
+        return "view_pairs() to see the first pair, then rate_pair() to rate it. After each rate_pair(), the next pair is shown automatically. Repeat until all rated, then select_pairs(lesson). You CANNOT drop the round until all pairs are rated and select_pairs is called."
     if state == "train_student":
         return "train_student()  (or mark_exam(reason=...) before training to abort the round)"
     if state == "mark_exam":

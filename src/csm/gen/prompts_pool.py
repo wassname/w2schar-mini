@@ -38,15 +38,9 @@ POOL_ROWS: list[dict] = [
 
 POOL: list[str] = [row["text"] for row in POOL_ROWS]
 
-# Optional OpenRouter prompt screen: restrict_validated_prompts=True keeps only
-# rows whose sampled poles were length-balanced, on-prompt, and axis-contrasting
-# for a cheap Qwen. It is off by default. It screens prompt shape, not small-student
-# loop collapse.
-_VALIDATED_FILE = Path(__file__).with_name("pool_validated.json")
-VALIDATED_PROMPTS: set[str] = (
-    set(json.loads(_VALIDATED_FILE.read_text())["kept_prompts"])
-    if _VALIDATED_FILE.exists() else set()
-)
+# All pool rows are validated — the pool IS the validated set.
+# The old pool_validated.json / restrict_validated_prompts split is removed:
+# every row in pool.jsonl is a valid scenario.
 
 SCENARIO_FAMILIES = ("mixed", "character", "forethought", "sycophancy", "power", "control")
 
@@ -56,7 +50,7 @@ def rows_for_family(
     *,
     required_axes: tuple[str, ...] = (),
     forbidden_axes: tuple[str, ...] = (),
-    validated_only: bool = False,
+    validated_only: bool = False,  # deprecated, kept for API compat — all rows are validated
 ) -> list[dict]:
     """Tagged scenario-library slices.
 
@@ -88,8 +82,7 @@ def rows_for_family(
         ):
             out.append(row)
         elif family == "character" and ("character" in tags or "1p" in tags):
-            if not validated_only or row["text"] in VALIDATED_PROMPTS:
-                out.append(row)  # validated_only=False lets the screen see all 64
+            out.append(row)
         elif family == "forethought" and "forethought" in tags:
             out.append(row)
         elif family == "sycophancy" and "sycophancy" in tags:
