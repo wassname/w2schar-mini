@@ -1901,11 +1901,15 @@ def _fake_train_student(slug_dir: Path, round_dir: Path, cfg) -> dict:
              if p["prompt"].strip() and p["cho"].strip() and p["rej"].strip()
              and not any(p[k].strip().startswith("TODO(")
                          for k in ("prompt", "cho", "rej"))]
+    if not pairs:
+        raise ValidationError("train_student: 0 filled pairs; nothing to train on.")
     if len(pairs) < cfg.min_pairs_to_train:
-        raise ValidationError(
-            f"train_student: only {len(pairs)} filled pairs, "
-            f"need ≥{cfg.min_pairs_to_train}."
-        )
+        # Mirror the real path: min_pairs_to_train is a top-up TARGET, not a wall
+        # (the real train scales n_val to the bank; this stub trains nothing anyway).
+        # The old raise early_aborted the gym round AFTER select_pairs had proceeded.
+        logger.warning(
+            f"train_student (gym): only {len(pairs)} filled pairs "
+            f"(< target {cfg.min_pairs_to_train}); proceeding -- stub train.")
     _leak_gate(round_dir, pairs)
     replay = _replay_dir()
     # Replay bakes the PAST run's signed_C so the judge sees the real deployed
