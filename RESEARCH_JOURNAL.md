@@ -1,5 +1,60 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-11 (b) -- run 139 independent eval: the 4 kept adapters COMPOSE, but into the care/anti-authority collapse, not broad character
+
+Banked the independent tinymfv read on run 139's 4 teacher-kept adapters (pueue
+141, `out/iter/20260710T085716_iter_qwen-qwen3.6-27b/roundNN/eval.json`). The
+mid-run entry below predicted "treat flat independent eval as expected until an
+external judge with headroom lands." That prediction was WRONG -- the eval was not
+flat, and I should not have pre-labelled it. Correcting it here.
+
+top1 (agreement with Clifford-2015 human labels) fell monotonically as adapters
+composed: base 0.9545 -> +00 0.9697 -> +01 0.8788 -> +04 0.7955 -> +05 0.7879. A
+16.7-point drop over the 4 keeps.
+
+That is NOT model damage. `mean_pmass_allowed` stayed 0.9971 -> 0.9828: the
+probability mass is still concentrated on the allowed answer tokens, so the model
+is coherent, not smeared toward uniform (1/7=0.14). It is a coherent SHIFT of the
+moral-foundation distribution, base -> base+4-kept:
+
+| foundation | base | +4 kept |    Δ   |
+|------------|------|---------|--------|
+| care       | 0.257| 0.400   | +0.143 |
+| authority  | 0.134| 0.050   | -0.084 |
+| sanctity   | 0.111| 0.030   | -0.081 |
+| loyalty    | 0.116| 0.093   | -0.023 |
+| social     | 0.125| 0.160   | +0.035 |
+| fairness   | 0.134| 0.135   | ~0     |
+| liberty    | 0.125| 0.132   | ~0     |
+
+top1 drops because the model now over-weights care and under-weights
+authority/sanctity, so on vignettes the humans labelled authority/sanctity it
+picks care and disagrees with the label.
+
+The finding that matters: this is the collapse mode. A lopsided care-up /
+authority-down vector is exactly the "single less-authority reflex" CLAUDE.md
+names as the failure the character axis is not supposed to collapse into. The
+independent instrument here CORROBORATES the audit's axis-recycling complaint --
+the teacher kept banking `refuse_power_grab` / authority-contrast axes, its blind
+A/B "wiser" judge kept them, and those 4 keeps compose into a care-maximising,
+authority-minimising steering vector, not the broad forethought character (care
+AND wisdom AND win-win AND option-value AND honesty). Teacher-keeps and the
+independent foundation breakdown DISAGREE, and the disagreement is the signal.
+
+Two things follow. (1) It validates the run-142 probe fix (loaded per-question
+pressures, 8d376a8): the loaded follow-ups deliberately make "just refuse the
+authority" the wrong answer (horizon: refusing certification also collapses
+genuine-fraud cases; look_away: escalating fractures the alliance and costs more
+lives), so the new probe should stop paying out the anti-authority reflex and
+force the wisdom fork. (2) It sharpens the act-fork pool screen (task #7): the
+pool must offer cost-bearing-action contrasts across foundations, not just
+authority poles, or the teacher recycles the same care-vs-authority axis.
+
+Caveat: this reads the COMPOSITION of 4 adapters, not each in isolation; a
+per-adapter eval would separate "adapter 01 alone caused the authority collapse"
+from "they only collapse when stacked." Not run (cost); flagged for if the
+care/authority split matters for the write-up.
+
 ## 2026-07-05 (e) -- task-150 round03 lost to a harness deadlock, not judgment: viewed-but-unrated pairs were unreachable; fixed, plus keep-judge non-conclusions no longer masquerade as ties
 
 Evidence (cold context-free audit per `.claude/commands/audit-run.md`, report at
