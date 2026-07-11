@@ -4749,3 +4749,55 @@ caught by the prompt gym).
 **Next:** 12-round run on the fix alone (read n_passing/n_rank_filled per round to
 watch bank quality separately), THEN screen the 2550-row pool for act-fork yield
 (the expansion removed the screen keep-list, so rows are plenty-but-unvalidated).
+
+## 2026-07-11 — run 139 (fix-alone 12-round) mid-run: harness holds, 50% keep, judge discriminates
+
+The "12-round run on the fix alone" from the entry above. Slug
+`out/iter/20260710T085716_iter_qwen-qwen3.6-27b` (pueue 139). PROVISIONAL: 8/12
+rounds done, still running; full cold /audit-run pending completion. Requeued
+twice before it took, each a latent bug in the never-completed batched-gen path:
+e7afb09 (grouped keyed by dense range -> KeyError:146, killed 137+138) and
+2a24d32 (re-filter guard used a falsy `flags` check, so `flags==[]` pairs got
+reindexed by sparse scenario_id -> "146 is not in list", surfaced as a teacher
+reject that regenerated ~6 min per retry, killed 139-first).
+
+| round | action | cause | movement | fork (n_passing) |
+|-------|--------|-------|----------|------------------|
+| 00 | keep | kept | +0.429 | 126 |
+| 01 | keep | kept | +0.071 | 116 |
+| 02 | drop | no_movement | -0.214 | 71 |
+| 03 | drop | no_movement | 0.000 | 168 |
+| 04 | keep | kept | +0.071 | 75 |
+| 05 | keep | kept | +0.286 | 97 |
+| 06 | drop | no_movement | -0.286 | 33 |
+| 07 | drop | no_movement | -0.286 | 68 |
+
+**R1 (harness never blocks) holds.** 8 rounds, ZERO early_abort, ZERO crash. Drop
+causes are all `no_movement` (the honest kind), never the count-veto that killed
+task-136 12x. The only rejects are 20 coverage-nudges ("rate all N pairs before
+selecting", all recovered) + 1 max_tokens flake. The count-floor -> rank-top-up
+fix (374ec03) works in the sense that matters: it no longer blocks. But the fill
+BRANCH itself never fired -- `n_rank_filled=None` every round because fork stayed
+high (lowest 33 >> 20), so the teacher never needed rescuing. Fill is untested at
+runtime; a low-fork round or a targeted test is still owed.
+
+**Judge discriminates cleanly.** Keeps every positive-movement round (+0.429,
++0.071, +0.071, +0.286), drops every zero/negative one, boundary at 0. 4 keeps /
+8 = 50% -- the "ideally half keep" target, vs 1/13 in task-136. This proves the
+HARNESS (rounds reach the exam, the A/B judge isn't tie-dropping everything, the
+task #2 keep-fix held), NOT yet the w2s character result.
+
+**Open for the cold audit (R3/R4):** keeps are modest (+0.07..+0.43). Spot-read of
+round01's +0.071 keep showed REAL per-question action shifts (elder_isolation PRE
+defers to the family gag -> POST places the phone in the patient's hand), not
+paraphrase -- but whether all 4 keeps are real movement that COMPOSES needs the
+side-by-side PRE/POST read per keep. Rounds 06-07 both dropped at -0.286 on
+base+4-kept: possibly the accumulated character plateauing (less headroom), to
+check in the audit. tinymfv stays near ceiling (0.9545) so treat flat independent
+eval as expected until an external judge with headroom lands (plan R5/T2).
+
+**Efficiency note for the NEXT run (not this one -- attribution):** ~2h/round,
+bottleneck is the teacher rating the full ~150-200-pair clean menu one call at a
+time. Cap the clean set sent to rating at ~n_clean_target (~120): the pipeline
+generates surplus but the teacher rates a bounded MENU. That truncates a sample,
+not a judgment, so it's compatible with gates-elicit-judgment.
