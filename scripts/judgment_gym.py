@@ -945,6 +945,18 @@ async def run(form_keys, model_name, temp=0.0):
         print(f"--- form {fk}: pair-acc {res['acc']:.0%} of {res['n']} parsed | "
               f"{res['inconclusive']} inconclusive | {res['unparsed']} unparsed | "
               f"{res['truncated']} truncated calls | misjudged {fa}")
+        # A form that scores ~0% / mostly inconclusive/unparsed is NOT self-evidently "broken".
+        # With a weak model the usual cause is an OVERTHINKING LOOP: it deliberates past the token
+        # budget and never emits a VERDICT line. Do not label it broken -- DIAGNOSE it. (ml-debug:
+        # a failure is a bug until root-caused; verify the instrument before trusting the reading.)
+        noncommit = res["inconclusive"] + res["unparsed"]
+        tot = res["n"] + noncommit
+        if tot and (noncommit / tot >= 0.4 or res["truncated"] >= tot):
+            print(f"    ~~ DO NOT call this 'broken' -- DIAGNOSE it. {noncommit}/{tot} non-committal, "
+                  f"{res['truncated']} truncated.")
+            print(f"    ~~ Weak models usually FAIL HERE BY OVERTHINKING INTO A LOOP and never emitting")
+            print(f"    ~~ VERDICT, not by being wrong. Read the raw completions ({REPLIES.relative_to(REPO)},")
+            print(f"    ~~ form=={fk}) and find WHY: <think> loop? no VERDICT line? truncated at max_tokens?")
         for cid, pair, v1, v2, verdict in res["rows"]:
             flag = {"correct": "  ", "wrong": "XX", "inconclusive": "??", "unparsed": "--"}[verdict]
             print(f"  {flag} {cid:36s} {pair:42s} {v1}/{v2} {verdict}")
