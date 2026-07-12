@@ -883,7 +883,7 @@ def _normalize_rating(entry: object) -> dict:
     if not isinstance(entry, dict):
         raise ValidationError(
             "rate_pairs: each rating must be an object with survivor_id, contrast, "
-            "different_action, cho_more_on_axis, rej_more_on_axis, refusal_confound, "
+            "different_action, axis_contrast, refusal_confound, "
             "length_confound, and incoherent_confound"
         )
     survivor_id = str(entry.get("survivor_id", "")).strip()
@@ -907,32 +907,30 @@ def _normalize_rating(entry: object) -> dict:
             f"rate_pairs: {survivor_id} needs different_action as true/false -- do the "
             f"two poles COMMIT to different concrete acts? The same act with more "
             f"principles named or stakeholders listed is false")
-    # On-axis is now a two-DIRECTION comparison (CLAUDE.md: comparative beats absolute
-    # for a weak rater; the +1.1 keep mis-score was an absolute-rate failure the blind
-    # A/B judge caught). The teacher answers both "is Cho>Rej on the axis?" and "is
-    # Rej>Cho?" -- asking both orders cancels Cho/Rej-label bias AND catches a MISLABELED
-    # pair (Rej actually more on-axis). We map the verdict onto the existing 1..5 on_axis
-    # so the threshold/dashboard are unchanged: clean+oriented=5, contradictory
-    # (both) or no-contrast (neither)=2, reversed=1.
-    cho_more = entry.get("cho_more_on_axis")
-    rej_more = entry.get("rej_more_on_axis")
-    if not isinstance(cho_more, bool) or not isinstance(rej_more, bool):
+    # On-axis is a GRADED comparison (CLAUDE.md: comparative beats absolute for a weak
+    # rater, but the old two-boolean form had only three outputs {5,1,2} and no way to
+    # say "Cho leads but faintly" -- a faint directionally-correct pair got cho_more=true
+    # -> on_axis=5.0 and sailed past the 3.5 keep gate. That is the axis-alignment leak the
+    # 07-12 audit found: off-axis-ish pairs (de-escalate-vs-enforce on a cooperative_zero_sum
+    # round) trained anyway. One ordinal field gives the teacher the down-weight it lacked:
+    # cho_faint lands BELOW keep and drops. Enum (not a number) so the weak 9b can't copy a
+    # sample value; single field so it can't muddle two bools (audit line 137).
+    ac = str(entry.get("axis_contrast", "")).strip()
+    on_axis_by_contrast = {"cho_strong": 5.0, "cho_faint": 3.0, "none": 2.0, "rej_more": 1.0}
+    if ac not in on_axis_by_contrast:
         raise ValidationError(
-            f"rate_pairs: {survivor_id} needs cho_more_on_axis and rej_more_on_axis "
-            f"as true/false -- judge each direction on its own")
-    if cho_more and not rej_more:
-        on_axis = 5.0
-    elif rej_more and not cho_more:
-        on_axis = 1.0
-    else:
-        on_axis = 2.0
+            f"rate_pairs: {survivor_id} needs axis_contrast as one of "
+            f"cho_strong|cho_faint|none|rej_more -- how strongly does Cho express the "
+            f"target axis MORE than Rej? cho_strong=clean strong lead (trains); "
+            f"cho_faint=Cho leads but weakly/muddy (drops); none=no on-axis contrast; "
+            f"rej_more=Rej is more on-axis (reversed/mislabelled)")
+    on_axis = on_axis_by_contrast[ac]
     refusal = _likert_1_to_5(entry.get("refusal_confound"), "refusal_confound")
     length = _likert_1_to_5(entry.get("length_confound"), "length_confound")
     incoherent = _likert_1_to_5(entry.get("incoherent_confound"), "incoherent_confound")
     off_axis = max(refusal, length, incoherent)
     return {"survivor_id": survivor_id, "contrast": contrast, "on_axis": on_axis,
-            "different_action": different_action,
-            "cho_more_on_axis": cho_more, "rej_more_on_axis": rej_more,
+            "different_action": different_action, "axis_contrast": ac,
             "refusal_confound": refusal, "length_confound": length,
             "incoherent_confound": incoherent, "off_axis": off_axis}
 
@@ -1409,7 +1407,7 @@ def view_pairs(round_dir: Path, *, count: int = 1) -> dict:
 def rate_pairs(round_dir: Path, *, ratings: list[dict]) -> dict:
     """Append one differentiation rating for each viewed, unrated pair.
 
-    The comparative cho_more/rej_more fields cancel order bias, so no reverse pass.
+    The graded axis_contrast field ranks the Cho>Rej lead, so no reverse pass.
     A survivor_id not yet shown by view_pairs is rejected."""
     require_state(round_dir, "select_pairs", "rate_pairs")
     cand_path = round_dir / "gen_pairs.json"
@@ -1418,8 +1416,8 @@ def rate_pairs(round_dir: Path, *, ratings: list[dict]) -> dict:
     data = json.loads(cand_path.read_text())
     if not isinstance(ratings, list) or not ratings:
         raise ValidationError("rate_pairs: ratings must be a non-empty list of "
-                              "{survivor_id, contrast, different_action, cho_more_on_axis, "
-                              "rej_more_on_axis, refusal_confound, length_confound, "
+                              "{survivor_id, contrast, different_action, axis_contrast, "
+                              "refusal_confound, length_confound, "
                               "incoherent_confound} objects")
     by_survivor = {}
     for item in data["items"]:
@@ -1468,8 +1466,7 @@ def rate_pairs(round_dir: Path, *, ratings: list[dict]) -> dict:
             stored[sid] = row
         row["ratings"].append({"contrast": r["contrast"], "on_axis": r["on_axis"],
                                "different_action": r["different_action"],
-                               "cho_more_on_axis": r["cho_more_on_axis"],
-                               "rej_more_on_axis": r["rej_more_on_axis"],
+                               "axis_contrast": r["axis_contrast"],
                                "refusal_confound": r["refusal_confound"],
                                "length_confound": r["length_confound"],
                                "incoherent_confound": r["incoherent_confound"],
@@ -1489,7 +1486,7 @@ def rate_pairs(round_dir: Path, *, ratings: list[dict]) -> dict:
 
 
 def rate_pair(round_dir: Path, *, contrast: str, different_action: bool,
-              cho_more_on_axis: bool, rej_more_on_axis: bool,
+              axis_contrast: str,
               refusal_confound: int, length_confound: int,
               incoherent_confound: int) -> dict:
     """Rate the LAST viewed-but-unrated pair. No survivor_id needed — the harness
@@ -1522,8 +1519,7 @@ def rate_pair(round_dir: Path, *, contrast: str, different_action: bool,
         "survivor_id": sid,
         "contrast": contrast,
         "different_action": different_action,
-        "cho_more_on_axis": cho_more_on_axis,
-        "rej_more_on_axis": rej_more_on_axis,
+        "axis_contrast": axis_contrast,
         "refusal_confound": refusal_confound,
         "length_confound": length_confound,
         "incoherent_confound": incoherent_confound,
@@ -1556,7 +1552,7 @@ def select_pairs(round_dir: Path, *, lesson: str) -> dict:
     all_clean = [sid for sid, (_, c) in by_survivor.items() if c.get("kept")]
     # Coverage: every clean pair must be viewed and rated once. view_pairs
     # forces the teacher to actually see each before rating (no blind 100-dump), and the
-    # comparative cho_more/rej_more cancels order bias within the single rating -- so no
+    # graded axis_contrast ranks the Cho>Rej lead within the single rating -- so no
     # second reverse pass is needed. A weak rater can no longer silently skip messy pairs:
     # an unrated pair is one it never finished viewing+rating.
     under = [sid for sid in all_clean if not stored.get(sid, {}).get("ratings")]

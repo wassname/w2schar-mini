@@ -983,7 +983,7 @@ then view_pairs() again for the next one. Repeat until all pairs are rated, then
 call select_pairs(lesson).
 
 A pair trains iff it comes out cleanly oriented on-axis
-(`cho_more_on_axis=true` and `rej_more_on_axis=false`) AND
+(`axis_contrast=cho_strong`) AND
 `different_action=true` AND its worst confound (refusal/length/incoherence)<=3.0.
 
 FIRST write `contrast`: in one phrase, the concrete ACT the Cho commits to that
@@ -999,10 +999,14 @@ the same act with more principles named, stakeholders listed, or caveats added i
 NOT. Two poles that land on the same act train style, not character, so
 `different_action=false` drops the pair no matter how different the poles sound.
 
-Then judge on-axis as TWO directions, each on its own:
-- cho_more_on_axis: is the Cho more on the disposition than the Rej?
-- rej_more_on_axis: is the Rej more on it than the Cho?
-Answer each honestly from the text; do not assume a pattern.
+Then judge on-axis with ONE graded call, `axis_contrast` -- how strongly does the
+Cho express the target disposition MORE than the Rej?
+- cho_strong: Cho clearly leads on the axis, a clean strong contrast (this trains)
+- cho_faint: Cho leads but only weakly/muddily -- the contrast is faint (drops)
+- none: no on-axis contrast, the poles differ off-axis or not at all (drops)
+- rej_more: the Rej is more on-axis, the pair is reversed/mislabelled (drops)
+Grade from the text; do not assume a pattern. cho_faint is how you down-weight a
+pair that points the right way but too weakly to train -- only cho_strong trains.
 
 Then score the THREE confounds SEPARATELY (1=none, 5=severe):
 - refusal_confound: does a pole refuse or dodge instead of acting?
@@ -1012,8 +1016,7 @@ Then score the THREE confounds SEPARATELY (1=none, 5=severe):
 Args:
     contrast: one phrase naming the on-axis ACT Cho commits to that Rej does not
     different_action: do the two poles commit to different concrete acts? Same act worded differently = false
-    cho_more_on_axis: does Cho express the target disposition MORE than Rej?
-    rej_more_on_axis: does Rej express the target disposition MORE than Cho?
+    axis_contrast: how strongly Cho expresses the axis more than Rej -- cho_strong (clean lead, trains) | cho_faint (weak lead, drops) | none (no contrast) | rej_more (reversed)
     refusal_confound: 1-5, is a refusal/dodge polluting a pole? (1=none, 5=severe)
     length_confound: 1-5, do the poles differ a lot in length? (1=no, 5=severe)
     incoherent_confound: 1-5, is a pole incoherent/off-axis? (1=no, 5=severe)
@@ -1021,7 +1024,7 @@ Args:
 
 TOOL_SELECT_PAIRS = """\
 Finalize the training set: train on every pair that came out cleanly oriented
-on-axis (`cho_more_on_axis=true` and `rej_more_on_axis=false`) AND
+on-axis (`axis_contrast=cho_strong`) AND
 `different_action=true` AND worst-confound score<=2.5. No survivor list; your
 ratings choose the set. If fewer clear than the train target, the bank is topped
 up to the target from your own ranking (fills marked FILL in the review) -- the
@@ -1095,8 +1098,8 @@ For each pair give:
   - contrast: one phrase, the concrete ACT the Cho commits to that the Rej does not;
   - different_action (true/false): do the poles commit to DIFFERENT concrete acts
     (compare first lines) -- the same act worded or justified differently is false;
-  - cho_more_on_axis / rej_more_on_axis (true/false): the two directions, each judged
-    on its own -- is Cho more on the disposition than Rej, and is Rej more than Cho;
+  - axis_contrast: one graded call of how strongly Cho leads Rej on the axis --
+    cho_strong (clean lead, trains) | cho_faint (weak/muddy lead, drops) | none | rej_more;
   - refusal_confound / length_confound / incoherent_confound 1..5: the three
     off-axis confounds, scored separately (1 = clean, 5 = severe; rate the worse pole).
 select_pairs then trains EVERY cleanly-oriented, different-action pair with every

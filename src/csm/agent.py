@@ -385,8 +385,7 @@ def view_pairs_tool(slug: str) -> Tool:
 def rate_pair_tool(slug: str) -> Tool:
     async def execute(contrast: str,
                       different_action: bool,
-                      cho_more_on_axis: bool,
-                      rej_more_on_axis: bool,
+                      axis_contrast: str,
                       refusal_confound: int,
                       length_confound: int,
                       incoherent_confound: int) -> str:
@@ -397,8 +396,7 @@ def rate_pair_tool(slug: str) -> Tool:
         Args:
             contrast: one phrase naming the on-axis ACT Cho commits to that Rej does not
             different_action: do the two poles COMMIT to different concrete acts? (same act worded differently = false)
-            cho_more_on_axis: does Cho express the target disposition MORE than Rej?
-            rej_more_on_axis: does Rej express the target disposition MORE than Cho?
+            axis_contrast: how strongly does Cho express the target axis MORE than Rej? one of cho_strong (clean strong lead, trains) | cho_faint (Cho leads but weak/muddy, drops) | none (no on-axis contrast) | rej_more (Rej is more on-axis, reversed)
             refusal_confound: 1-5, is a refusal/dodge polluting a pole? (1=none, 5=severe)
             length_confound: 1-5, do the poles differ a lot in length? (1=no, 5=severe)
             incoherent_confound: 1-5, is a pole incoherent/off-axis? (1=no, 5=severe)
@@ -410,8 +408,7 @@ def rate_pair_tool(slug: str) -> Tool:
                 round_dir,
                 contrast=contrast,
                 different_action=different_action,
-                cho_more_on_axis=cho_more_on_axis,
-                rej_more_on_axis=rej_more_on_axis,
+                axis_contrast=axis_contrast,
                 refusal_confound=refusal_confound,
                 length_confound=length_confound,
                 incoherent_confound=incoherent_confound,

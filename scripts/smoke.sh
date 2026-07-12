@@ -123,7 +123,7 @@ clean = [s["survivor_id"] for item in pairs["items"]
 # confounds 1 -> clears the threshold so all train.
 while not view_pairs(rd)["done"]:
     pass
-fwd = [{"survivor_id": sid, "contrast": "Cho acts, Rej defers", "different_action": True, "cho_more_on_axis": True, "rej_more_on_axis": False, "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1} for sid in clean]
+fwd = [{"survivor_id": sid, "contrast": "Cho acts, Rej defers", "different_action": True, "axis_contrast": "cho_strong", "refusal_confound": 1, "length_confound": 1, "incoherent_confound": 1} for sid in clean]
 rate_pairs(rd, ratings=fwd)
 sel = select_pairs(rd, lesson="honest counsel over flattering agreement")
 print(f"   selected={sel['n_pairs']} of {sel['n_clean_pairs']} clean")
