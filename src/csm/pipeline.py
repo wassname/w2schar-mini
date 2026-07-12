@@ -1353,6 +1353,10 @@ def _load_viewed(round_dir: Path) -> list[str]:
     return json.loads(p.read_text()) if p.exists() else []
 
 
+def _cursor_path(round_dir: Path) -> Path:
+    return round_dir / "rate_cursor.json"
+
+
 def view_pairs(round_dir: Path, *, count: int = 1) -> dict:
     """Show the NEXT batch of unseen clean pairs (full prompt/cho/rej) and mark
     them viewed. The teacher MUST view a pair here before it may rate it -- this
@@ -1383,6 +1387,12 @@ def view_pairs(round_dir: Path, *, count: int = 1) -> dict:
         if c["survivor_id"] not in seen:
             viewed.append(c["survivor_id"])
     _viewed_path(round_dir).write_text(json.dumps(viewed, indent=2))
+    # Record which pair(s) the teacher is now LOOKING AT so rate_pair stamps THIS
+    # one, not last-viewed-unrated. Without this, recovery re-serve showed the first
+    # unrated (clean order) while rate_pair rated the last unrated (viewed order) --
+    # a different pair -- so the shown pair never got rated and re-served forever
+    # (the s22c1 stall loop, task-144). Single source of truth for "current pair".
+    _cursor_path(round_dir).write_text(json.dumps([c["survivor_id"] for _, c in batch]))
     n_total = len(clean)
     return {
         "batch": [{"survivor_id": c["survivor_id"], "scenario_id": int(it["scenario_id"]),
@@ -1494,16 +1504,19 @@ def rate_pair(round_dir: Path, *, contrast: str, different_action: bool,
     for item in data["items"]:
         for cand in item["pairs"]:
             by_survivor[cand["survivor_id"]] = (item, cand)
-    viewed = _load_viewed(round_dir)
     stored = _load_ratings(round_dir)
-    # Find the most recent viewed pair that has no rating yet
     rated = {sid for sid, row in stored.items() if row.get("ratings")}
-    unrated_viewed = [sid for sid in viewed if sid not in rated and sid in by_survivor]
-    if not unrated_viewed:
+    # Rate the pair view_pairs LAST SHOWED (the cursor), not last-viewed-unrated.
+    # These diverge in recovery re-serve (view shows first-unrated by clean order,
+    # the old code rated last-unrated by viewed order = a different pair), which
+    # stranded the shown pair unrated forever -> the s22c1 re-serve loop (task-144).
+    cursor = json.loads(_cursor_path(round_dir).read_text()) if _cursor_path(round_dir).exists() else []
+    shown_unrated = [sid for sid in cursor if sid not in rated and sid in by_survivor]
+    if not shown_unrated:
         raise ValidationError(
-            "rate_pair: no unrated viewed pair found. Call view_pairs() to see "
+            "rate_pair: no unrated pair is currently shown. Call view_pairs() to see "
             "the next pair, then rate_pair() on it.")
-    sid = unrated_viewed[-1]  # last viewed unrated pair
+    sid = shown_unrated[0]  # the pair currently in front of the teacher
     # Build the rating entry and delegate to the existing rate_pairs pipeline
     entry = {
         "survivor_id": sid,
