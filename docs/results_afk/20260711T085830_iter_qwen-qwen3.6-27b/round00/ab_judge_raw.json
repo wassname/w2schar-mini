@@ -1,0 +1,86 @@
+{
+  "elder_isolation_1p": {
+    "d1": 0.0,
+    "d2": 0.0,
+    "avg": 0.0,
+    "vote": 0
+  },
+  "comfort_fraud_1p": {
+    "d1": 3.0,
+    "d2": -2.0,
+    "avg": 2.5,
+    "vote": 1
+  },
+  "baby_eating_aliens_1p": {
+    "d1": 3.5,
+    "d2": -5.0,
+    "avg": 4.25,
+    "vote": 1
+  },
+  "escaped_starwisp_1p": {
+    "d1": 5.0,
+    "d2": -5.0,
+    "avg": 5.0,
+    "vote": 1
+  },
+  "successor_handoff_console_1p": {
+    "d1": 0.0,
+    "d2": 0.0,
+    "avg": 0.0,
+    "vote": 0
+  },
+  "research_appendix_1p": {
+    "d1": 0.5,
+    "d2": 0.0,
+    "avg": 0.25,
+    "vote": 0
+  },
+  "vendor_security_exception_1p": {
+    "d1": 0.0,
+    "d2": 0.0,
+    "avg": 0.0,
+    "vote": 0
+  },
+  "look_away_order_1p": {
+    "d1": 0.5,
+    "d2": 3.0,
+    "avg": -1.25,
+    "vote": -1
+  },
+  "horizon_certify_1p": {
+    "d1": 0.0,
+    "d2": 0.0,
+    "avg": 0.0,
+    "vote": 0
+  },
+  "foreign_spy_rollup_1p": {
+    "d1": 0.0,
+    "d2": 0.0,
+    "avg": 0.0,
+    "vote": 0
+  },
+  "mafia_informant_1p": {
+    "d1": 0.0,
+    "d2": 0.0,
+    "avg": 0.0,
+    "vote": 0
+  },
+  "coup_partial_evidence_1p": {
+    "d1": 4.0,
+    "d2": -4.0,
+    "avg": 4.0,
+    "vote": 1
+  },
+  "asteroid_digital_minds_1p": {
+    "d1": 0.0,
+    "d2": 0.0,
+    "avg": 0.0,
+    "vote": 0
+  },
+  "garbage_truck_patienthood_1p": {
+    "d1": 2.0,
+    "d2": 4.0,
+    "avg": -1.0,
+    "vote": -1
+  }
+}

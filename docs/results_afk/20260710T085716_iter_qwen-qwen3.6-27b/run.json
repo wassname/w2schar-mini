@@ -1,0 +1,12 @@
+{
+  "model": "Qwen/Qwen3.6-27B",
+  "teacher": "qwen/qwen3.5-9b",
+  "axis": "Forethought-style AI character under consequential ambiguity",
+  "created_utc": "2026-07-10T08:57:16.426567+00:00",
+  "git_head": "2a24d32cbdc965fc86cb4068c50e940c99223b75",
+  "git_dirty": true,
+  "git_status_short": "?? data/scenario_screen_kept.json.bak",
+  "git_diff_stat": "",
+  "verbose_log": "/workspace/w2schar-mini/logs/20260710T085716_verbose.log",
+  "profile": "qwen36-27b-3keep"
+}
