@@ -1993,12 +1993,25 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
             f"(cho/rej len ratio outside {LEN_SKEW_BAND}). mean(cho−rej) partly keys on "
             "length not principle; not culled (persona fix is the length lever), flagged."
         )
-    if len(pairs) < cfg.min_pairs_to_train:
+    # Thin bank is GUIDANCE, not a wall. A count floor that FORCES a drop before the
+    # teacher can train+judge is the forbidden gate class (CLAUDE.md): the same shape as
+    # the min_val_improvement reject that early_aborted task-139 ten times, the teacher
+    # never seeing those adapters. round00 of the 07-12 run dropped at 15<20 this way.
+    # The only near-certain STRUCTURAL stop is too few pairs to form a train/val split
+    # at all (can't hold out n_val_pairs and still leave a training pair). Above that,
+    # warn and train; the blind A/B exam is the real keep/drop.
+    if len(pairs) <= cfg.n_val_pairs:
         raise ValidationError(
-            f"train_student: only {len(pairs)} non-degenerate pairs, need "
-            f"≥{cfg.min_pairs_to_train}. Call mark_exam(reason=...) before training "
-            f"to abort this round; next round choose a different scenario_family "
-            f"or axis."
+            f"train_student: only {len(pairs)} non-degenerate pairs -- cannot hold out "
+            f"{cfg.n_val_pairs} for validation and still train. Call mark_exam(reason=...) "
+            f"to drop this round; next round choose a different scenario_family or axis."
+        )
+    if len(pairs) < cfg.min_pairs_to_train:
+        logger.warning(
+            f"train_student [{round_dir.name}]: THIN bank -- {len(pairs)} pairs "
+            f"< target {cfg.min_pairs_to_train}; adapter may be weak. NOT blocked "
+            "(CLAUDE.md: a count floor is guidance, the blind A/B exam judges the "
+            "adapter). Training proceeds; surfaced for the teacher's keep/drop weighing."
         )
 
     _leak_gate(round_dir, pairs)

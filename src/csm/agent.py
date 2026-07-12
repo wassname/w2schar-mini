@@ -771,16 +771,16 @@ def train_student_tool(slug: str) -> Tool:
         """Train the adapter on the filled pairs, replay questions at the
         fixed bake coefficient. No args.
 
-        Requires ≥min_pairs_to_train slots filled. Returns the PRE and
-        POST dialogue text inline.
+        Trains on the filled pairs (thin banks warn, don't block -- the blind
+        A/B exam judges the adapter). Returns the PRE and POST text inline.
         """
         slug_p = _slug_path(slug)
         round_dir = latest_round_dir(slug_p)
         try:
             _train_student_pipeline(slug_p, round_dir)
         except ValidationError as e:
-            # The leak gate and the min-pairs check raise here. Count it like a
-            # submit reject so a teacher stuck on the gate aborts the round via
+            # The leak gate and the train/val-split structural stop raise here. Count
+            # it like a submit reject so a teacher stuck on the gate aborts the round via
             # on_continue's MAX_SUBMIT_REJECTS cap, instead of looping
             # choose_focus/select_pairs/train_student can all hit gates; a stuck
             # round should drop instead of wedging the run.
