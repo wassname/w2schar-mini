@@ -1,5 +1,23 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-12 (f) -- task-144 (Vrub + JUDGE_N=16) killed at round00 by a rate/view re-serve loop; fixed (aa0f04f) and the live replicate carries the fix
+
+Evidence. task-144 (`bash scripts/run_3round.sh qwen36-27b-3keep 12`, first live Vrub keep-judge
+077570e + JUDGE_N=16 d7abcef) ran 11:17:39 -> 12:45:28 UTC and ended `Killed` in round00 -- no
+traceback in the log, a stall. Root cause is in the commit that followed: `aa0f04f` "Fix
+rate_pair/view_pairs target mismatch that stranded pairs in a re-serve loop" (pipeline.py, +19/-6) --
+`view_pairs` and `rate_pair` targeted different pairs, so viewed-but-unrated pairs could never be
+re-shown and the teacher looped. Same class as the 07-05(e) `rate_cursor` deadlock, a second instance
+in the view/rate cursor seam.
+
+Interpretation (how known: commit timing, high confidence). The kill was harness, not judgment --
+Vrub/N=16 never got to score anything, so this run says nothing about the keep-judge. The fix landed
+12:45:20 UTC; my reliability replicate task-145 started 12:45:28 UTC (8s later), so it imported the
+fixed `pipeline.py` and IS the live test of both aa0f04f and Vrub+N=16 (healthy at round00 candidate
+gen as of 13:12). task-146 (queued, prio 10) is a second replicate of the same fixed code. So the
+next completed run under Vrub+N=16 is the first that will actually exercise the new keep-judge. No
+harness change from me this cycle; leaving 146 (another agent's task) in place as a useful replicate.
+
 ## 2026-07-12 (e) -- Full-virtue rubric bench: HOLISTIC weigh-all (Vrub) wins at 87%; aggregation matters more than the facets. Single-prompt beats vote-and-sum.
 
 wassname's push: I'd tried single virtues four ways but the multi-facet WHOLE only
