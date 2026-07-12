@@ -1,5 +1,42 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-12 (h) -- axis-alignment leak root-caused and fixed: graded axis_contrast enum replaces the {5,1,2} two-boolean map; real 9b uses the new cho_faint down-weight (smoke-prompts verified); restarted the run to carry it
+
+Root cause (from the 07-12(g) deep audit of task-145 round01, `just thoughts`). The teacher
+repeatedly flagged pairs "weak on the training axis" (cooperative_zero_sum round, but many pairs were
+generic de-escalate-vs-enforce) yet trained them anyway. Why: the on-axis rating was two booleans
+cho_more_on_axis / rej_more_on_axis mapping to on_axis in {5,1,2} (pipeline `_normalize_rating`) --
+a faint directionally-correct pair got cho_more=true -> **on_axis=5.0** and sailed past the
+ON_AXIS_KEEP=3.5 gate. There was no value for "Cho leads but faintly", so the teacher had no way to
+down-weight the off-axis-ish pairs it could clearly see. The two bools also cost it reasoning to
+disambiguate (audit thoughts line 137: "both poles on-axis at opposite ends still means rej_more=false").
+
+Fix (0352677). One graded enum `axis_contrast`: cho_strong=5.0 (trains) | cho_faint=3.0 (drops,
+below gate) | none=2.0 | rej_more=1.0. Single field (easier than two bools), enum not a number (weak
+9b can't copy a sample value). 25 refs updated across pipeline.py / agent.py / prompts.py + smoke.sh.
+
+Verification (this is the part the 07-05 freehand-audit lesson demands, not just exit 0):
+- `just smoke` (free, full pipeline) PASS -- plumbing accepts axis_contrast end-to-end.
+- `just smoke-prompts 1` (real qwen3.5-9b teacher) -- FIRST attempt silently failed (no
+  OPENROUTER_API_KEY in my shell; `tee` masked just's exit 1 as 0 -- caught it by reading the log, not
+  trusting the code). Re-ran with the key sourced from `.env`. Real-teacher result
+  (`out/iter/20260712T135532_iter_wassname-qwen3-5lyr-tiny-random/round00`): the 9b emitted VALID
+  enums -- one `cho_strong` (on_axis=5.0) and one `cho_faint` (on_axis=3.0), **0 schema rejects**, and
+  select filtered correctly: 2 clean, n_passing=1 (the cho_faint pair dropped below the 3.5 gate). The
+  weak teacher USED the new down-weight. Small n (tiny profile = 2 pairs) but real weak-model evidence
+  the form is followable.
+
+Restart (per user "do the plan, then restart"). Killed task-145 (old code, healthy but no
+axis_contrast), removed the stale-label 146, queued task-146 (prio 20, full fix set: axis_contrast
+0352677 + rate_cursor aa0f04f + thin-bank e097783 + Vrub JUDGE_N=16) and task-147 (replicate). 146
+started 14:04:29 UTC, 13 min after the 0352677 commit, so it imports the fix. GPU busy.
+
+Deferred: task #100 (parallelize+ensemble the pair-rating into a batched judge like mark_exam) --
+the 148-pair grind is real (round01 rated 148 serially) but it's a big teacher-facing refactor
+(removes the agent-loop rating tools, new judge prompt, dashboard, brief rewrite). Restarting into a
+half-tested version of that blind-AFK risks burning the window on a broken run; the grind is slow, not
+broken (rate_cursor already killed the pathological loop). Left tracked for a supervised cycle.
+
 ## 2026-07-12 (g) -- rate_cursor fix HOLDS on the live replicate (0 re-serve loops); the real recurring blocker is pair STARVATION, and the min_pairs count-wall that force-dropped it is now guidance (e097783)
 
 Evidence (task-145, the fixed-code replicate; `out/iter/20260712T124539_iter_qwen-qwen3.6-27b`):
