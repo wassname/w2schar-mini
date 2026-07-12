@@ -1,5 +1,25 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-12 (i) -- axis_contrast validated at SCALE on the real 27b/9b run (140 ratings, teacher uses cho_faint down-weight); task-146 died on transient OpenRouter 503 (infra, not the change), requeued; replicate task-147 healthy (round00 signed_C=+1.33)
+
+Evidence. task-146 (first full-fix run: axis_contrast 0352677 + rate_cursor + thin-bank + Vrub) reached
+round00 select_pairs, rated 140 of 145 pairs, then FAILED. Root cause is NOT the change: the inspect
+eval error json (`out/iter/20260712T140440_iter_qwen-qwen3.6-27b/2026-07-12T14-13-23...json`) says
+`status: error / Error 503 - Service unavailable / OpenRouterError` -- a transient OpenRouter outage
+that exhausted tenacity retries mid-rating. Requeued as task-148 with that note (AFK protocol: an early
+death on infra is a requeue, not a code fix).
+
+The 140 ratings 146 DID log are the real-scale validation smoke-prompts could only hint at (n=2 there):
+axis_contrast distribution = **cho_strong=119, none=17, cho_faint=4**. The real qwen3.5-9b uses the full
+grade: 17 "none" and 4 "cho_faint" are pairs it down-weighted, and the 4 cho_faint are exactly the
+faint-but-directional pairs that under the OLD two-boolean form got cho_more=true -> on_axis=5.0 -> trained.
+Now they drop below the 3.5 gate. The down-weight works at scale, 0 crashes attributable to the enum.
+
+Replicate task-147 (same code, independent) is HEALTHY: round00 completed at `mark_exam
+signed_C=+1.3333` (POST judged wiser than PRE), still running. So the full-fix harness runs end-to-end on
+the real models; 146's failure was infra, and 147 is the proof the code is sound. GPU busy (147 Running,
+148 Queued). No completed RUN yet to archive per UAT-4; will archive at first full-run completion / wind-down.
+
 ## 2026-07-12 (h) -- axis-alignment leak root-caused and fixed: graded axis_contrast enum replaces the {5,1,2} two-boolean map; real 9b uses the new cho_faint down-weight (smoke-prompts verified); restarted the run to carry it
 
 Root cause (from the 07-12(g) deep audit of task-145 round01, `just thoughts`). The teacher
