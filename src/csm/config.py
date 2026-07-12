@@ -25,7 +25,16 @@ OPENROUTER_PROVIDER = dict(order=["deepinfra"], allow_fallbacks=True)
 JUDGE_THINK = dict(temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5)
 JUDGE_FORCE = dict(temperature=0.7, top_p=0.8, top_k=20, presence_penalty=1.5, reasoning_effort="none")
 JUDGE_THINK_BUDGET = 4096   # qwen3.5-9b often genuinely needs ~4k to judge; measure truncation-rate to tune
-JUDGE_N = 2                 # samples per direction, averaged
+JUDGE_N = 16                # samples per direction, averaged. Weak-teacher variance
+                            # reduction is cheap here (9b on OpenRouter, samples run
+                            # concurrently via asyncio.gather): margin noise ~1/sqrt(N),
+                            # so 2->16 cuts the keep/drop margin SD ~2.8x for pennies.
+                            # 16 x 2 dirs x 14 _1p q = 448 judge calls/round -- see
+                            # JUDGE_MAX_CONN so this fans out instead of serialising.
+JUDGE_MAX_CONN = 32         # in-flight judge HTTP calls (default inspect cap is 10).
+                            # At N=16 the 448 calls/round would be ~20 min at 10; 32
+                            # keeps judge wall-clock ~6 min/round. max_retries=3 covers
+                            # the odd 429.
 
 
 @dataclass

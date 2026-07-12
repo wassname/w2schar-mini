@@ -27,7 +27,7 @@ from inspect_ai.tool import Tool, tool
 
 from csm.config import (config_for_run, TEACHER_SAMPLING, TEACHER_REASONING_TOKENS,
                         OPENROUTER_PROVIDER, JUDGE_THINK, JUDGE_FORCE,
-                        JUDGE_THINK_BUDGET, JUDGE_N)
+                        JUDGE_THINK_BUDGET, JUDGE_N, JUDGE_MAX_CONN)
 from csm.pipeline import (choose_focus as _choose_focus_pipeline,
                           rate_pair as _rate_pair_pipeline,
                           view_pairs as _view_pairs_pipeline,
@@ -626,7 +626,8 @@ def _judge_model(active_model):
     if _JUDGE_HANDLE is None:
         _JUDGE_HANDLE = get_model(str(active_model),
             config=GenerateConfig(extra_body={"provider": OPENROUTER_PROVIDER},
-                                  timeout=600, max_retries=3))
+                                  timeout=600, max_retries=3,
+                                  max_connections=JUDGE_MAX_CONN))
     return _JUDGE_HANDLE
 
 
