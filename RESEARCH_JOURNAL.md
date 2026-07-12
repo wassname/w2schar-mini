@@ -1,5 +1,31 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-12 (g) -- rate_cursor fix HOLDS on the live replicate (0 re-serve loops); the real recurring blocker is pair STARVATION, and the min_pairs count-wall that force-dropped it is now guidance (e097783)
+
+Evidence (task-145, the fixed-code replicate; `out/iter/20260712T124539_iter_qwen-qwen3.6-27b`):
+- rate_cursor fix (aa0f04f) confirmed: `grep -c "NEVER RECORDED"` over the whole 145 log = **0**.
+  No re-serve spin this run. The s22c1 loop is gone.
+- round00 still ended `early_abort`, but NOT from the loop -- from pair STARVATION. This round the
+  student generated only **15** clean pairs (n_rated=15, 9 passes, 14 different_action_all), and
+  train_student hard-raised `only 15 non-degenerate pairs, need >=20` -> forced drop before any
+  training. next_focus=skill_people_over_orders. round01 now healthy at choose_focus / on-policy
+  rej-pair gen (the neg persona produces a proper "crush dissent through terror" reject pole).
+
+Interpretation (high confidence: reject log is explicit). The 20-floor is the forbidden gate class
+(CLAUDE.md) -- same shape as the min_val_improvement reject that early_aborted task-139 ten times:
+a numeric count that force-drops a round before the teacher trains+judges. 15 clean pairs is well
+above the TRUE structural minimum (need only > n_val_pairs=4 to form a train/val split), so a 15-pair
+adapter would have trained fine; the teacher just never got to see it. Fix e097783: hard-stop only at
+len<=n_val_pairs (can't split), else loguru.warn THIN bank and train; the blind A/B exam is the real
+keep/drop. `just smoke` PASS. 145 runs the OLD code so its rounds still hard-drop <20; task-146
+(queued) imports the fix and is the first run whose thin rounds will train.
+
+Note on "why grinding, not parallel" (user Q): the JUDGE_N=16 parallel+averaged ensemble is the
+KEEP-JUDGE (mark_exam, agent.py:689/730) only. Pair RATING (rate_pair during select_pairs) is the
+weak teacher's sequential react tool-loop by design (force-coverage: look at each pair's full text),
+so it grinds one pair at a time -- not ensembled. Parallelising the rating is possible but changes
+the w2s semantics (the teacher's own curation loop is what's under test), so flagged not changed.
+
 ## 2026-07-12 (f) -- task-144 (Vrub + JUDGE_N=16) killed at round00 by a rate/view re-serve loop; fixed (aa0f04f) and the live replicate carries the fix
 
 Evidence. task-144 (`bash scripts/run_3round.sh qwen36-27b-3keep 12`, first live Vrub keep-judge
