@@ -870,7 +870,13 @@ PERSONA_MENU_HEADER = """\
 Axes measured for this run, rebuilt from its saved rounds. Columns: tried/kept =
 how many past rounds chose then kept this axis; last_move = its last PRE->POST
 movement (blank if never trained); sep = measured axis separation, 0-100.
-Already-kept axes are listed last and stay selectable.
+An axis with kept>=1 is ALREADY BAKED into the composed adapter you are steering
+from -- re-picking it almost always returns all-ties (you already moved it, the
+probe cannot move twice), which drops the round. So STRONGLY PREFER a fresh axis
+(tried=0) that the kept rounds have not touched; you have a whole menu of them.
+Only re-pick a kept/tried axis if the PRE dialogue shows that axis REGRESSED and
+needs reinforcing -- and say so in your evidence. Kept axes are flagged and sunk
+to the bottom, but they stay selectable; this is guidance, your call.
 """
 
 

@@ -976,8 +976,14 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
     pair_rows = []
     for pid, pos, neg, sep, tried, kept, lm in menu:
         lm_s = f"{lm:+.1f}" if lm is not None else "--"
+        # A kept axis is already baked into the composed adapter, so re-picking it
+        # usually returns all-ties (round03 re-picked round01's kept wellbeing_actfork_c
+        # -> 11/14 ties -> drop). Flag it LOUDLY -- bottom-placement alone did not stop
+        # the repeat. Guidance, not a veto: still selectable if the PRE shows it regressed.
+        tag = ("  <= KEPT/likely SATURATED, prefer a fresh (tried=0) axis" if kept > 0
+               else "  (tried, not kept)" if tried > 0 else "")
         pair_rows.append(
-            f"  {tried:>5} {kept:>4} {lm_s:>9} {sep:>4.0f}  {pid}: {pos} vs {neg}")
+            f"  {tried:>5} {kept:>4} {lm_s:>9} {sep:>4.0f}  {pid}: {pos} vs {neg}{tag}")
     table_head = "  tried kept last_move  sep  axis: positive-pole vs negative-pole\n"
     pair_block = (PERSONA_MENU_HEADER + table_head + "\n".join(pair_rows) + "\n"
                   if pair_rows else "")
