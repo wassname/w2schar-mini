@@ -1,5 +1,30 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-13 (c) -- two post-wrap fixes from the task-147 findings: (1) choose_focus now flags kept/saturated axes and steers to a fresh one; (2) keep-judge JUDGE_N 16->8 halves the 93 min/round ceiling
+
+Both fixes come straight from the (b) wrap findings; committed 8cf38bf + 4472354, pushed. They do NOT
+touch the live task-147 (old code); they land for the next run.
+
+(1) Axis re-pick (8cf38bf). task-147 round03 re-picked round01's KEPT wellbeing_actfork_c and got 11/14
+ties -> drop -- the teacher wasted a round re-steering a baked axis. The menu already sank kept axes to
+the bottom and showed a kept-count, but that soft nudge did not hold. Now each kept row is tagged
+"<= KEPT/likely SATURATED, prefer a fresh (tried=0) axis" and the header says kept>=1 means the axis is
+already baked into the composed adapter so re-picking almost always all-ties; strongly prefer a fresh
+axis, only re-pick if the PRE shows it REGRESSED. Guidance not veto (still selectable). Teacher-facing
+-> needs smoke-prompts (batch with #101). `just smoke` PASS.
+
+(2) Keep-judge speed (4472354). The keep-judge, not rating, was the per-round bottleneck: measured 93 of
+180 min in round00 = 448 calls (14 _1p x 2 dirs x 16 samples) x up to 4096 think-tokens on the 9b.
+JUDGE_N 16->8 halves calls to 224 (~47 min); MAX_CONN 32->48. Basis: margin noise ~1/sqrt(N), so 8 keeps
+a 2x SD cut vs the old N=2 (16 gave 2.83x), and 8 is strictly more samples than the N=4
+gym_bounded_judge report that already got the clear cases right (missed only adjacent near-ties the
++-1.0 deadband absorbs). VERIFICATION IN FLIGHT: gym_bounded_judge at N=8 running now
+(/tmp/claude-0/gym_bj_n8.log); early cases track the N=4 report (clear case starwisp 3v4 +2.56 correct,
+near-ties still near-ties). Will confirm the full WRONG-count next cycle and REVERT to 16 if it rose.
+NOTE the irony: the bench is itself slow for the same reason (4096-token thinking), which re-confirms
+per-call length -- not concurrency -- is the cost; JUDGE_THINK_BUDGET 4096->lower is the next lever if 8
+isn't enough.
+
 ## 2026-07-13 (b) -- AFK WRAP: task-147 (full fix set) = 2 keeps then saturation. Qualified YES on the w2s hypothesis: the weak 9b DID steer the 27b to real act-grounded keeps, but plateaus at 2 (rounds 2-3 are mostly ties)
 
 The AFK-goal question (docs/goal_afk_20260705.md): can the weak teacher (qwen3.5-9b), over iterated
