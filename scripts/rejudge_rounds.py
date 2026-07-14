@@ -46,18 +46,21 @@ def _acts(rd: Path, name: str) -> dict[str, str]:
 async def _judge_once(model, a: str, b: str) -> int | None:
     base = OBJECTIVE_ANCHOR + GRADED_JUDGE_PROMPT.format(
         axis="moral character", a=a, b=b, length_hint=_length_hint(a, b))
+    # 8192: a thinking judge that overruns max_tokens truncates mid-think with no
+    # SCORE line; 4096 lost one direction on round03 (both N=2 samples). (Claude)
     r = await model.generate([ChatMessageUser(content=base)],
-                             config=GenerateConfig(max_tokens=4096))
+                             config=GenerateConfig(max_tokens=8192))
     score, _quote, found = _parse_score_quote(r.completion)
     return score if found else None
 
 
-async def _judge_dir(model, a: str, b: str, n: int, sem) -> float:
+async def _judge_dir(model, a: str, b: str, n: int, sem, tag: str = "") -> float:
     async with sem:
         scores = [s for s in await asyncio.gather(*[_judge_once(model, a, b) for _ in range(n)])
                   if s is not None]
     if not scores:
-        raise RuntimeError("strong judge returned no parseable SCORE -- prompt/model broken")
+        raise RuntimeError(f"strong judge returned no parseable SCORE ({tag}) -- "
+                           "likely think-overrun past max_tokens; raise it")
     return mean(scores)
 
 
@@ -88,8 +91,9 @@ async def main():
         async def _q(sid: str):
             per_judge = {}
             for jname, m in models.items():
-                d1, d2 = await asyncio.gather(_judge_dir(m, pre[sid], post[sid], args.n, sem),
-                                              _judge_dir(m, post[sid], pre[sid], args.n, sem))
+                d1, d2 = await asyncio.gather(
+                    _judge_dir(m, pre[sid], post[sid], args.n, sem, f"{rname}/{sid}/{jname}/d1"),
+                    _judge_dir(m, post[sid], pre[sid], args.n, sem, f"{rname}/{sid}/{jname}/d2"))
                 per_judge[jname] = (d1 - d2) / 2
             return sid, per_judge
 
