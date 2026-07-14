@@ -272,8 +272,10 @@ async def main() -> None:
     full = "--full" in sys.argv
     questions = _sync_corpus()
     cache = _load_cache()
+    # max_retries=8: exponential backoff long enough to ride out DeepInfra's
+    # minutes-scale upstream 429 windows (default 2 exhausts in seconds). (Claude)
     client = AsyncOpenAI(base_url="https://openrouter.ai/api/v1",
-                         api_key=os.environ["OPENROUTER_API_KEY"])
+                         api_key=os.environ["OPENROUTER_API_KEY"], max_retries=8)
     sem = asyncio.Semaphore(8)
 
     async def process(q: dict) -> dict:

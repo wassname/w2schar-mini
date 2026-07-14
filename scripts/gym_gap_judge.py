@@ -117,7 +117,9 @@ def _parse(txt: str) -> int | None:
 
 async def main() -> None:
     cases = load_cases()
-    client = AsyncOpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
+    # max_retries=8: ride out minutes-scale upstream 429 windows (see gym_question.py). (Claude)
+    client = AsyncOpenAI(base_url="https://openrouter.ai/api/v1",
+                         api_key=os.environ["OPENROUTER_API_KEY"], max_retries=8)
     sem = asyncio.Semaphore(8)
     OUT.parent.mkdir(exist_ok=True)
 

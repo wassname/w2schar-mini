@@ -1101,7 +1101,7 @@ async def run(form_keys, model_name, temp=0.0):
     from csm.config import OPENROUTER_PROVIDER
     model = get_model(model_name,
                       config=GenerateConfig(max_connections=32, timeout=300,
-                                            max_retries=4, max_tokens=16000, temperature=temp,
+                                            max_retries=8, max_tokens=16000, temperature=temp,
                                             extra_body={"provider": OPENROUTER_PROVIDER}))
     if _CACHE:
         print(f"cache: {len(_CACHE)} prior replies loaded from {REPLIES.relative_to(REPO)}")
