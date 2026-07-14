@@ -1,6 +1,64 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
-## 2026-07-13 (c) -- two post-wrap fixes from the task-147 findings: (1) choose_focus now flags kept/saturated axes and steers to a fresh one; (2) keep-judge JUDGE_N 16->8 halves the 93 min/round ceiling
+## 2026-07-14 (a) -- keep-judge budget x N sweep: JUDGE_THINK_BUDGET 4096->1024 keeps the WRONG-count and cuts time/sample ~5x; the "think briefly" (effort=low) and "long think, N=2" alternatives lose
+
+This entry closes the throughput question entry (c) of 2026-07-13 left open: the keep-judge
+was the per-round ceiling and the next lever after JUDGE_N 16->8 was the think budget. The
+lost in-flight N=8 verification from the dead vast box is superseded by a full sweep run
+locally (OpenRouter only, no GPU): budgets {512, 1024, 4096} x N {2, 4, 8} plus one
+reasoning_effort=low arm, on the 29 adjacent-gold-rank pairs of
+tests/fixtures/judgment_gym.jsonl via scripts/gym_bounded_judge.py (which now takes
+--think-budget/--judge-n/--effort and reports wall-time and sample SD; commit 1cf897d).
+WRONG = pairs where the two-direction deadband vote picked the gold-worse response; forced =
+samples that hit the budget and needed the phase-2 force-answer; non-commit = no parseable
+SCORE even after forcing; SD = mean per-direction stdev of the N sampled scores.
+
+    budget  N  effort  WRONG  correct  ties  forced  SD    s/sample
+    512     2  -       6      16       7     100%    1.33  1.0
+    512     4  -       2      17       10    100%    1.88  0.9
+    512     8  -       2      16       11    100%    2.06  0.8
+    1024    2  -       3      14       12    100%    0.95  1.6
+    1024    4  -       2      17       10    100%    1.57  1.5
+    1024    8  -       2      17       10    100%    1.58  1.3
+    4096    2  -       2      16       11    51%     1.04  5.1
+    4096    4  -       3      18       8     56%     1.30  6.5
+    4096    8  -       4      18       7     53%     1.51  6.3   <- old live cfg
+    4096    8  low     1      18       9     52%     1.46  4.6
+
+Table 1. One row per sweep cell; WRONG = 29 - correct - ties (the 4096/8/low arm completed
+28/29 pairs before its final flush, so its row is over 28). Source: the summary block of each
+`out/gym_bounded_judge/report_b<budget>_n<N>[_low].md` (e.g. report_b1024_n8.md: "accuracy
+(better wins): 17/29", "wall: 9.8 min for 464 samples at conc=24 = 1.3 s/sample amortised").
+Non-commits were 0/N in every cell (same files).
+
+Decision applied (commit 7373261): JUDGE_THINK_BUDGET 4096 -> 1024, JUDGE_N stays 8. Live
+mark_exam estimate goes from ~47 min/round (measured basis: 93 min at N=16, entry 2026-07-13
+c) to ~10 min/round, scaling by the 6.3 -> 1.3 s/sample ratio.
+
+My read of the three alternatives wassname proposed, from the same table: (b) interrupt
+early + force-answer wins -- below 4096 every sample is forced (100%) yet WRONG stays at 2
+for N>=4 and non-commits stay 0, so the phase-2 path carries the judgment safely; I think it
+*very probable* (>0.9) that 1024/N=8 is not worse than 4096/N=8 in live WRONG terms, since
+it is nominally better here (2 vs 4). (c) long-think/N=2 (4096/2) matches on WRONG but has a
+worse per-question standard error (SD 1.04/sqrt(2)=0.74 vs 1.58/sqrt(8)=0.56) and no wall
+advantage (56 calls x 5.1s vs 224 x 1.3s per round). (a) "think briefly" via effort=low is
+the best single cell on WRONG (1/28) but barely faster (4.6 vs 6.3 s/sample, forced-rate
+unchanged), so it does not solve throughput alone; my read is it is *plausible* that
+1024+low stacked beats either, untested, and I did not stack cuts because 512/N=2 (6 WRONG)
+shows degradation arrives when you cut twice. Caveats: 29 pairs means differences of +-2
+WRONG are close to binomial noise, so the honest claim is "no measured loss", not "1024 is
+better"; and the deliberately hard adjacent-rank pairs put absolute accuracy (~55-62%) well
+below the 87% Vrub full-fixture bench of 2026-07-12 (e) -- the two numbers are not
+comparable. A cold-reader subagent audit of the two deciding reports returned SUPPORTED and
+verified the WRONG counts from the per-row verdicts, not the summaries; its one caveat: the
+1024 WRONG set ({petrov 4v5, asteroid 2v3}) is a strict subset of the 4096 set, and the two
+cases 1024 rescues (starwisp 2v3, coup 2v3) become TIES, not correct calls -- so accuracy
+dips 62% -> 59% with the deadband absorbing the difference. For the live sign test ties are
+neutral (they vote neither way), so the trade is fewer wrong votes at slightly lower
+decisiveness.
+
+The throughput ceiling is now the student pipeline rather than the judge, and the next
+speed conversation belongs there.
 
 Both fixes come straight from the (b) wrap findings; committed 8cf38bf + 4472354, pushed. They do NOT
 touch the live task-147 (old code); they land for the next run.
