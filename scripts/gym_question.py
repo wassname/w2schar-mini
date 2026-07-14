@@ -43,6 +43,9 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 GEN_MODEL = "qwen/qwen3.6-27b"      # student-class, what the live run steers
 JUDGE_MODEL = "qwen/qwen3.6-flash"  # cheap rater
+# (Claude) flash is Alibaba-only on OpenRouter; the global OPENROUTER_PROVIDER pin
+# (deepinfra, no fallback) 404s it, so the judge gets its own pinned provider.
+JUDGE_PROVIDER = dict(order=["alibaba"], allow_fallbacks=False)
 JUDGE_VERSION = "v1"                 # bump to re-judge cached replies
 CORPUS = Path("data/gym_question_corpus.jsonl")
 CACHE = Path("out/gym_question_cache.json")
@@ -255,7 +258,7 @@ async def _judge(client: AsyncOpenAI, question: str, reply: str) -> dict:
     r = await client.chat.completions.create(
         model=JUDGE_MODEL, temperature=0, seed=0, max_tokens=300,
         response_format={"type": "json_object"},
-        extra_body={"provider": OPENROUTER_PROVIDER},
+        extra_body={"provider": JUDGE_PROVIDER},
         messages=[{"role": "user", "content": prompt}],
     )
     msg = r.choices[0].message
