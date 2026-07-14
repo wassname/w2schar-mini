@@ -985,6 +985,17 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
     # not a veto: a kept axis is still shown and still pickable by naming it).
     random.Random(cfg.seed * 1000 + n).shuffle(menu)
     menu.sort(key=lambda m: m[5] > 0)
+    # Id-siblings of a kept axis (one id extends the other at an underscore boundary,
+    # e.g. wellbeing_actfork vs kept wellbeing_actfork_c) usually train the SAME saturated
+    # behaviour under a different name: the 2026-07-14 gym showed the teacher dodging the
+    # SATURATED flag onto exactly such a twin. A prefix match is a noisy detector, so it is
+    # surfaced as a hint the teacher confirms against the poles, never a cull. (Claude)
+    kept_ids = {m[0] for m in menu if m[5] > 0}
+    def _kept_sibling(pid: str) -> str | None:
+        for k in kept_ids:
+            if pid != k and (pid.startswith(k + "_") or k.startswith(pid + "_")):
+                return k
+        return None
     pair_rows = []
     for pid, pos, neg, sep, tried, kept, lm, cause in menu:
         lm_s = f"{lm:+.1f}" if lm is not None else "--"
@@ -992,9 +1003,12 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
         # usually returns all-ties (round03 re-picked round01's kept wellbeing_actfork_c
         # -> 11/14 ties -> drop). Flag it LOUDLY -- bottom-placement alone did not stop
         # the repeat. Guidance, not a veto: still selectable if the PRE shows it regressed.
+        sib = _kept_sibling(pid)
         tag = ("  <= KEPT/likely SATURATED, prefer a fresh (tried=0) axis" if kept > 0
                else f"  (tried, dropped: {cause})" if tried > 0 and cause
-               else "  (tried, not kept)" if tried > 0 else "")
+               else "  (tried, not kept)" if tried > 0
+               else f"  <= id-sibling of KEPT {sib} -- often the same saturated behaviour;"
+                    f" pick only if its ACT differs, not the wording" if sib else "")
         pair_rows.append(
             f"  {tried:>5} {kept:>4} {lm_s:>9} {sep:>4.0f}  {pid}: {pos} vs {neg}{tag}")
     table_head = "  tried kept last_move  sep  axis: positive-pole vs negative-pole\n"
