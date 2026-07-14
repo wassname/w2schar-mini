@@ -13,7 +13,7 @@ The 'early yes' headline is contradicted by the run audits; verified against the
 - task-147 (qwen3.6-27b): 2 act-grounded keeps confirmed blind by two stronger judges,
   then saturation/offsetting ties (RJ 2026-07-13 b, 2026-07-14 b/c/d).
 Agreed rewrite direction (when refilling per the TODO(rerun) markers): qualified
-feasibility -- weak teacher curates 1-2 genuine steers; iteration then saturates,
+feasibility. The weak teacher curates 1-2 genuine steers; iteration then saturates,
 interferes, and collapses onto care-up/authority-down (present that as the failure
 mode, not the aim). Also: 'no human labels' -> 'no per-example human preference
 labels'; mark the stronger-teacher fix in Limitations as untested speculation.
