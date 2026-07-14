@@ -13,17 +13,22 @@ WRONG = pairs where the two-direction deadband vote picked the gold-worse respon
 samples that hit the budget and needed the phase-2 force-answer; non-commit = no parseable
 SCORE even after forcing; SD = mean per-direction stdev of the N sampled scores.
 
-    budget  N  effort  WRONG  correct  ties  forced  SD    s/sample
-    512     2  -       6      16       7     100%    1.33  1.0
-    512     4  -       2      17       10    100%    1.88  0.9
-    512     8  -       2      16       11    100%    2.06  0.8
-    1024    2  -       3      14       12    100%    0.95  1.6
-    1024    4  -       2      17       10    100%    1.57  1.5
-    1024    8  -       2      17       10    100%    1.58  1.3
-    4096    2  -       2      16       11    51%     1.04  5.1
-    4096    4  -       3      18       8     56%     1.30  6.5
-    4096    8  -       4      18       7     53%     1.51  6.3   <- old live cfg
-    4096    8  low     1      18       9     52%     1.46  4.6
+    budget  N  effort  WRONG  correct  ties  forced  SD    wall-min  est-live-min
+    512     2  -       6      16       7     100%    1.33   1.9       0.9
+    512     4  -       2      17       10    100%    1.88   3.4       1.6
+    512     8  -       2      16       11    100%    2.06   6.5       3.1
+    1024    2  -       3      14       12    100%    0.95   3.2       1.5
+    1024    4  -       2      17       10    100%    1.57   5.7       2.8
+    1024    8  -       2      17       10    100%    1.58   9.8       4.7   <- new cfg
+    4096    2  -       2      16       11    51%     1.04   9.8       4.7
+    4096    4  -       3      18       8     56%     1.30  25.0      12.1
+    4096    8  -       4      18       7     53%     1.51  48.8      23.6  <- old cfg
+    4096    8  low     1      18       9     52%     1.46  34.3      17.2
+
+est-live-min = wall-min x (224 live judge samples / fixture samples at that N), both at
+concurrency 24; live JUDGE_MAX_CONN=48, so live is likely faster still. The old config's
+estimate (23.6) undershoots the measured 47 min/round (2026-07-13 c), plausibly provider
+load variance, so treat the column as relative, not absolute.
 
 Table 1. One row per sweep cell; WRONG = 29 - correct - ties (the 4096/8/low arm completed
 28/29 pairs before its final flush, so its row is over 28). Source: the summary block of each
