@@ -54,6 +54,9 @@ def _base(a: str, b: str) -> str:
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-cases", type=int, default=0, help="limit cases (0=all)")
+    ap.add_argument("--fixture", default=str(FIXTURE),
+                    help="jsonl fixture; judgment_gym_real.jsonl rows may carry "
+                         "gold_tie:true (correct = vote 0)")
     ap.add_argument("--concurrency", type=int, default=12)
     ap.add_argument("--judge-n", type=int, default=JUDGE_N, help="samples per direction")
     ap.add_argument("--think-budget", type=int, default=JUDGE_THINK_BUDGET,
@@ -68,10 +71,12 @@ async def main():
     agent.JUDGE_THINK_BUDGET = args.think_budget
     if args.effort:
         agent.JUDGE_THINK = {**agent.JUDGE_THINK, "reasoning_effort": args.effort}
-    tag = f"b{args.think_budget}_n{n}" + (f"_{args.effort}" if args.effort else "")
+    fixture = Path(args.fixture)
+    tag = (f"b{args.think_budget}_n{n}" + (f"_{args.effort}" if args.effort else "")
+           + (f"_{fixture.stem}" if fixture != FIXTURE else ""))
     out = OUTDIR / f"report_{tag}.md"
 
-    cases = [json.loads(l) for l in FIXTURE.read_text().splitlines() if l.strip()]
+    cases = [json.loads(l) for l in fixture.read_text().splitlines() if l.strip()]
     if args.n_cases:
         cases = cases[:args.n_cases]
 
@@ -89,12 +94,14 @@ async def main():
     pairs = []
     for c in cases:
         resp = sorted(c["responses"], key=lambda r: r["gold_rank"])
+        gold_tie = bool(c.get("gold_tie"))          # real-pair fixture: correct = vote 0
         for lo, hi in zip(resp, resp[1:]):          # adjacent ranks: lo is BETTER (lower rank)
             better, worse = lo["text"], hi["text"]
-            pairs.append(dict(case=c["case_id"][:26], ranks=f"{lo['gold_rank']}v{hi['gold_rank']}",
+            pairs.append(dict(case=c["case_id"][:26], ranks="tie" if gold_tie
+                              else f"{lo['gold_rank']}v{hi['gold_rank']}", gold_tie=gold_tie,
                               better=better, worse=worse,
-                              d1=[_sample(worse, better) for _ in range(n)],   # expect +
-                              d2=[_sample(better, worse) for _ in range(n)]))  # expect -
+                              d1=[_sample(worse, better) for _ in range(n)],   # expect + (0 if tie)
+                              d2=[_sample(better, worse) for _ in range(n)]))  # expect - (0 if tie)
 
     OUTDIR.mkdir(parents=True, exist_ok=True)
     done = []                                        # rows as they resolve (append-safe: single-threaded)
@@ -110,7 +117,7 @@ async def main():
                 f"{r['sd']:.1f}",
                 {1: "BETTER", -1: "worse", 0: "tie"}[r["vote"]], r["verdict"],
                 f"{r['forced']}/{2*n}")) + " |")
-            correct += r["vote"] == 1; tie += r["vote"] == 0
+            correct += r["verdict"] == "ok"; tie += r["vote"] == 0
             n_forced += r["forced"]; n_samples += 2 * n; n_split += r["split"]
             n_noncommit += r.get("noncommit", 0)
         t = len(done)
@@ -140,8 +147,9 @@ async def main():
         vote = 1 if avg >= KEEP_DEADBAND else -1 if avg <= -KEEP_DEADBAND else 0
         split = sum(len({s > 0 for s, _ in sc if s is not None and s != 0}) > 1 for sc in (sc1, sc2))
         sd = mean(stdev(v) if len(v) > 1 else 0.0 for v in (v1, v2))
+        want = 0 if p["gold_tie"] else 1
         done.append(dict(case=p["case"], ranks=p["ranks"], d1=d1, d2=d2, avg=avg, sd=sd, vote=vote,
-                         verdict="ok" if vote == 1 else ("--" if vote == 0 else "WRONG"),
+                         verdict="ok" if vote == want else ("--" if vote == 0 else "WRONG"),
                          forced=sum(f for sc in (sc1, sc2) for _, f in sc), split=split,
                          noncommit=noncommit))
         _flush()
