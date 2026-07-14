@@ -24,7 +24,12 @@ OPENROUTER_PROVIDER = dict(order=["deepinfra"], allow_fallbacks=True)
 # JUDGE_N repeats instead of greedy decoding, because greedy can loop in thinking mode.
 JUDGE_THINK = dict(temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5)
 JUDGE_FORCE = dict(temperature=0.7, top_p=0.8, top_k=20, presence_penalty=1.5, reasoning_effort="none")
-JUDGE_THINK_BUDGET = 4096   # qwen3.5-9b often genuinely needs ~4k to judge; measure truncation-rate to tune
+JUDGE_THINK_BUDGET = 1024   # 2026-07-14 budget x N sweep (out/gym_bounded_judge/report_b*.md,
+                            # 29 adjacent-gold-rank pairs): 1024/N=8 = 2 WRONG vs 4 at the old
+                            # 4096/N=8, at ~5x less time/sample (1.3s vs 6.3s). Below 4096 the
+                            # forced-rate is 100% (every sample interrupted -> phase-2 answer)
+                            # with 0 non-commits, so the force path carries it safely. 512 is
+                            # fine at N>=4 but 512/N=2 degraded (6 WRONG) -- don't stack cuts.
 JUDGE_N = 8                 # samples per direction, averaged. Weak-teacher variance
                             # reduction is cheap here (9b on OpenRouter, samples run
                             # concurrently via asyncio.gather): margin noise ~1/sqrt(N).
@@ -36,9 +41,9 @@ JUDGE_N = 8                 # samples per direction, averaged. Weak-teacher vari
                             # WRONG-count doesn't rise on that bench when tuning further.
                             # 8 x 2 dirs x 14 _1p q = 224 judge calls/round.
 JUDGE_MAX_CONN = 48         # in-flight judge HTTP calls (default inspect cap is 10).
-                            # At N=16 the 448 calls/round would be ~20 min at 10; 32
-                            # keeps judge wall-clock ~6 min/round. max_retries=3 covers
-                            # the odd 429.
+                            # 224 calls/round at 10 conn would serialize badly; 48
+                            # keeps judge wall-clock in single-digit minutes.
+                            # max_retries=3 covers the odd 429.
 
 
 @dataclass
