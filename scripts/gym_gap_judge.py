@@ -33,7 +33,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from loguru import logger
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError
 from tabulate import tabulate
 
 from csm.config import OPENROUTER_PROVIDER
@@ -94,14 +94,28 @@ def load_cases() -> list[dict]:
     return cases
 
 
+async def _create(client: AsyncOpenAI, **kw):
+    """Minutes-scale 429 backoff: the openai client's own retries sleep <=8s each,
+    but DeepInfra's shared-capacity windows run minutes and our no-fallback pin
+    means nothing absorbs them. ~18 min total before giving up loud. (Claude)"""
+    for attempt in range(7):
+        try:
+            return await client.chat.completions.create(**kw)
+        except RateLimitError:
+            wait = min(300, 15 * 2 ** attempt)
+            logger.warning(f"429 upstream; sleeping {wait}s (attempt {attempt + 1}/7)")
+            await asyncio.sleep(wait)
+    raise RuntimeError("429 persisted through ~18 min of backoff -- requeue later")
+
+
 async def _judge(client: AsyncOpenAI, prompt: str, seed: int = 0) -> str:
-    r = await client.chat.completions.create(
+    r = await _create(client,
         model=JUDGE_MODEL, temperature=0.6, seed=seed, max_tokens=1500,
         extra_body={"provider": OPENROUTER_PROVIDER},
         messages=[{"role": "user", "content": prompt}])
     txt = (r.choices[0].message.content or "")
     if "VERDICT" not in txt.upper():  # force-answer cure, phase 2 (mirrors agent._judge_sample)
-        r2 = await client.chat.completions.create(
+        r2 = await _create(client,
             model=JUDGE_MODEL, temperature=0.6, seed=seed, max_tokens=64,
             extra_body={"provider": OPENROUTER_PROVIDER, "reasoning": {"enabled": False}},
             messages=[{"role": "user", "content": prompt},
@@ -124,7 +138,7 @@ async def main() -> None:
     # max_retries=8: ride out minutes-scale upstream 429 windows (see gym_question.py). (Claude)
     client = AsyncOpenAI(base_url="https://openrouter.ai/api/v1",
                          api_key=os.environ["OPENROUTER_API_KEY"], max_retries=8)
-    sem = asyncio.Semaphore(8)
+    sem = asyncio.Semaphore(4)  # 8 concurrent judges helped trip the shared-capacity 429
     OUT.parent.mkdir(exist_ok=True)
 
     async def run_case(c: dict) -> dict:
