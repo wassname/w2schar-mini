@@ -1,2 +1,0 @@
-Deprecation warning: registerProvider("openrouter") apiKey value "OPENROUTER_API_KEY" is treated as a legacy environment variable reference. This will no longer be detected as an environment variable reference in a future release. Pass "$OPENROUTER_API_KEY" instead.
-[?2026h[r[?1006l[?1002l[?1000l[?1007h[?1049l[<999u[>4;0m[?2026l

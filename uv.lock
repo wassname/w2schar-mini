@@ -8,7 +8,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-07-09T04:06:09.652028514Z"
+exclude-newer = "2026-06-20T14:49:03.977565204Z"
 exclude-newer-span = "P5D"
 
 [[package]]
@@ -935,39 +935,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/43/67/850e0b5a1e97799822ebfc4ca0e8c6ece3ed8baf7dcdf64de817dfdda2ca/mmh3-5.2.1-cp313-cp313-win_amd64.whl", hash = "sha256:cae6383181f1e345317742d2ddd88f9e7d2682fa4c9432e3a74e47d92dce0229", size = 41563, upload-time = "2026-03-05T15:55:06.283Z" },
     { url = "https://files.pythonhosted.org/packages/c0/cc/98c90b28e1da5458e19fbfaf4adb5289208d3bfccd45dd14eab216a2f0bb/mmh3-5.2.1-cp313-cp313-win_arm64.whl", hash = "sha256:022aa1a528604e6c83d0a7705fdef0b5355d897a9e0fa3a8d26709ceaa06965d", size = 39310, upload-time = "2026-03-05T15:55:07.323Z" },
 ]
-
-[[package]]
-name = "moral-maps"
-version = "0.1.0"
-source = { editable = "/media/wassname/SGIronWolf/projects5/2026/lite/tinymfv" }
-dependencies = [
-    { name = "loguru" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "tabulate" },
-    { name = "torch" },
-    { name = "tqdm" },
-    { name = "transformers" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "loguru" },
-    { name = "matplotlib", marker = "extra == 'maps'", specifier = ">=3.8" },
-    { name = "numpy" },
-    { name = "openrouter-wrapper", marker = "extra == 'api'", git = "https://github.com/wassname/openrouter_wrapper" },
-    { name = "pandas" },
-    { name = "python-dotenv", marker = "extra == 'api'" },
-    { name = "shapely", marker = "extra == 'maps'", specifier = ">=2.0" },
-    { name = "tabulate" },
-    { name = "torch" },
-    { name = "tqdm" },
-    { name = "transformers", specifier = ">=5.7" },
-]
-provides-extras = ["maps", "api"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "scipy", specifier = ">=1.17.1" }]
 
 [[package]]
 name = "mpmath"
@@ -1928,6 +1895,37 @@ wheels = [
 ]
 
 [[package]]
+name = "tiny-mfv"
+version = "0.1.0"
+source = { editable = "/media/wassname/SGIronWolf/projects5/2026/lite/tinymfv" }
+dependencies = [
+    { name = "loguru" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "tabulate" },
+    { name = "torch" },
+    { name = "tqdm" },
+    { name = "transformers" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "loguru" },
+    { name = "matplotlib", marker = "extra == 'maps'", specifier = ">=3.8" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "tabulate" },
+    { name = "textalloc", marker = "extra == 'maps'", specifier = ">=1.2.3" },
+    { name = "torch" },
+    { name = "tqdm" },
+    { name = "transformers", specifier = ">=5.7" },
+]
+provides-extras = ["maps"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "scipy", specifier = ">=1.17.1" }]
+
+[[package]]
 name = "tokenizers"
 version = "0.22.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2149,7 +2147,6 @@ dependencies = [
     { name = "jaxtyping" },
     { name = "kaleido" },
     { name = "loguru" },
-    { name = "moral-maps" },
     { name = "numpy" },
     { name = "openai" },
     { name = "plotly" },
@@ -2158,6 +2155,7 @@ dependencies = [
     { name = "safetensors" },
     { name = "sentence-transformers" },
     { name = "tabulate" },
+    { name = "tiny-mfv" },
     { name = "torch" },
     { name = "tqdm" },
     { name = "transformers" },
@@ -2181,7 +2179,6 @@ requires-dist = [
     { name = "jaxtyping", specifier = ">=0.2.36" },
     { name = "kaleido", specifier = ">=1.3.0" },
     { name = "loguru", specifier = ">=0.7" },
-    { name = "moral-maps", editable = "/media/wassname/SGIronWolf/projects5/2026/lite/tinymfv" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", specifier = ">=1.0" },
     { name = "plotly", specifier = ">=5.20" },
@@ -2190,6 +2187,7 @@ requires-dist = [
     { name = "safetensors", specifier = ">=0.4" },
     { name = "sentence-transformers", specifier = ">=5.5.1" },
     { name = "tabulate", specifier = ">=0.9" },
+    { name = "tiny-mfv", editable = "/media/wassname/SGIronWolf/projects5/2026/lite/tinymfv" },
     { name = "torch", specifier = ">=2.8,<2.9" },
     { name = "tqdm", specifier = ">=4.66" },
     { name = "transformers", git = "https://github.com/huggingface/transformers.git?rev=main" },

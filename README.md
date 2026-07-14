@@ -3,14 +3,14 @@
 
 <p align="center"><img src="assets/w2schar_labeled.png" alt="Labeled diagram: a small 'weak teacher' robot reaches into the open chest of a much larger 'strong student' robot to adjust a compass labeled 'steering'." width="560"></p>
 
-<p align="center"><sub>by <a href="https://wassname.org">Michael J. Clark</a>, with thanks to Slava Chalnev and Jack Payne at <a href="https://lyptusresearch.org/">Lyptus Research</a> for discussion &middot; illustration from <a href="https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview-of-technical-ai-alignment-proposals">this series</a></sub></p>
+<p align="center"><sub>by <a href="https://wassname.org">Michael J. Clark</a>, with thanks to Slava Chalnev and Jack Payne at <a href="https://lyptusresearch.org/">Lyptus Research</a> for discussion &middot; illustration following <a href="https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview-of-technical-ai-alignment-proposals">this series</a>, robots adapted from the <a href="https://arxiv.org/abs/2402.02416">Aligner paper</a></sub></p>
 
 Weak-to-strong iterated moral character steering. We ask a weak teacher model to steer
 a strong student model toward the moral character described in
 [Forethought's essay on AI character](docs/2026_forethought_on_the_importance_of_ai_character.md): stable dispositions for consequential choices under ambiguity, conflicting considerations, and institutional pressure.
 
-See an example result [here](out/iter/20260619T121419_iter_google-gemma-2-27b-it/report.md)
-![Care vs Authority trajectory](out/iter/20260619T121419_iter_google-gemma-2-27b-it/scatter.svg)
+Read the full writeup: [Weak-to-strong iterated character steering](https://wassname.github.io/w2schar-mini/). Example trajectory below (the whistleblow run: 12 adapters kept over 24 rounds).
+![Care vs Authority trajectory](out/iter/20260622T015441_iter_google-gemma-2-27b-it/scatter.svg)
 
 ## Why this is interesting
 
@@ -30,7 +30,7 @@ We use a [Weight steering](https://github.com/safety-research/weight-steering) a
 adapters on a model's own contrastive completions, then uses the adapter as a
 direction in weight space. 
 
-This repo adapts weight steering idea for iterated character steering: the student writes the behavioral pairs, the weak teacher selects and judges them, and each kept adapter becomes part of the next round's student.
+This repo adapts weight steering idea for iterated character steering: the student writes the behavioural pairs, the weak teacher selects and judges them, and each kept adapter becomes part of the next round's student.
 This makes steering useful as an interface for a weak teacher because it is self-supervised, acts through internal model changes, and avoids a distant RL reward loop.
 
 This variant uses a few changes to weight-steering inspired by our earlier
@@ -58,8 +58,8 @@ gated history hook (prior adapters re-applied on top); base weights on disk are 
 
 
 The harness tries to empower the weak teacher by giving it the easier parts of
-the job. The student generates the candidate behavior. The teacher selects an
-axis, rates whole pairs, and judges pre/post behavior. Generation and detailed
+the job. The student generates the candidate behaviour. The teacher selects an
+axis, rates whole pairs, and judges pre/post behaviour. Generation and detailed
 editing stay with the strong student and the harness.
 
 This work has limited resources, so it focused on small models that could barely control the harness, so the above reflects many compromises to uplift a weak teacher to steer at all. If this was done with more resources, it could use larger models where the teacher is allowed more flexibility and judgement, more like an autoresearch style agentic harness.

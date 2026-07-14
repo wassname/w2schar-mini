@@ -60,6 +60,12 @@ log SLUG="latest":
 thoughts SLUG="":
     uv run python scripts/agent_thoughts.py {{SLUG}}
 
+# Pull run artifacts from the remote box (incremental; skips adapters for
+# speed -- `just pull vast ''` to include them). Trailing slashes matter:
+# without them rsync copies the remote dir INTO ./out, giving a nested out/out/.
+pull HOST="vast" EXCLUDE="--exclude=*.safetensors":
+    rsync -avz {{EXCLUDE}} {{HOST}}:/workspace/w2schar-mini/out/ ./out/
+
 # Render the landing page: main.qmd -> index.html (GitHub Pages) + post.md (forums).
 site:
     quarto render main.qmd

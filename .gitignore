@@ -25,6 +25,14 @@ wheels/
 docs/lit_review.md
 # external-review scratch (regenerate via external-review-v2)
 docs/reviews/
+# internal dev docs not part of the published repo: specs, UAT proofs, research
+# scratch, codex reviews, personal journal, and the quarto gfm render of main.qmd
+docs/spec/
+docs/uat/
+docs/research/
+docs/codex_review_*.md
+docs/human_journal.md
+post.md
 
 # Editor
 .vscode/
