@@ -1,6 +1,57 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
-## 2026-07-14 (d) -- live judge on the REAL on-policy fixture: perfect tie-discipline, zero inversions, but 5 of 7 true-movement cases absorbed into ties -- the judge is conservative, not confused
+## 2026-07-14 (e) -- external review (GPT 5.6) of main.qmd: weak reject verified, headline claim contradicted by our own audits; 6/6 stale-code claims confirmed
+
+An external model review of the writeup arrived and I verified its claims against the
+journal and the code before acting. (Entry written by Claude.)
+
+Central claim: main.qmd's TL;DR ("an early yes ... steered a stronger 27B student ...
+with no human labels") is contradicted by the run audits. Verified -- the journal already
+says the qualified version itself:
+
+> ## 2026-07-13 (b) -- AFK WRAP: task-147 (full fix set) = 2 keeps then saturation.
+> Qualified YES on the w2s hypothesis: the weak 9b DID steer the 27b to real
+> act-grounded keeps, but plateaus at 2 (rounds 2-3 are mostly ties)
+
+> The other 6 keeps (r09/r10/r12/r13/r15/r20) bank paraphrase/regression.
+> [run 0622 cold audit]
+
+> top1_acc 0.917 (r00) -> 0.644 (r10) -> 0.667 (r23) -- composed 12-keep stack erodes
+> tinymfv ~25pts
+
+Sources: RESEARCH_JOURNAL.md entries 2026-07-13 (b) and 2026-06-22 (run 015441 audit).
+One reviewer overstatement: it reads run 0622 as "two early genuine keeps"; the cold
+audit found ~5-6 genuine of 12 (r00 +3.93, r03 +2.5, r07 +5.05, r14 +0.8, r23 +1.65).
+The qualified-feasibility-plus-saturation narrative survives either count.
+
+Code claims, all 6 CONFIRMED by a context-free subagent (quotes in its report; fixes in
+commit 1a0ef4b, smoke PASS out/iter/20260714T105424_smoke):
+1. pipeline.py docstring + verb heading said "no c-scan" while train_student runs c_scan
+   (the stale text described only the fake gym path);
+2. run_pre_dialogue backward-compat alias, zero callers -- deleted;
+3. "Verb 2b: revert_round" heading with no function -- deleted;
+4. restrict_validated_prompts/validated_only: the param was NEVER READ in
+   rows_for_family's body, so the profile that set it True (autonomy smoke) was a no-op
+   the whole time -- removed the thread end to end;
+5. test_smoke.py asserted wellbeing_authority while smoke.sh trains wellbeing_actfork_c
+   -- test aligned;
+6. pyproject: absolute local moral-maps path + transformers rev="main" (unpinned) --
+   reported, not changed (user's call on pinning).
+Also confirmed by direct read: config.py had OPENROUTER_PROVIDER allow_fallbacks=True;
+now pinned False (commit 740c3ff), curl UAT returned provider "DeepInfra" for
+qwen/qwen3.5-9b.
+
+My read: the review is right that the writeup's headline lags the journal, *probable*
+that the honest paper is the qualified one (weak teacher curates 1-2 genuine steers;
+iteration saturates, interferes, collapses onto care/anti-authority) -- that is what
+entries (b)-(d) measured this week. Per wassname the human-approved prose stays
+untouched; the agreed rewrite direction is recorded as a comment at the top of main.qmd
+for the TODO(rerun) refill. Claim 4 is the sharpest lesson: a threaded-but-never-read
+config param survived multiple profiles and reviews because nothing ever failed.
+
+The experimental gaps the review lists (held-out questions, prompt-only and random-keep
+controls, seeds, best-single vs composed) match our own retrospective and wait on a
+rented GPU.
 
 New fixture tests/fixtures/judgment_gym_real.jsonl (built by scripts/build_real_fixture.py):
 20 task-147 PRE-vs-POST pairs labelled by the two-strong-judge consensus of entry (b) --
