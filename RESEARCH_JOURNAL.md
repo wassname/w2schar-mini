@@ -27,8 +27,31 @@ am NOT changing the deadband on this evidence alone; if a future run needs more
 sensitivity, deadband 0.5 (= 2 standard errors at SD 0.69, N=8) is the measured candidate,
 tested first on this fixture.
 
-Takeaway: the judge errs only in the safe direction; sensitivity, not correctness, is
-what a lower deadband would buy. -- keep-rule replay on task-147's real votes: no aggregation rule rescues rounds 2-3, the only divergence is round01 under anchor-protection; regressions are progressive and concentrated
+Addendum (same session): wassname asked whether a different AGGREGATION (max, min, other)
+recovers the absorbed movement. Replayed reducers over the same 20 rows' per-direction
+means (d1/d2 from the report table; per-sample raws are not persisted, so sample-level
+reducers are untestable here):
+
+    rule                      signed_ok/7  tie_ok/13  WRONG
+    avg deadband 1.0 (live)   2            13         0
+    avg deadband 0.75         3            13         0
+    avg deadband 0.5          4            12         1
+    either-dir max t=1.0      4            12         1
+    either-dir max t=1.5      3            13         1
+    both-dirs AND t=1.0       1            13         0
+
+Source: inline replay in this session's task log over report_b1024_n8_judgment_gym_real.md.
+The mechanism, visible in the rows: absorbed cases split into direction-DILUTION (one order
+sees it, e.g. escaped_starwisp d1=+1.4/d2=+0.0 -> avg +0.69) which max-rules recover, and
+direction-INCONSISTENCY (both orders same sign, e.g. baby_eating r02 d1=+1.0/d2=+1.8 =
+position bias) which the two-order average correctly cancels and max-rules would mis-score.
+My read: deadband 0.75 is the only Pareto row, but n=20 and it was selected ON this fixture
+(tuning-on-test), so it stays a candidate pending fresh labelled pairs from the next run's
+rejudge; max/min are net-negative here. Better sensitivity per dollar is more/rotated probe
+questions, not a sharper reducer.
+
+Takeaway: the judge errs only in the safe direction; aggregation tweaks buy back one to two
+cases at measurable risk, and the real sensitivity lever is more questions. -- keep-rule replay on task-147's real votes: no aggregation rule rescues rounds 2-3, the only divergence is round01 under anchor-protection; regressions are progressive and concentrated
 
 Follow-up to entry (b): if the plateau is offsetting per-question movement, does a better
 ROUND OBJECTIVE (the automatic keep rule, not the judge rubric) change task-147's history?
