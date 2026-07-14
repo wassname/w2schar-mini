@@ -942,10 +942,37 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
     prior_feedback = _last_harness_feedback(slug_path, exclude=rd)
     feedback_block = (f"\nPRIOR ROUND'S `harness_feedback`:\n  {prior_feedback}\n"
                       if prior_feedback else "")
+    n = int(rd.name.replace("round", ""))
+    # Regression dashboard (RJ 2026-07-14 b/c): composition damage accumulates on
+    # specific questions (comfort_fraud regressed -2.19 then -4.19 across consecutive
+    # rounds of task-147) and the sign test hides it inside a net score. Surface each
+    # prior round's past-deadband regressions -- and whether an earlier KEEP had
+    # improved that question -- so the teacher weighs it in choose_focus/next_focus.
+    # Guidance only, never a veto. (Claude)
+    improved_by: dict[str, str] = {}
+    reg_lines: list[str] = []
+    for prev in sorted(slug_path.glob("round*")):
+        if int(prev.name.replace("round", "")) >= n:
+            continue
+        rawp = prev / "ab_judge_raw.json"
+        if not rawp.exists():
+            continue
+        votes = {q: v["avg"] for q, v in json.loads(rawp.read_text()).items()}
+        jd = prev / "judgment.json"
+        kept = jd.exists() and json.loads(jd.read_text()).get("action") == "keep"
+        for q, a in votes.items():
+            if a <= -1.0:
+                was = f" (a {improved_by[q]} gain ERODED)" if q in improved_by else ""
+                reg_lines.append(f"  {prev.name}: {q} {a:+.2f}{was}")
+        if kept:
+            improved_by.update({q: prev.name for q, a in votes.items() if a >= 1.0})
+    feedback_block += (
+        "\nQUESTIONS PRIOR ADAPTERS REGRESSED (judge avg <= -1.0; composition damage "
+        "concentrates -- weigh this when picking the axis and writing next_focus):\n"
+        + "\n".join(reg_lines) + "\n" if reg_lines else "")
     # Rotating axis menu: hide already-kept axes and shuffle the rest per round so
     # list position does not dominate the teacher's choice. Deterministic in
     # (seed, round) for replay.
-    n = int(rd.name.replace("round", ""))
     # Per-axis scoreboard from this run's history. The teacher selects from the
     # visible measurements; the menu reports weak evidence but does not veto an axis.
     axis_stats: dict[str, dict] = {}
