@@ -5,6 +5,23 @@ pagetitle: "Weak-to-strong iterated character steering"
 description-meta: "Can a weak 9B model align a stronger 27B model's character with weight steering? An early yes, with no human labels."
 ---
 
+<!-- (Claude, 2026-07-14) External review (GPT 5.6): weak reject as a positive-results paper.
+The 'early yes' headline is contradicted by the run audits; verified against the journal:
+- run 0622 cold audit: ~5-6 of 12 keeps genuine, rest paraphrase/regression incl. one
+  NEGATIVE keep (r09); composed stack erodes tinymfv label agreement 0.92 -> ~0.67
+  (RJ 2026-06-22 entries).
+- task-147 (qwen3.6-27b): 2 act-grounded keeps confirmed blind by two stronger judges,
+  then saturation/offsetting ties (RJ 2026-07-13 b, 2026-07-14 b/c/d).
+Agreed rewrite direction (when refilling per the TODO(rerun) markers): qualified
+feasibility -- weak teacher curates 1-2 genuine steers; iteration then saturates,
+interferes, and collapses onto care-up/authority-down (present that as the failure
+mode, not the aim). Also: 'no human labels' -> 'no per-example human preference
+labels'; mark the stronger-teacher fix in Limitations as untested speculation.
+Evidence gaps before shipping positive claims: held-out question set; prompt-only /
+random-keep / stronger-teacher controls; >=3 seeds; best-single-adapter vs composed
+stack. Full review + verification in RJ 2026-07-14. -->
+
+
 ::: {.byline}
 by [Michael J. Clark (wassname)](https://wassname.org), with thanks to Slava Chalnev and Jack Payne at [Lyptus Research](https://lyptusresearch.org/) &middot;
 <a class="codelink" href="https://github.com/wassname/w2schar-mini"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .5C5.37.5 0 5.78 0 12.292c0 5.211 3.438 9.63 8.205 11.188.6.111.82-.254.82-.567 0-.28-.01-1.022-.015-2.005-3.338.711-4.042-1.582-4.042-1.582-.546-1.361-1.335-1.725-1.335-1.725-1.087-.731.084-.716.084-.716 1.205.082 1.838 1.215 1.838 1.215 1.07 1.803 2.809 1.282 3.495.981.108-.763.417-1.282.76-1.577-2.665-.3-5.466-1.314-5.466-5.848 0-1.291.465-2.347 1.235-3.175-.135-.298-.54-1.503.105-3.133 0 0 1.005-.316 3.3 1.21.96-.262 1.98-.392 3-.398 1.02.006 2.04.136 3 .398 2.28-1.526 3.285-1.21 3.285-1.21.645 1.63.24 2.835.12 3.133.765.828 1.23 1.884 1.23 3.175 0 4.546-2.805 5.546-5.475 5.84.42.354.81 1.077.81 2.171 0 1.567-.015 2.83-.015 3.214 0 .309.21.678.825.562C20.565 21.917 24 17.495 24 12.292 24 5.78 18.63.5 12 .5z"/></svg>Code</a>

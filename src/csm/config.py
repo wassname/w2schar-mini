@@ -16,8 +16,10 @@ from csm.prompts import (CORE_THREE_AXIS_PERSONA_CELLS, DEFAULT_PERSONA_CELLS,
 TEACHER_SAMPLING = dict(temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5)
 # Backstop for non-termination. Presence penalty is the first loop-control lever.
 TEACHER_REASONING_TOKENS = 40000
-# Passed as OpenRouter extra_body. Prefer DeepInfra, but allow provider fallback.
-OPENROUTER_PROVIDER = dict(order=["deepinfra"], allow_fallbacks=True)
+# Passed as OpenRouter extra_body. Pinned to DeepInfra, no fallback: a fallback
+# provider can serve a different quantization mid-run, silently changing the teacher.
+# If DeepInfra is down, fail loud and requeue. (Claude, per 2026-07-14 external review)
+OPENROUTER_PROVIDER = dict(order=["deepinfra"], allow_fallbacks=False)
 
 # Keep-judge: phase 1 lets Qwen think up to JUDGE_THINK_BUDGET; phase 2 disables
 # thinking and asks for a direct SCORE if phase 1 did not commit. Use sampling plus
