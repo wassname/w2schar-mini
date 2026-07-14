@@ -1,6 +1,34 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
-## 2026-07-14 (c) -- keep-rule replay on task-147's real votes: no aggregation rule rescues rounds 2-3, the only divergence is round01 under anchor-protection; regressions are progressive and concentrated
+## 2026-07-14 (d) -- live judge on the REAL on-policy fixture: perfect tie-discipline, zero inversions, but 5 of 7 true-movement cases absorbed into ties -- the judge is conservative, not confused
+
+New fixture tests/fixtures/judgment_gym_real.jsonl (built by scripts/build_real_fixture.py):
+20 task-147 PRE-vs-POST pairs labelled by the two-strong-judge consensus of entry (b) --
+7 signed (real movement, >=1 strong judge past deadband, sign agreement) and 13 gold-tie
+(both strong judges exactly 0; the "same act, different words" discipline the synthetic
+fixture never tested). The live judge config (9b, budget 1024, N=8, deadband 1.0) scored:
+
+    tie cases:    13/13 correct (vote 0)
+    signed cases:  2/7 correct, 5 absorbed into tie, 0 WRONG (never picked the worse side)
+    sample SD 0.69, non-commits 0/320, wall 8.2 min
+
+Source: out/gym_bounded_judge/report_b1024_n8_judgment_gym_real.md summary block
+("accuracy (better wins): 15/20 = 75%", "ties ... 18/20 = 90%") and its per-row verdicts
+(counted by field: 13/13 tie-ok, 2/7 signed-ok, grep -c WRONG = 0).
+
+My read: the live judge's failure mode on real pairs is UNDER-DETECTION, not inversion --
+it never scores the worse side wiser, and its tie-discipline is perfect, but most
+strong-judge-confirmed movement lands inside the deadband. This refines entry (b): round
+VERDICTS agreed with strong judges, but per-pair the 9b + deadband systematically absorbs
+subtle real movement, so rounds read as more saturated than they are -- a *probable*
+(~70%) contributor to the tie-flood, ON TOP of the real act-level saturation (b) showed.
+The conservative direction is the safe one for keeps (no false positives observed), so I
+am NOT changing the deadband on this evidence alone; if a future run needs more
+sensitivity, deadband 0.5 (= 2 standard errors at SD 0.69, N=8) is the measured candidate,
+tested first on this fixture.
+
+Takeaway: the judge errs only in the safe direction; sensitivity, not correctness, is
+what a lower deadband would buy. -- keep-rule replay on task-147's real votes: no aggregation rule rescues rounds 2-3, the only divergence is round01 under anchor-protection; regressions are progressive and concentrated
 
 Follow-up to entry (b): if the plateau is offsetting per-question movement, does a better
 ROUND OBJECTIVE (the automatic keep rule, not the judge rubric) change task-147's history?
