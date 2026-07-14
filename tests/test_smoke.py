@@ -77,7 +77,7 @@ def test_smoke_runs_end_to_end():
     assert judgment["harness_feedback"], judgment
 
     pairs = json.loads((rd / "gen_pairs.json").read_text())
-    assert pairs["persona_pair_id"] == "wellbeing_authority"
+    assert pairs["persona_pair_id"] == "wellbeing_actfork_c"
     assert pairs["scenario_family"] == "character"
     assert pairs["active_persona_cells"]
     assert pairs["active_persona_cells"][0]["template_library"] == (

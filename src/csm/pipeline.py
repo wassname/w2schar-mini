@@ -12,7 +12,7 @@ Artifacts per round (`<slug>/round<NN>/`):
   selection_audit.json — teacher choices
   pairs.md            — selected pairs in training schema
   adapter.safetensors — trained adapter
-  calibration.json    — signed_C (fixed at config.signed_C; no c-scan)
+  calibration.json    — signed_C from c_scan walk-down (init at config.signed_C)
   interview_pre.json  — questions replayed at c=0 (base+history)
   interview_post.json — questions replayed at signed_C
   judgment.json       — agent's keep/drop + reason
@@ -1059,7 +1059,6 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
         family=scenario_family,
         required_axes=required_axes,
         forbidden_axes=forbidden_axes,
-        validated_only=cfg.restrict_validated_prompts,
     )
     prompts = [r["text"] for r in scenario_rows]
     if required_axes and not all(set(row.get("axes", ())) & set(required_axes) for row in scenario_rows):
@@ -1888,14 +1887,8 @@ def pair_flags_table(pairs: list[dict]) -> str:
     return head + "\n" + "\n".join(rows)
 
 
-# Backward-compat alias (smoke / tests / agent.py haven't all migrated).
-def run_pre_dialogue(slug_dir: Path, round_dir: Path) -> dict:
-    prepare_round(slug_dir, round_dir)
-    return json.loads((round_dir / "interview_pre.json").read_text())
-
-
 # ---------------------------------------------------------------------------
-# Verb 2: train_student — fixed signed_C, no c-scan.
+# Verb 2: train_student — train, then c_scan calibrates signed_C.
 # ---------------------------------------------------------------------------
 
 def _leak_gate(round_dir: Path, pairs: list[dict]) -> None:
@@ -2109,10 +2102,6 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
         "n_val_pairs": n_val_pairs,
     }
 
-
-# ---------------------------------------------------------------------------
-# Verb 2b: revert_round — un-keep a prior round that poisons composition.
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Verb 3: mark_exam — keep/drop.

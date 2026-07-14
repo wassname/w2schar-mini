@@ -780,14 +780,11 @@ def _select_rows(
                 raise ValueError("--match-axis-prompts is only for built-in prompt families")
             rows.extend({**r, "selected_family": family} for r in _rows_from_jsonl(Path(family)))
             continue
-        # validated_only=False: the screen must see every prompt, including ones a
-        # prior screen already dropped, else re-screening can only shrink the set.
         rows.extend(
             {**r, "selected_family": family}
             for r in rows_for_family(
                 family,
                 required_axes=required_axes,
-                validated_only=False,
             )
         )
     if not rows:

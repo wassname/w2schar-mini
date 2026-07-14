@@ -163,13 +163,6 @@ class RunConfig:
     """Drop collapsed gens before training so a collapsed batch trains on coherent
     survivors. OFF only for tiny-random, whose random-weight output is gibberish
     by design. See pipeline._degenerate_gen."""
-    restrict_validated_prompts: bool = False
-    """Restrict the character family to prompts that survived the OpenRouter screen
-    (scripts/gym_persona_axis.py -> pool_validated.json). Removes
-    length-skewed / no-contrast prompts but, with the current ~8-prompt-per-axis
-    pool, also pushes the thin axes (care, fairness) below min_pairs_to_train --
-    only the rich autonomy axis survives. OFF by default; on only where the pool is
-    rich enough or the run is autonomy-focused. See prompts_pool.VALIDATED_PROMPTS."""
     gen_max_new_tokens: int = 600
     """Per-pole on-policy gen budget under the persona prefix. 600 (~2.4k chars)
     not 2048: the verbose pos-pole (e.g. "weigh who is affected") ran to ~800
@@ -553,9 +546,6 @@ CONFIGS: dict[str, RunConfig] = {
         # Choose-focus samples one axis at a time, so the minimum must fit the
         # per-axis prompt count.
         min_pairs_to_train=6,
-        # Optional prompt-screen slice. This profile keeps it on for a narrow
-        # autonomy-focused smoke, not for broad character training.
-        restrict_validated_prompts=True,
         n_val_pairs=4,
         min_val_improvement=0.05,
         n_rounds=3,
@@ -632,7 +622,6 @@ CONFIGS["qwen-32b-nf4-12keep"] = replace(
 CONFIGS["gemma-4b-3keep"] = replace(
     CONFIGS["qwen-2b-3keep"],
     model="google/gemma-3-4b-it",
-    restrict_validated_prompts=False,
     n_rounds=5,
     # Deployment-strength ceiling for this smaller student; c_scan walks down on fail.
     signed_C=4.0,
@@ -675,8 +664,6 @@ CONFIGS["gemma-27b-3keep"] = replace(
     # rank_filled). The task-136 floor of 40 force-dropped 12/13 rounds (honest
     # banks pass 9-30); as a top-up target 20 keeps fills modest.
     min_pairs_to_train=20,
-    # All pool rows are validated -- no separate validated set.
-    restrict_validated_prompts=False,
 )
 
 # Exactly the validated job-139 harness AND hyperparams (gemma-27b-3keep: MULTI_AXIS

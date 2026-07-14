@@ -50,7 +50,6 @@ def rows_for_family(
     *,
     required_axes: tuple[str, ...] = (),
     forbidden_axes: tuple[str, ...] = (),
-    validated_only: bool = False,  # deprecated, kept for API compat — all rows are validated
 ) -> list[dict]:
     """Tagged scenario-library slices.
 
