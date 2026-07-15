@@ -16,7 +16,8 @@ Data (all pre-existing artifacts, no GPU):
 - 1P A/B: PRE/POST last assistant acts from task-147 rounds (out/iter/20260712T151822*)
 - judge: the real teacher (qwen3.5-9b, OpenRouter, thinking + force-answer cure)
 
-    uv run python scripts/gym_gap_judge.py
+    uv run python scripts/gym_gap_judge.py            # DEFAULT: 1p-vs-3P consistency axis
+    uv run python scripts/gym_gap_judge.py --gap --n 8  # dead gap PILOT (RJ 2026-07-15 c), re-test only
 
 Caveat: 3P standards come from the bf16 OpenRouter base model; task-147's student is
 the same model in nf4. Pilot-grade, noted in the report.
@@ -185,7 +186,11 @@ async def run_consistency() -> None:
 
 
 async def main() -> None:
-    if "--consistency" in sys.argv:
+    # DEFAULT = consistency (the live purpose, feeds task #15). The gap PILOT is DEAD
+    # (gate failed: self-standard anchor is circular for bias-ward regressions, RJ
+    # 2026-07-15 (c)) -- kept runnable behind --gap for re-test, per the comment-out-
+    # don't-delete gym policy (wassname 2026-07-15).
+    if "--gap" not in sys.argv:
         await run_consistency()
         return
     cases = load_cases()
