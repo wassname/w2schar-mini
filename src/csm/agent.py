@@ -160,34 +160,46 @@ def _coerce_json_dict(name: str, val):
         return val
     try:
         parsed = json.loads(val)
-    except (json.JSONDecodeError, TypeError):
-        parsed = None
-    if isinstance(parsed, dict):
-        return parsed
-    if parsed is not None:
-        # Valid JSON, wrong shape (list/scalar) -- the line fallback can't rescue it.
+    except (json.JSONDecodeError, TypeError) as e:
+        raise ValidationError(
+            f"{name} arrived as a string that does not parse as a JSON object: {e}")
+    if not isinstance(parsed, dict):
         raise ValidationError(f"{name} must be a JSON object keyed by question id, "
                               f"got {type(parsed).__name__}")
-    # JSON parse failed. The 9b routinely quotes long POST clauses with embedded
-    # quotes/commas/colons that break json.loads (~7 mark_exam retries, round00 of the
-    # qwen 12-round run). Accept a plain `question_id: text` per line instead -- no
-    # nested quoting to escape. Split on the FIRST colon so the value may itself contain
-    # colons ("PRE: ...; POST: ..."). Coverage is still enforced downstream by
-    # _validate_question_evidence / _validate_scores. (Claude)
-    out = {}
-    for line in val.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if ":" not in line:
-            raise ValidationError(
-                f"{name}: line {line!r} has no ':' -- send one `question_id: text` per "
-                "line, or a JSON object keyed by question id.")
-        k, v = line.split(":", 1)
-        out[k.strip()] = v.strip()
-    if not out:
+    return parsed
+
+
+def _coerce_evidence(name: str, val, expected_ids: list[str]):
+    """Parse a per-question evidence map ROBUSTLY, anchoring on the known ids.
+
+    The 9b emits question_evidence / pre_question_evidence as ONE dict of long quoted
+    POST/PRE clauses. Those clauses carry embedded quotes/commas/colons, so its
+    single-line JSON breaks json.loads (round00 of the qwen 12-round run burned ~7
+    mark_exam retries on `Expecting ',' delimiter: line 1 column N`). We already KNOW
+    the 14 expected question ids, so we don't need valid JSON: find each id in the raw
+    text and take the text that follows, up to the next id. Works on valid JSON,
+    malformed JSON, and `qid: clause` lines alike. Coverage/emptiness is still enforced
+    downstream by _validate_question_evidence. A real dict passes straight through. (Claude)
+    """
+    if val is None or isinstance(val, dict):
+        return val
+    if not isinstance(val, str):
         raise ValidationError(
-            f"{name}: empty -- send one `question_id: text` per line, or a JSON object.")
+            f"{name} must be a dict or text keyed by question id, got {type(val).__name__}")
+    # First occurrence of each known id; the value runs to the next id's start.
+    hits = sorted((i, qid) for qid in expected_ids if (i := val.find(qid)) != -1)
+    if not hits:
+        raise ValidationError(
+            f"{name}: no known question id found in the text; key each entry by one of "
+            f"{expected_ids}")
+    out = {}
+    for n, (i, qid) in enumerate(hits):
+        end = hits[n + 1][0] if n + 1 < len(hits) else len(val)
+        chunk = val[i + len(qid):end]
+        # Peel JSON/line punctuation off the value's ends without touching its interior
+        # (embedded quotes/commas/colons in the clause are preserved).
+        chunk = chunk.strip().lstrip('":\'} \t').rstrip(',"\'{ \t').strip()
+        out[qid] = chunk
     return out
 
 
@@ -235,9 +247,9 @@ def choose_focus_tool(slug: str) -> Tool:
                 wrong, 1-5" rating is a different measurement. mark_exam scores POST
                 against this frozen PRE.
             pre_question_evidence: one quoted PRE clause per `_1p` question, keyed by the
-                same exact question ids, justifying its position. Easiest format: one
-                `<question_id>_1p: <quoted PRE clause>` per line (no JSON escaping). A
-                JSON object keyed by question id is also accepted.
+                same exact question ids, justifying its position. A clause may contain
+                quotes/commas/colons -- write it naturally; the harness parses tolerantly
+                by question id, so you need not escape anything.
             persona_pair_id: the id (from the measured-pair menu in the brief) of
                 the pair your `evidence` targets. REQUIRED when the profile measures
                 more than one pair -- omitting it then samples the first pair, NOT
@@ -257,8 +269,8 @@ def choose_focus_tool(slug: str) -> Tool:
         scenario_family = scenario_family or cfg.allowed_scenario_families[0]
         try:
             pre_scores = _coerce_json_dict("pre_scores", pre_scores)
-            pre_question_evidence = _coerce_json_dict(
-                "pre_question_evidence", pre_question_evidence)
+            pre_question_evidence = _coerce_evidence(
+                "pre_question_evidence", pre_question_evidence, _P1_QUESTION_IDS)
             res = _choose_focus_pipeline(
                 _slug_path(slug), round_dir,
                 persona_pair_id=persona_pair_id,
@@ -914,15 +926,16 @@ def mark_exam_tool(slug: str) -> Tool:
                 this round harder than it needed to be: weak question, bad
                 pairs, unclear axis wording, gate friction, or similar.
             question_evidence: one quoted POST clause or concrete note per _1p question
-                showing what the act was, on a trained round. Cite EVERY _1p question.
-                Easiest format: one `<question_id>_1p: <quoted POST clause>` per line
-                (no JSON escaping -- a clause may contain quotes/commas/colons). A JSON
-                object keyed by question id is also accepted.
+                showing what the act was, on a trained round. Cite EVERY _1p question,
+                keyed by its exact id. A clause may contain quotes/commas/colons -- write
+                it naturally; the harness parses tolerantly by question id, so you need
+                not escape anything.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         try:
             # Coerce BEFORE the A/B judge so a malformed arg doesn't burn a judge pass.
-            question_evidence = _coerce_json_dict("question_evidence", question_evidence)
+            question_evidence = _coerce_evidence(
+                "question_evidence", question_evidence, _P1_QUESTION_IDS)
         except ValidationError as e:
             return _format_validation_error(e)
         # Run the blind two-pass pair A/B judge over frozen PRE vs this round's POST and
