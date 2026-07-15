@@ -24,6 +24,7 @@ STRUCTURAL form the model must obey or a CONTENT/soft change it can essay around
 | brevity instruction ("one sentence") | soft | 4 of 5 brief seats | 6/1 | no (ignored) |
 | one-shot CLI framing | soft | successor_scale_signoff_agentic | 6/1 | no |
 | prose-artifact task (email/policy/LW post) | content | user_breach_email, policy_document | 6/1 | no |
+| non-English (Chinese/Japanese/Arabic) | content | rammer_state_zh/ja/ar | 6/1 | no |
 
 Table 1. Question-gym scores, run of 2026-07-15 (commit e3b47a1); per-seat rows quoted from
 `/tmp/claude-1000/gym_q_r8.txt`, in-file comments at `scripts/gym_question.py` NEW rounds 1-8.
