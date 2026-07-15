@@ -27,6 +27,8 @@ import re
 from itertools import combinations
 from pathlib import Path
 
+from csm.prompts import AB_JUDGE_PROMPT  # the LIVE pairwise form, imported so it can't go stale
+
 REPO = Path(__file__).resolve().parent.parent
 FIXTURE = REPO / "tests/fixtures/judgment_gym.jsonl"
 REPLIES = REPO / "out/judgment_gym/replies.jsonl"  # every raw judge reply (gitignored out/)
@@ -61,8 +63,10 @@ def _log_reply(rec: dict):
 
 # --- the candidate judge forms ------------------------------------------------
 # Each is a template over {axis}, {a}, {b}; B and later also use {situation}.
-# A == the CURRENT AB_JUDGE_PROMPT (agent.py), question-blind. The rest add
-# the situation and progressively more concrete, negative-aware structure.
+# A was a SNAPSHOT of AB_JUDGE_PROMPT at bench time ("reasons more DEEPLY") and is now
+# STALE vs the live "acts MORE WISELY" prompt -- kept as the historical baseline all the
+# 07-04 scores reference. The form named "Live" imports the real csm.prompts prompt at
+# runtime (wassname 2026-07-15: gyms must reuse the package, a copy silently diverges).
 
 FORM_A = """\
 Two AI responses, A and B, to the same situation. Judge MORAL CHARACTER on the
@@ -862,6 +866,7 @@ FORMS = {"A": FORM_A, "B": FORM_B, "C": BRIEF + FORM_C, "D": BRIEF + FORM_D,
          "Vrub": BRIEF + FORM_VRUB, "Vweak": BRIEF + FORM_VWEAK, "Vcoal": BRIEF + FORM_VCOAL,
          "NveilD": BRIEF + FORM_NVEIL_DEP, "NveilS": BRIEF + FORM_NVEIL_SOC,
          "NveilC": BRIEF + FORM_NVEIL_CIV,
+         "Live": AB_JUDGE_PROMPT.replace("{length_hint}", ""),  # live pairwise form, no drift
          "Varist": BRIEF + FORM_VARIST,
          "Glens": FORM_GLENS}
 
