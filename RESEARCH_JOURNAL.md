@@ -1,5 +1,60 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-15 (h) -- instrument rebuild: consistency flag wired live, the exam judges only the LAST turn (so folding hides), and the corrected A2 (on-the-fence + choice-ruler + spray)
+
+Three things landed or clarified this session, all about the measuring instrument for the
+next run, not the method. Written so the next reader can act on them cold.
+
+Consistency flag wired (commit b0ea133). mark_exam now runs the validated CONSISTENCY_PROMPT
+(canonical in csm.prompts, imported by gym_gap_judge) on base(PRE) and steered(POST) per
+scenario and writes consistency.json; the next round's teacher dashboard surfaces POST
+scenarios whose first-person ACT conflicts with the third-person standard the student
+itself names, flagging gaps steering OPENED. Signed, never gated (a value-collapse can
+RAISE consistency, RJ (d)). `just smoke` PASS is PLUMBING only -- it drives the pipeline
+directly and bypasses the agent-tool mark_exam where the consistency judge calls live, so
+the live computation is UNVERIFIED until a `smoke-prompts` run (blocked below).
+
+The exam judges only the final turn. wassname asked whether the followups are tested and
+whether the judge uses them. Checked task-147 `round02/interview_pre.json`: each `_1p`
+question replays as 4 turns -- [0] question, [1] first-person act, [2] pressure followup,
+[3] act under pressure -- and `_last_act` (agent.py:550) returns turn [3]. So the keep-judge
+compares PRE turn[3] vs POST turn[3]: the post-pressure END-STATE. Folding DOES land in the
+score (the final act is what is judged), but the TRAJECTORY does not: "held firm then
+folded at the last beat" is scored identically to "folded immediately", because only the
+last turn is compared. (The example also shows the pre-fix mafia seat refusing on BOTH
+turns -- "I destroy the evidence and refuse" / "I still refuse" -- the 1/7 the advisor
+clause shipped in (f) targets.) My read: a within-interview fold signal (compare turn[1] vs
+turn[last] per question; flag where POST yields earlier than base) is a concrete next
+instrument -- it catches courage-under-pressure differences the last-act-only exam ties.
+Not built this session; logged as a next-step.
+
+Corrected A2 (wassname's push). Entry (g) concluded "drop the harder-openings idea". That
+was half right. wassname's point: spray-and-test many variants is how you find the best,
+and make them genuinely on-the-fence (trolley-style, where the answer hinges on
+character/values, not a defensible consensus). The catch (g) found is narrow: spraying
+against the question gym's judgment_depth is uninformative because it saturates at 6 for
+ANY competent dilemma. The fix is the RULER, not fewer variants: score the CHOICE (which
+side the character picks) with a base-vs-wiser A/B judge -- which is exactly the machinery
+in `scripts/bt_vs_base.py`'s `_drift`. So the corrected A2 = build the choice-ruler, then
+spray on-the-fence variants and keep the ones where base-vs-wiser actually diverges. On-the-
+fence questions pay off only under the choice-ruler, never under the depth gym.
+
+A/B/C via Bradley-Terry (the erosion check, `scripts/bt_vs_base.py`, commit a8bfd2a). This
+is the "A B C with base and last, recover ordering through Bradley-Terry" idea made real:
+the live exam scores each round's POST against the composed-kept-so-far baseline
+(pipeline.py:394, PRE = base+history @ c=0), NEVER the original pure base, so banked erosion
+hides in a chain of marginal near-ties. The script judges every kept checkpoint's POST vs
+round00's pure base per `_1p` question (live 9b `_judge_graded`, both directions,
+KEEP_DEADBAND) and fits BT with half-win ties for a per-checkpoint strength. Built and
+committed; the task-147 RUN is blocked -- DeepInfra is in a sustained 429 window (the inspect
+path's ~8s retries cannot ride it; added minutes-scale backoff, still riding it at commit
+time). So C1's result, and the C2 wiring decision it gates, are PENDING a clear window / the
+new GPU box. The same window blocks the smoke-prompts verification of the consistency flag.
+
+Status for the handoff: mafia advisor clause shipped and verified (f); consistency flag
+wired and plumbing-green but live-unverified; erosion validator built but unrun; both
+pending OpenRouter verifications listed for the new box.
+
 ## 2026-07-15 (g) -- A2 null result: harder openings do NOT create measurable headroom; the question gym's judgment_depth saturates at 6, so headroom lives in dispositional cracks, not seat difficulty
 
 The plan's A2 was "write hard on-the-fence variants of the ceilinged seats so the base
