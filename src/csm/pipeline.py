@@ -2207,7 +2207,8 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
     # has run over frozen PRE vs POST, passing `movement_dirs` (per-question -1/0/+1).
     # Movement is no longer a teacher self-score: the absolute POST Likert inflated a
     # reword to band_crossed (job-120 r01), so the judge measures it BLIND + two-pass
-    # instead. The teacher still owns keep/drop; this only labels how far it moved.
+    # instead. Keep/drop is the sign test on these blind directions, NOT a teacher call
+    # (see line ~2184); the teacher's `reason` is recorded prose only. (Claude)
     # An early-abort drop (no calibration.json) carries no directions.
     trained = (round_dir / "calibration.json").exists()
     have = trained and bool(movement_dirs)
