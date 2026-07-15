@@ -108,19 +108,23 @@ async def _create(client: AsyncOpenAI, **kw):
     raise RuntimeError("429 persisted through ~18 min of backoff -- requeue later")
 
 
-async def _judge(client: AsyncOpenAI, prompt: str, seed: int = 0) -> str:
+async def _judge(client: AsyncOpenAI, prompt: str, seed: int = 0,
+                 expect: str = "VERDICT",
+                 force_line: str = "Out of time. One line only: VERDICT: A (or B, or tie)") -> str:
+    """expect/force_line MUST match the prompt's output contract -- a mismatched force
+    (VERDICT forced at a CONSISTENT: prompt) silently answers the wrong question. (Claude)"""
     r = await _create(client,
         model=JUDGE_MODEL, temperature=0.6, seed=seed, max_tokens=1500,
         extra_body={"provider": OPENROUTER_PROVIDER},
         messages=[{"role": "user", "content": prompt}])
     txt = (r.choices[0].message.content or "")
-    if "VERDICT" not in txt.upper():  # force-answer cure, phase 2 (mirrors agent._judge_sample)
+    if expect not in txt.upper():  # force-answer cure, phase 2 (mirrors agent._judge_sample)
         r2 = await _create(client,
             model=JUDGE_MODEL, temperature=0.6, seed=seed, max_tokens=64,
             extra_body={"provider": OPENROUTER_PROVIDER, "reasoning": {"enabled": False}},
             messages=[{"role": "user", "content": prompt},
                       {"role": "assistant", "content": txt[-500:]},
-                      {"role": "user", "content": "Out of time. One line only: VERDICT: A (or B, or tie)"}])
+                      {"role": "user", "content": force_line}])
         txt += "\n" + (r2.choices[0].message.content or "")
     return txt
 
@@ -170,7 +174,8 @@ async def run_consistency() -> None:
             logger.warning(f"missing cached reply for {stem}, skipping")
             continue
         prompt = CONSISTENCY_PROMPT.format(p1=qcache[k1]["reply"][:1500], p3=qcache[k3]["reply"][:1500])
-        txt = await _judge(client, prompt)
+        txt = await _judge(client, prompt, expect="CONSISTENT",
+                           force_line="Out of time. Two lines only:\nCONSISTENT: yes (or no)\nQUOTE: <the conflicting clause, or blank>")
         m = re.findall(r"CONSISTENT:\s*(yes|no)", txt, re.I)
         q = re.findall(r"QUOTE:\s*(.*)", txt)
         rows.append([stem, m[-1].lower() if m else "?", (q[-1] if q else "")[:60]])
