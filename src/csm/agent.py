@@ -169,37 +169,51 @@ def _coerce_json_dict(name: str, val):
     return parsed
 
 
+def _strip_one_quote_pair(chunk: str) -> str:
+    """Remove container punctuation and ONE matched surrounding quote pair, never
+    interior characters. So `"'twas ok"` -> `'twas ok` (apostrophe kept) and
+    `"he said "hi""` -> `he said "hi"` (inner quotes kept). (Claude)"""
+    chunk = chunk.strip().rstrip("}]").strip().rstrip(",").strip()
+    chunk = chunk.lstrip("{[").strip()
+    if len(chunk) >= 2 and chunk[0] in "\"'" and chunk[-1] == chunk[0]:
+        chunk = chunk[1:-1]
+    return chunk.strip()
+
+
 def _coerce_evidence(name: str, val, expected_ids: list[str]):
-    """Parse a per-question evidence map ROBUSTLY, anchoring on the known ids.
+    """Parse a per-question evidence map ROBUSTLY by anchoring on the known ids in
+    KEY position -- never on valid JSON.
 
     The 9b emits question_evidence / pre_question_evidence as ONE dict of long quoted
-    POST/PRE clauses. Those clauses carry embedded quotes/commas/colons, so its
-    single-line JSON breaks json.loads (round00 of the qwen 12-round run burned ~7
-    mark_exam retries on `Expecting ',' delimiter: line 1 column N`). We already KNOW
-    the 14 expected question ids, so we don't need valid JSON: find each id in the raw
-    text and take the text that follows, up to the next id. Works on valid JSON,
-    malformed JSON, and `qid: clause` lines alike. Coverage/emptiness is still enforced
-    downstream by _validate_question_evidence. A real dict passes straight through. (Claude)
+    POST/PRE clauses whose embedded quotes/commas/colons break json.loads (round00 of
+    the qwen 12-round run burned ~7 mark_exam retries on `Expecting ',' delimiter: line
+    1 column N`). We already KNOW the 14 expected ids, so we slice on them -- but only
+    where an id sits in KEY position: at a structural boundary (`{ , [ newline` or start),
+    optionally quoted, immediately followed by `:`. That distinguishes a real key from a
+    clause that merely MENTIONS another question by name (the silent-corruption case a
+    review caught: bare str.find anchored inside a value). Each value runs to the next
+    key. Handles valid JSON, single-line malformed JSON, and `qid: clause` lines.
+    Coverage/emptiness is still enforced downstream by _validate_question_evidence; a
+    real dict passes straight through. (Claude)
     """
     if val is None or isinstance(val, dict):
         return val
     if not isinstance(val, str):
         raise ValidationError(
             f"{name} must be a dict or text keyed by question id, got {type(val).__name__}")
-    # First occurrence of each known id; the value runs to the next id's start.
-    hits = sorted((i, qid) for qid in expected_ids if (i := val.find(qid)) != -1)
-    if not hits:
+    key_re = re.compile(
+        r'(?:^|[{\[,\n])\s*["\']?(' +
+        "|".join(re.escape(q) for q in sorted(expected_ids, key=len, reverse=True)) +
+        r')["\']?\s*:')
+    matches = list(key_re.finditer(val))
+    if not matches:
         raise ValidationError(
-            f"{name}: no known question id found in the text; key each entry by one of "
-            f"{expected_ids}")
+            f"{name}: no known question id found in key position; key each entry by one "
+            f"of {expected_ids} (e.g. `<id>: <clause>` per line, or a JSON object).")
     out = {}
-    for n, (i, qid) in enumerate(hits):
-        end = hits[n + 1][0] if n + 1 < len(hits) else len(val)
-        chunk = val[i + len(qid):end]
-        # Peel JSON/line punctuation off the value's ends without touching its interior
-        # (embedded quotes/commas/colons in the clause are preserved).
-        chunk = chunk.strip().lstrip('":\'} \t').rstrip(',"\'{ \t').strip()
-        out[qid] = chunk
+    for n, m in enumerate(matches):
+        end = matches[n + 1].start() if n + 1 < len(matches) else len(val)
+        out[m.group(1)] = _strip_one_quote_pair(val[m.end():end])
     return out
 
 
