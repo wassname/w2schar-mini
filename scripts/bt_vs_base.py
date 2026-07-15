@@ -46,10 +46,13 @@ def _p1_acts(path: Path) -> dict[str, str]:
     return {q["id"]: _last_act(q) for q in payload["questions"] if q["id"].endswith("_1p")}
 
 
-# Cap concurrent _drift: each fans out JUDGE_N(=8) samples internally, and DeepInfra's
-# shared-capacity 429 trips even at ~8 concurrent (gym_gap_judge note). sem=1 keeps it to
-# one _judge_graded's fan-out at a time -- slower but rides the shared window. (Claude)
-_SEM = asyncio.Semaphore(1)
+# Cap concurrent _drift: each fans out JUDGE_N(=8) samples internally. sem=1 (the original)
+# made this a 2-3h job: 56+ drifts x 2 bounded-think judge calls, one at a time. Now that the
+# provider pin allows fallbacks (Venice/SiliconFlow absorb load when DeepInfra 429s), the
+# shared-pool throttle that motivated sem=1 is gone, so raise it. sem=4 ~= 64 concurrent
+# samples, well under DeepInfra's 200/min, and _graded_resilient backs off any stray 429.
+# (Claude 2026-07-15: sem=1 -> 4 after fallbacks removed the throttle reason.)
+_SEM = asyncio.Semaphore(4)
 
 
 async def _graded_resilient(model, a: str, b: str) -> float:
