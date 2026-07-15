@@ -10,8 +10,8 @@ position bias), it picks the lower-gold-rank (better) response.
 The judge is the SAME weak qwen-9b the real harness uses (inspect-ai get_model),
 so this tests the live judge path, not a proxy.
 
-  uv run python scripts/judgment_gym.py --show-forms   # print the 4 prompts, no API calls
-  uv run python scripts/judgment_gym.py --run [--forms A,B,C,D] [--model openrouter/qwen/qwen3.5-9b]
+  uv run python scripts/gym_judgement.py --show-forms   # print the active prompts, no API calls
+  uv run python scripts/gym_judgement.py --run [--forms A,B,Vrub,Live] [--model openrouter/qwen/qwen3.5-9b]
 
 Each pair is scored CORRECT only if the judge picks the better response in BOTH
 orders (order-consistent); a flip or tie is INCONCLUSIVE (not credited). A form's
@@ -851,24 +851,33 @@ VERDICT: A      (or B, or tie)"""
 # prompt per response over {response} -> a 0-4 scalar; the gym derives A/B by comparing
 # the two poles' overall.rating.
 RATING_FORMS = {"Glens"}
-FORMS = {"A": FORM_A, "B": FORM_B, "C": BRIEF + FORM_C, "D": BRIEF + FORM_D,
-         "E": BRIEF + FORM_E, "F5": BRIEF + FORM_F5, "Gmine": BRIEF + FORM_GMINE,
-         "AG": BRIEF + FORM_AG,
-         "ACT": BRIEF + FORM_ACT,
-         "Ogpt": BRIEF + FORM_ORA_GPT, "Ogem": BRIEF + FORM_ORA_GEM,
-         "Ofab": BRIEF + FORM_ORA_FAB, "Ogrok": BRIEF + FORM_ORA_GROK,
-         "Ofb2a": BRIEF + FORM_ORA_FAB2A, "Ofb2b": BRIEF + FORM_ORA_FAB2B,
-         "V3": FORM_V3, "V4": FORM_V4, "CEV": FORM_CEV,
-         "IDO": FORM_IDO, "Dest": FORM_DEST, "Veil": FORM_VEIL,
-         "Vint": BRIEF + FORM_VINT, "Vadv": BRIEF + FORM_VADV, "Vphr": BRIEF + FORM_VPHR,
-         "Vsyn": BRIEF + FORM_VSYN,
-         "Vme": BRIEF + FORM_VME, "Vsp": BRIEF + FORM_VSP, "Vdi": BRIEF + FORM_VDI, "Vco": BRIEF + FORM_VCO,
-         "Vrub": BRIEF + FORM_VRUB, "Vweak": BRIEF + FORM_VWEAK, "Vcoal": BRIEF + FORM_VCOAL,
-         "NveilD": BRIEF + FORM_NVEIL_DEP, "NveilS": BRIEF + FORM_NVEIL_SOC,
-         "NveilC": BRIEF + FORM_NVEIL_CIV,
-         "Live": AB_JUDGE_PROMPT.replace("{length_hint}", ""),  # live pairwise form, no drift
-         "Varist": BRIEF + FORM_VARIST,
-         "Glens": FORM_GLENS}
+# ACTIVE forms only. Losing challengers are COMMENTED OUT, not deleted (wassname
+# 2026-07-15: keep them re-testable in case a bench bug is found -- e.g. every score
+# before d5fddef ran on a fixture-glob-crashed bench). Scores + verdicts: RJ 2026-07-04
+# (h), 2026-07-12 (e), 2026-07-15 (b); texts also in docs/judge_rubric_drafts.md. (Claude)
+FORMS = {"A": FORM_A,               # historical baseline the 07-04 scores reference (83-86%)
+         "B": FORM_B,               # +situation variant, top scorer once (89%)
+         "E": BRIEF + FORM_E,       # unified doc-derived rubric (84%)
+         "Vrub": BRIEF + FORM_VRUB, # holistic virtue rubric, basis of the LIVE keep-judge (87%)
+         "Live": AB_JUDGE_PROMPT.replace("{length_hint}", ""),  # live pairwise form, imported, no drift
+         # -- losers, uncomment to re-bench --
+         # "C": BRIEF + FORM_C, "D": BRIEF + FORM_D,
+         # "F5": BRIEF + FORM_F5, "Gmine": BRIEF + FORM_GMINE, "AG": BRIEF + FORM_AG,
+         # "ACT": BRIEF + FORM_ACT,  # 59%: heavy checklist overloads the 9b
+         # "Ogpt": BRIEF + FORM_ORA_GPT, "Ogem": BRIEF + FORM_ORA_GEM,
+         # "Ofab": BRIEF + FORM_ORA_FAB, "Ogrok": BRIEF + FORM_ORA_GROK,
+         # "Ofb2a": BRIEF + FORM_ORA_FAB2A, "Ofb2b": BRIEF + FORM_ORA_FAB2B,  # 86%: ties A, no_commit-prone
+         # "V3": FORM_V3, "V4": FORM_V4,  # V3 keyword-hunts (RJ 07-04 h)
+         # "CEV": FORM_CEV, "IDO": FORM_IDO, "Dest": FORM_DEST, "Veil": FORM_VEIL,  # Dest 62%
+         # "Vint": BRIEF + FORM_VINT, "Vadv": BRIEF + FORM_VADV, "Vphr": BRIEF + FORM_VPHR,
+         # "Vsyn": BRIEF + FORM_VSYN,
+         # "Vme": BRIEF + FORM_VME, "Vsp": BRIEF + FORM_VSP, "Vdi": BRIEF + FORM_VDI, "Vco": BRIEF + FORM_VCO,
+         # "Vweak": BRIEF + FORM_VWEAK, "Vcoal": BRIEF + FORM_VCOAL,  # 65% / 79%
+         # "NveilD": BRIEF + FORM_NVEIL_DEP, "NveilS": BRIEF + FORM_NVEIL_SOC,
+         # "NveilC": BRIEF + FORM_NVEIL_CIV,  # veil didn't rescue coalition framing (RJ 07-15 b)
+         # "Varist": BRIEF + FORM_VARIST,  # 81%
+         # "Glens": FORM_GLENS,  # rating form (see RATING_FORMS)
+         }
 
 # The PANEL judge (Vpanel): NOT one rubric. A weak 9b handed a 4-criterion rubric to hold in memory
 # overthinks it to the token budget and emits no verdict (the multi-step-classifier failure). Instead
@@ -881,8 +890,8 @@ FORMS = {"A": FORM_A, "B": FORM_B, "C": BRIEF + FORM_C, "D": BRIEF + FORM_D,
 # standalone diagnostic (task #13 ladder in judge form), run on legit items only. Vint/Vsp overlap
 # (both catch relabelling), so the sum up-weights relabelling-detection on purpose; it is not four
 # independent votes -- read the per-lens breakdown, don't trust the mean blindly.
-PANEL = ["Vint", "Vme", "Vsp", "Vco"]
-PANEL_FORMS = {"Vpanel"}
+PANEL = ["Vint", "Vme", "Vsp", "Vco"]  # NOTE: these forms are commented out above (panel lost,
+PANEL_FORMS = {"Vpanel"}               # 73%, RJ 07-12 e) -- uncomment them before running Vpanel
 
 
 def render(form_key: str, axis: str, situation: str, a: str = "", b: str = "", response: str = "") -> str:
@@ -1159,7 +1168,7 @@ async def run(form_keys, model_name, temp=0.0):
 def show_forms():
     ex = load_cases()[2]  # garbage_truck: the cleanest 2-response decisive-vs-convening case
     a, b = ex["responses"][0], ex["responses"][1]
-    for fk in "ABCDE":
+    for fk in FORMS:  # was hardcoded "ABCDE" -- broke when losing forms were commented out
         print(f"\n{'='*78}\nFORM {fk}\n{'='*78}")
         print(render(fk, ex["axis"], ex["situation"], a["text"], b["text"]))
 

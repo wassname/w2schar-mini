@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rate gym: can the weak qwen-9b RATE form catch confounded pairs?
 
-The depth-judge gym (judgment_gym.py) tests pairwise A/B character ranking. THIS
+The depth-judge gym (gym_judgement.py) tests pairwise A/B character ranking. THIS
 tests the other live decision: the two-pass on/off-axis differentiation rating
 that select_pairs uses. Job 123 r00 trained 94/95 pairs because the rater
 gave high on_axis + low off_axis to confounded pairs it should have culled --

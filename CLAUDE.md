@@ -253,7 +253,7 @@ one that costs real money. Match the change to the gym:
   judgment + low confound in a doing/judging/tradeoff mode; one that only elicits refusing
   is dead. Pennies. Caveat: OpenRouter bf16 vs the live local nf4 student; single-turn
   (multiturn questions like the console only show their setup turn).
-- **`scripts/judgment_gym.py` / `scripts/gym_rate_pairs.py`** (almost free -- a handful of
+- **`scripts/gym_judgement.py` / `scripts/gym_rate_pairs.py`** (almost free -- a handful of
   teacher calls over a fixed fixture) -- labeled-fixture benches for the
   TEACHER's judge/rate FORMS (does a depth-judge form catch a paraphrase-keep; does a rate
   form catch refusal/length/incoherence confounds). Use when changing how the teacher
