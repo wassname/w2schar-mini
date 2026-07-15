@@ -160,13 +160,35 @@ def _coerce_json_dict(name: str, val):
         return val
     try:
         parsed = json.loads(val)
-    except (json.JSONDecodeError, TypeError) as e:
-        raise ValidationError(
-            f"{name} arrived as a string that does not parse as a JSON object: {e}")
-    if not isinstance(parsed, dict):
+    except (json.JSONDecodeError, TypeError):
+        parsed = None
+    if isinstance(parsed, dict):
+        return parsed
+    if parsed is not None:
+        # Valid JSON, wrong shape (list/scalar) -- the line fallback can't rescue it.
         raise ValidationError(f"{name} must be a JSON object keyed by question id, "
                               f"got {type(parsed).__name__}")
-    return parsed
+    # JSON parse failed. The 9b routinely quotes long POST clauses with embedded
+    # quotes/commas/colons that break json.loads (~7 mark_exam retries, round00 of the
+    # qwen 12-round run). Accept a plain `question_id: text` per line instead -- no
+    # nested quoting to escape. Split on the FIRST colon so the value may itself contain
+    # colons ("PRE: ...; POST: ..."). Coverage is still enforced downstream by
+    # _validate_question_evidence / _validate_scores. (Claude)
+    out = {}
+    for line in val.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if ":" not in line:
+            raise ValidationError(
+                f"{name}: line {line!r} has no ':' -- send one `question_id: text` per "
+                "line, or a JSON object keyed by question id.")
+        k, v = line.split(":", 1)
+        out[k.strip()] = v.strip()
+    if not out:
+        raise ValidationError(
+            f"{name}: empty -- send one `question_id: text` per line, or a JSON object.")
+    return out
 
 
 @tool(name="choose_focus", parallel=False)
@@ -213,8 +235,9 @@ def choose_focus_tool(slug: str) -> Tool:
                 wrong, 1-5" rating is a different measurement. mark_exam scores POST
                 against this frozen PRE.
             pre_question_evidence: one quoted PRE clause per `_1p` question, keyed by the
-                same exact question ids, justifying its position. Send a JSON OBJECT
-                shaped {"<question_id>_1p": "<quoted PRE clause>", ...}, not a string.
+                same exact question ids, justifying its position. Easiest format: one
+                `<question_id>_1p: <quoted PRE clause>` per line (no JSON escaping). A
+                JSON object keyed by question id is also accepted.
             persona_pair_id: the id (from the measured-pair menu in the brief) of
                 the pair your `evidence` targets. REQUIRED when the profile measures
                 more than one pair -- omitting it then samples the first pair, NOT
@@ -891,8 +914,10 @@ def mark_exam_tool(slug: str) -> Tool:
                 this round harder than it needed to be: weak question, bad
                 pairs, unclear axis wording, gate friction, or similar.
             question_evidence: one quoted POST clause or concrete note per _1p question
-                showing what the act was, on a trained round. Send a JSON OBJECT
-                shaped {"<question_id>_1p": "<quoted POST clause>", ...}, not a string.
+                showing what the act was, on a trained round. Cite EVERY _1p question.
+                Easiest format: one `<question_id>_1p: <quoted POST clause>` per line
+                (no JSON escaping -- a clause may contain quotes/commas/colons). A JSON
+                object keyed by question id is also accepted.
         """
         round_dir = latest_round_dir(_slug_path(slug))
         try:
