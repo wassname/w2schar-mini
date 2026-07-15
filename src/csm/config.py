@@ -16,10 +16,12 @@ from csm.prompts import (CORE_THREE_AXIS_PERSONA_CELLS, DEFAULT_PERSONA_CELLS,
 TEACHER_SAMPLING = dict(temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5)
 # Backstop for non-termination. Presence penalty is the first loop-control lever.
 TEACHER_REASONING_TOKENS = 40000
-# Passed as OpenRouter extra_body. Pinned to DeepInfra, no fallback: a fallback
-# provider can serve a different quantization mid-run, silently changing the teacher.
-# If DeepInfra is down, fail loud and requeue. (Claude, per 2026-07-14 external review)
-OPENROUTER_PROVIDER = dict(order=["deepinfra"], allow_fallbacks=False)
+# Passed as OpenRouter extra_body. Prefer DeepInfra (consistent quant) but allow
+# fallback: the shared DeepInfra pool 429s minutes-scale on judge-sized reasoning calls
+# and a no-fallback pin makes runs un-completable. Fallback quant variance is a caveat we
+# accept over a stalled run; reproducibility across rounds comes from JUDGE_N averaging,
+# not the provider. (Claude, per wassname 2026-07-15: reverts the 740c3ff review pin.)
+OPENROUTER_PROVIDER = dict(order=["deepinfra"], allow_fallbacks=True)
 
 # Keep-judge: phase 1 lets Qwen think up to JUDGE_THINK_BUDGET; phase 2 disables
 # thinking and asks for a direct SCORE if phase 1 did not commit. Use sampling plus
