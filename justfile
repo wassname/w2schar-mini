@@ -42,6 +42,11 @@ replay-prompts DIR PROFILE="gemma-9b-lora":
 run PROFILE N_ROUNDS="3":
     bash scripts/run_3round.sh {{PROFILE}} {{N_ROUNDS}}
 
+# Post-hoc tinymfv eval on a completed run slug (independent Clifford-2015 measure,
+# separate from the teacher's keep/drop). Writes eval.json per round. GPU; wrap in pueue.
+eval SLUG NAME="classic":
+    bash scripts/run_eval.sh {{SLUG}} {{NAME}}
+
 # Print the agent's task brief (the prompt rendered into the inspect-ai react).
 program-md:
     @uv run python -c "from csm.prompts import render_program_md; print(render_program_md())"
