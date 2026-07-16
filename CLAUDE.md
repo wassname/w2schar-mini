@@ -32,6 +32,10 @@ See `src/csm/prompts.py` for the full agent brief (run `just program-md`).
   "candidate". Use the two-word form in prose; the short `gen_pairs`/`sel_pairs` in code.
 - **mark_exam** -- KEPT. The round is the student's exam (PRE/POST); mark_exam commits
   the marked result. (keep/drop itself is automatic now -- the blind A/B sign test.)
+  The teacher's free-text (`reason`, summaries) is unreliable and CONFABULATES --
+  round05 of the qwen run cited 4 question ids that exist in no artifact (RJ 2026-07-16 c).
+  Trust the STRUCTURED blind-A/B output (`ab_judge.json`), not the teacher's self-report,
+  at every stage; that unreliability is itself the reason mark_exam's `reason` field was removed.
 - **wiser** -- the keep-judge criterion: which answer ACTS more wisely (a concretely
   better/different action or a held costlier line), not which reasons "deeper". Was "deeper".
 - **slot** -- kept as the ordinary word for a fill position (answer-token slot, adapter

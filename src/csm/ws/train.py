@@ -65,6 +65,13 @@ class TrainCfg:
     max_len: int = 512
     n_val_pairs: int = 3
     min_val_improvement: float = 0.05
+    """GUIDANCE, never a keep gate. val_pairs is a random held-out split of THIS
+    round's training pairs (same scifi pool, see the perm split below), so
+    val_improvement measures in-distribution pair generalization -- NOT the OOS
+    classic-interview movement that keep/drop scores. In the qwen 9b->27b run the
+    two were weakly INVERTED (corr -0.60, n=8; RJ 2026-07-16 b): the biggest movers
+    had negative val_improvement, the best pair-fitter (+0.775) did not move at all.
+    Gating keeps on this would invert ~half the rounds. (Claude)"""
     kl_lambda: float = 0.032
     """β: coefficient on mean reverse-KL per step (nats, matches NLL units).
     0 disables. Bump up if Δnll blows past +0.02 (coherence breaks); bump
