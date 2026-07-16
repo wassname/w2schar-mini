@@ -1,5 +1,51 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-16 (b) -- val_nll+ does NOT predict judged movement (weakly INVERTED); val is a bad keep gate
+
+Analysing the live qwen run (`out/iter/20260715T071652_iter_qwen-qwen3.6-27b`, rounds 00-07,
+computed from each `round0N/{calibration.json,judgment.json}`). Open question raised by wassname:
+is `val_nll+` meaningfully correlated with the judged PRE->POST movement? Answer for this run: no,
+and if anything it is inverted.
+
+| rnd | action | move_mean | val_impr | best_step | n_train |
+|-----|--------|-----------|----------|-----------|---------|
+| 00 | keep | +0.071 | +0.520 | 120 | 57 |
+| 01 | drop | 0.000 | +0.553 | 83 | 38 |
+| 02 | keep | +0.071 | +0.384 | 60 | 79 |
+| 03 | drop | -0.071 | +0.191 | 120 | 122 |
+| 04 | keep | +0.429 | +0.079 | 60 | 67 |
+| 05 | keep | +0.357 | **-0.259** | 30 | 54 |
+| 06 | drop | -0.071 | +0.189 | 30 | 27 |
+| 07 | drop | 0.000 | **+0.775** | 57 | 25 |
+
+`corr(val_improvement, movement_mean) = -0.60` (n=8, weak). Mean val_improvement is HIGHER for
+drops (+0.427) than keeps (+0.181). The two biggest movers (r04, r05) have the lowest/negative
+val; the two best pair-learners (r07 +0.775, r01 +0.553) do not move the interview at all.
+
+**What val is** (`ws/train.py:184-190`): held-out (cho,rej) pairs the adapter never trained on,
+`n_val_pairs=4`, SAME scifi distribution as train; `val_nll+ = nll(teacher off-policy cho | +C)`;
+`val_improvement` = step0 val_nll+ minus best. It is an IN-DISTRIBUTION (scifi) pair-generalization
+diagnostic for a SINGLE adapter. Movement is a DIFFERENT object: blind A/B wisdom on the 14 CLASSIC
+interview questions (OOS by design, `probes.py`), over the COMPOSED stack. Low correlation is
+expected; the negative sign is the interesting part.
+
+**Can't confirm the inversion is real** -- three confounds: (1) different objects by design
+(in-dist single adapter vs OOS composed stack); (2) `n_val=4` makes per-round val_improvement very
+noisy (r05's -0.259 is ~1 of 4 pairs); (3) movement is POST(stack) vs PRE(prior kept), val is this
+adapter alone. Hypothesis worth a real test: tight scifi-pair fit = narrow direction that does not
+transfer to classic. Equally consistent with n=4 noise. Undecidable at n=8.
+
+**"Train too long?" (wassname's read)** -- mild support (r05: earliest best_step=30, most negative
+val, 2nd biggest mover) but the harness already bakes the val-MIN checkpoint, so overfit past
+best_step is capped; the anti-correlation is with val LEVEL not step count, so "fit the pairs too
+well" != "too many steps." Clean test = one-round n_epochs/max-step ablation (hold pairs fixed, vary
+length, measure movement). DO NOT change blind at n=8.
+
+**What this DOES establish:** val_improvement is a BAD keep gate -- gating on it would DROP the two
+best movers (r04, r05) and KEEP the biggest non-mover (r07, +0.775), inverting 4 of 8 rounds. Live
+validation of the CLAUDE.md rule that `min_val_improvement` is GUIDANCE, not a gate: the blind A/B
+judge measures something val provably cannot.
+
 ## 2026-07-16 (a) -- agent misconceptions during the qwen 9b->27b audit (corrections for future agents)
 
 Auditing the live qwen w2s run (`out/iter/20260715T071652_iter_qwen-qwen3.6-27b`) I (Claude)

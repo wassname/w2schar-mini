@@ -137,10 +137,20 @@ These say what each number MEASURES; you judge whether the value is good.
   foundations across tinymfv vignettes. `top1_acc` — first-choice agreement with
   the Clifford-2015 human label. These are the INDEPENDENT measure (not the
   teacher's Likert).
-- `movement` / `movement_mean` (judgment.json) — the TEACHER's own PRE→POST Likert
-  delta on the `_1p` questions (-5..+5). This is the teacher judging itself; treat it
-  as a claim to verify against the interview text and the independent eval, not as
-  ground truth.
+- `movement` / `movement_mean` (judgment.json) — NOT a teacher self-score. `movement`
+  is byte-identical to `ab_judge.json` (the blind A/B sign test): per `_1p` question,
+  +1 POST-wiser / -1 PRE-wiser / 0 tie; `movement_mean` is their mean. So a
+  `movement_mean` of ±0.071 is a NET of one question crossing one band out of 14.
+  Verify it against the interview text and the independent eval, not as ground truth.
+- `ab_judge_raw.json` `{d1, d2, avg, vote}` — `d1` scores the PRE→POST ordering, `d2`
+  scores the POST→PRE ordering and is NEGATED to de-swap: `avg = (d1 - d2)/2`, NOT
+  `(d1 + d2)/2`. So `d2 < 0` is CONCORDANT with `d1 > 0` (both say POST wiser) — do
+  NOT read d1 vs raw d2 as a disagreement (a common auditor misread). `vote = ±1` iff
+  `|avg| ≥ KEEP_DEADBAND` (=1.0), else 0. The two-permutation mean already cancels
+  position bias (a measured ~0.57-Likert slot-B preference), so it is NOT a bug to fix;
+  what remains is per-ordering variance. Votes with `0.5 ≤ |avg| ≤ 1.5` are BORDERLINE
+  (straddle the deadband) — count them, since a round's keep/drop is a net sum decided
+  by margins as small as ±1.
 - weak-keep check (no stored field) — keep/drop is the blind A/B sign test, so the
   audit derives keep quality itself: a keep with a thin net vote margin
   (`ab_judge_raw.json`, up vs down) or a near-zero `val_improvement`
@@ -272,6 +282,16 @@ in the artifact and quoted; "the grep flagged it" is not a finding.
   a stage emitting the same tool call dozens of times for one round is a confused
   loop; a scoreboard read that contradicts `teacher_prompt.md` (wrong kept-counts
   or round-numbers) is a legibility failure — quote both sides.
+- val-vs-movement decoupling: tabulate `val_improvement` (calibration.json) against
+  `movement_mean` and `action` across ALL rounds. keep/drop (blind A/B on OOS classic
+  questions) and val (in-dist scifi pair-loss of a single adapter) measure DIFFERENT
+  objects, so they need not correlate — a KEEP on negative val_improvement or a DROP on
+  the run's best-trained adapter is expected, NOT a bug (RJ 2026-07-16 b: corr −0.60,
+  n=8). Do NOT recommend gating keeps on val_improvement.
+- unanchored forced judge fraction: `grep -c "forced score=.* without a verbatim quote" /tmp/audit-$ID.log`.
+  These are phase-2 verdicts where the 9b overthought past `JUDGE_THINK_BUDGET` and the
+  quote-anchor was skipped (flag not gate). A high fraction (~20% of samples this run)
+  dilutes judge confidence — report it as a number, don't gate on it.
 
 ## Report format
 
