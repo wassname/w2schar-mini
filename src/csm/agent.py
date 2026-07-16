@@ -1060,9 +1060,10 @@ def _build_teacher_prompt(slug_path: Path, rd: Path, *, model: str, keep_target:
         "the standard it names judging another; an ego gap worth an axis -- but a collapse "
         "can also RAISE consistency, so weigh it with the quote, do not just maximise it):\n"
         + "\n".join(cons_lines) + "\n" if cons_lines else "")
-    # Rotating axis menu: hide already-kept axes and shuffle the rest per round so
-    # list position does not dominate the teacher's choice. Deterministic in
-    # (seed, round) for replay.
+    # Rotating axis menu: SINK already-kept axes to the bottom (not hide -- still
+    # shown and pickable, see the freshness-nudge comment below) and shuffle the rest
+    # per round so list position does not dominate the teacher's choice. Deterministic
+    # in (seed, round) for replay. (Claude)
     # Per-axis scoreboard from this run's history. The teacher selects from the
     # visible measurements; the menu reports weak evidence but does not veto an axis.
     axis_stats: dict[str, dict] = {}

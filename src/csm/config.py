@@ -688,6 +688,19 @@ CONFIGS["qwen36-27b-3keep"] = replace(
     model="Qwen/Qwen3.6-27B",
 )
 
+# 75%-training-length variant of qwen36-27b-3keep. HYPOTHESIS (wassname): the 12-round
+# run 20260715T071652 saturated after 4 keeps and val_improvement was weakly INVERTED
+# vs movement (corr -0.60, n=8; RJ 2026-07-16 b), a mild train-too-long signal. Steps
+# scale linearly with n_epochs (steps = ceil(steps_per_epoch * n_epochs), pipeline.py),
+# so 2.0 -> 1.5 caps training at 75% of the steps. Only n_epochs changes; everything
+# else (signed_C, lr, kl, menu) held at baseline to isolate it. Early-stop-at-val-min
+# still applies, so a round already stopping before 1.5 epochs is unaffected -- this
+# only bites rounds that ran to the cap. (Claude)
+CONFIGS["qwen36-27b-3keep-e1.5"] = replace(
+    CONFIGS["qwen36-27b-3keep"],
+    n_epochs=1.5,
+)
+
 # Gamma hinge sweep: the asymmetric margin loss's easy pole saturates early and
 # starves the hard pole (training logs show nll+ bottoming while nll- lags).
 # gamma=0.5 adds a relu(0.5 - gap) hinge: loss refuses to relax until each
