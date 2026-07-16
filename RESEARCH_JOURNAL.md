@@ -1,5 +1,53 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-16 (d) -- keep-judge discards the verdict when phase-1 thinking truncates (channel split)
+
+This entry records a bug wassname spotted by watching the live keep/judge and asking why a forced
+`SCORE: 0` followed a long chunk of reasoning. The blind A/B keep-judge (`_judge_sample`,
+`agent.py:656`) is a two-phase call: phase 1 lets the weak qwen-9b think, phase 2 forces a direct
+answer if phase 1 gave none. The bug is in what phase 1 parses.
+
+Confirmed by reading the code and the inspect API (not a run measurement):
+
+- `agent.py:662-663` parses `r1.completion`: `r1 = jm.generate(base, max_tokens=JUDGE_THINK_BUDGET, ...)`
+  then `score, quote, found = _parse_score_quote(r1.completion)`. In inspect-ai `ModelOutput.completion`
+  returns the ContentText only, NOT the ContentReasoning -- `_reasoning_tail` (`agent.py:639-645`)
+  exists precisely to pull `x.reasoning` from the separate channel. So a `SCORE:` the model writes
+  inside its `<think>` reasoning is invisible to the phase-1 parser.
+- `JUDGE_THINK_BUDGET = 1024` (`config.py:31`) caps thinking AND answer together. When thinking fills
+  the budget the completion is emitted empty, so `found=False` and phase 2 fires. Phase 2 uses
+  `JUDGE_FORCE` (`config.py:30`, `reasoning_effort="none"`), i.e. answers cold.
+
+Live transcript evidence (`/tmp/audit-live2.log:52620-52658`, task-0 round11): the judge reasons to
+`B explicitly balances the moral imperative with the procedural need ... whereas A frames it purely`
+-- cut off mid-sentence at the budget -- then the forced prompt fires and the recorded answer is
+`SCORE: 0`. The forming "B is wiser" verdict is lost.
+
+How often the forced path fires and what it yields (mixed, so NOT a uniform zero):
+
+- The code's own comment (`agent.py:679`) states ~43% of samples arrive via the forced path.
+- Blind ties per round where BOTH permutations returned d1=0 AND d2=0 (from each `ab_judge_raw.json`):
+  r00 8/14, r02 6/14, r04 2/14, r05 2/14, r06 2/14, r07 3/14, r08 4/14, r09 3/14, r10 2/14.
+- A hand-sample of 8 forced fires from the rendered log gave final scores 0, -5, 0, -5, +1, (na), 0,
+  +3 -- so phase 2 commits real nonzero scores much of the time; it is not always 0.
+
+Source: `agent.py:639-684`, `config.py:30-31`, the transcript lines above, and the per-round
+`ab_judge_raw.json` d1/d2 fields.
+
+My read (calibrated): the channel split is a real defect -- a verdict the model reached in reasoning
+can be thrown away and re-derived cold. What I have NOT yet measured, and what decides the fix, is the
+mode split: (a) thinking cut off BEFORE any verdict (the transcript example) vs (b) a verdict formed
+in reasoning then discarded. Mode (a) wants a bigger think budget or a thinking phase-2; mode (b) wants
+harvesting the reasoning-channel SCORE as a fallback. I saw one apparent case of each but my rendered-log
+extraction misaligns across the forced clusters, so I do not trust a rate yet; measuring it is the next
+step before any fix. This does not overturn the run's saturation read -- the drops rode genuine strong
+negatives (r08 successor_handoff -2.75, research_appendix -2.12, asteroid -1.44, concordant across both
+permutations) -- but it attenuates the judge and blinds 2-8 of 14 questions per round, so the true
+movement is probably larger than the recorded means.
+
+The keep-judge can silently throw away the judgment it just made, and until the mode is measured we
+should fix it as a data question, not a guess.
+
 ## 2026-07-16 (c) -- removed mark_exam ceremony that fed no keep/drop decision (question_evidence, reason)
 
 This entry records what we removed from mark_exam this session and the evidence that it fed no
