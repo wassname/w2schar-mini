@@ -60,6 +60,12 @@ log SLUG="latest":
 thoughts SLUG="":
     uv run python scripts/agent_thoughts.py {{SLUG}}
 
+# Make the keep-judge legible: per-round PRE vs POST answers + d1/d2/avg/vote,
+# read from per-round artifacts (works live / on a killed or failed run; no boxes,
+# no display-mode dependency). Pass a slug or a roundNN dir; --full for untruncated.
+judge TARGET="":
+    uv run python scripts/judge_trace.py {{TARGET}}
+
 # Pull run artifacts from the remote box (incremental; skips adapters for
 # speed -- `just pull vast ''` to include them). Trailing slashes matter:
 # without them rsync copies the remote dir INTO ./out, giving a nested out/out/.
