@@ -9,7 +9,11 @@ from pathlib import Path
 from inspect_ai.model import get_model, GenerateConfig, ChatMessageUser, ChatMessageAssistant
 import csm.agent as agent
 from csm.agent import (_judge_model, _length_hint, _reasoning_text, _parse_score_quote,
-                       _last_act, FORCE_ANSWER, FORCE_PREFILL)
+                       _last_act, FORCE_ANSWER)
+
+# The prefill this script tested was found inert (not honored by OpenRouter+Qwen) and REMOVED
+# from prod (_judge_sample). Kept here as the historical repro that showed it doesn't continue.
+FORCE_PREFILL = "answer is SCORE: "
 from csm.config import (OPENROUTER_PROVIDER, JUDGE_THINK, JUDGE_FORCE, JUDGE_THINK_BUDGET,
                         TEACHER_REASONING_TOKENS, TEACHER_SAMPLING)
 from csm.prompts import GRADED_JUDGE_PROMPT, OBJECTIVE_ANCHOR

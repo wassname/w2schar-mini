@@ -609,15 +609,16 @@ def _parse_score_quote(text: str) -> tuple[float, str, bool]:
     """Returns (score, quote, found). Score is a DECIMAL in [-5.5, +5.5]: the force-answer
     demands a specific decimal and forbids a round 0, so a small real lean survives to the
     deadband instead of being punted to a flat tie. `found` distinguishes a parsed score
-    from NO parseable SCORE line. re.search (not match) so an 'answer is SCORE: ...' prefill
-    still parses."""
+    from NO parseable SCORE line. re.match (anchored at line start): a mid-line 're.search'
+    let a later chatty 'compared to SCORE: -2' override and sign-flip the real verdict
+    (2nd-review regression, RJ 2026-07-16 e); anchoring is the original safe behavior."""
     score, quote, found = 0.0, "", False
     for line in text.splitlines():
-        m = re.search(r"SCORE:\s*([+-]?\d+(?:\.\d+)?)", line, re.IGNORECASE)
+        m = re.match(r"\s*SCORE:\s*([+-]?\d+(?:\.\d+)?)", line, re.IGNORECASE)
         if m:
             score = max(-5.5, min(5.5, float(m.group(1))))
             found = True
-        q = re.search(r"QUOTE:\s*(.+)", line, re.IGNORECASE)
+        q = re.match(r"\s*QUOTE:\s*(.+)", line, re.IGNORECASE)
         if q:
             quote = q.group(1).strip().strip("\"'“”")
     return score, quote, found
@@ -666,15 +667,12 @@ FORCE_ANSWER = (
     "NEGATIVE if the FIRST does. Do NOT answer 0 or a round number -- give a specific decimal "
     "like +2.3 or -0.4, however small the lean>\n"
     "QUOTE: <verbatim clause from the wiser side, or blank>")
-# Intended to teacher-force the answer's opening. NOTE (Claude 2026-07-16, scripts/
-# gym_judge_prefill_check.py): OpenRouter+Qwen3.5 does NOT honor a trailing assistant
-# message as a prefill -- it emits a fresh "SCORE: ..." instead of continuing this string,
-# so this is currently a no-op. What actually forces a clean commit is reasoning_effort="none"
-# (JUDGE_FORCE) + the decimal instruction: tie->0.0, clear-diff->+4.2 with a grounded quote,
-# both stop=stop/found=True. Parsed together with the completion; re.search skips the dangling
-# bare "SCORE:" and reads the model's real decimal. Kept per request; revisit if we enable
-# native prefill (extra_body) or switch providers.
-FORCE_PREFILL = "answer is SCORE: "
+# NOTE (Claude 2026-07-16, scripts/gym_judge_prefill_check.py): a trailing-assistant PREFILL
+# ("answer is SCORE: ") was tried to teacher-force the answer, but OpenRouter+Qwen3.5 does NOT
+# honor it -- the model emits a fresh "SCORE: ..." anyway, so it was inert AND forced a mid-line
+# re.search that could sign-flip a chatty verdict (2nd-review). Removed. reasoning_effort="none"
+# (JUDGE_FORCE) + the FORCE_ANSWER decimal instruction already force a clean commit (tie->0.0,
+# clear-diff->+4.2 with a grounded quote). Revisit only with native provider prefill (extra_body).
 
 
 async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[float | None, bool]:
@@ -688,14 +686,13 @@ async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[float | None, bo
     if found and _quote_ok(score, quote, a, b):
         return score, False
     # Phase 2: phase 1 hit the budget, gave no SCORE, or gave an invalid quote. Re-inject the
-    # full phase-1 reasoning, demand a specific decimal (reasoning_effort='none' forces a clean
-    # commit). The trailing FORCE_PREFILL is a no-op on OpenRouter+Qwen (see its comment).
+    # full phase-1 reasoning and demand a specific decimal (reasoning_effort='none' forces a
+    # clean cold commit).
     msgs = [ChatMessageUser(content=base),
             ChatMessageAssistant(content=(_reasoning_text(r1) or "(thinking truncated)")),
-            ChatMessageUser(content=FORCE_ANSWER),
-            ChatMessageAssistant(content=FORCE_PREFILL)]
+            ChatMessageUser(content=FORCE_ANSWER)]
     r2 = await jm.generate(msgs, config=GenerateConfig(max_tokens=256, **JUDGE_FORCE))
-    score, quote, found = _parse_score_quote(FORCE_PREFILL + r2.completion)
+    score, quote, found = _parse_score_quote(r2.completion)
     if not found:
         logger.warning(f"keep-judge force-answer returned NO SCORE "
                        f"(stop={getattr(r2, 'stop_reason', '?')}); NON-conclusion (None, not a tie)")
