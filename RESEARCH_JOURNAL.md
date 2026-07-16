@@ -1,5 +1,45 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-16 (c) -- removed mark_exam ceremony that fed no keep/drop decision (question_evidence, reason)
+
+This entry records what we removed from mark_exam this session and the evidence that it fed no
+decision, so a future reader knows why the tool shrank. Keep/drop is the blind two-pass A/B sign
+test alone (`agent.py:_blind_ab_votes`; `judgment.json:movement` is byte-identical to
+`ab_judge.json`), which reads the interview text itself. Three mark_exam surfaces sat next to that
+decision without feeding it.
+
+What each surface did, and where I checked it fed nothing:
+
+- `question_evidence` (14 hand-quoted POST clauses): read at exactly one site, `pipeline.py:3031`,
+  and only to render a display line. It fed no branch. It cost roughly 15 rejections this run:
+  a grep over the run log (`/tmp/audit-0b.log`, the pueue task-0 snapshot through r07) counted 8
+  `"arrived as a string that does not parse as a JSON object"` plus 7 `"missing quote/evidence for"`.
+- `reason` / judgment `reasoning` (free-text teacher summary): consumed only as a `next_focus`
+  fallback (`agent.py:980`) and cosmetic report/plot renders (`plot.py:115`, `pipeline.py:3011/3082/3111`).
+  It also confabulated: `round05/judgment.json:reasoning` cites `hero_gross_package`,
+  `orphan_wheelhouse`, `coal_mining_agreement`, `newspaper_forum` -- ids that a `grep -rl` finds in
+  no round-05 artifact except that prose, and that are not among the 14 `_1p` question ids.
+- `val_improvement` as a would-be keep gate (`min_val_improvement`, already guidance not gate):
+  the round table in entry (b) shows a KEEP at `val_improvement=-0.259` (r05) and a DROP at the
+  run's best `+0.775` (r07); gating keeps on it would invert 4 of 8 rounds.
+
+Source: `git show d6b0b16` (the removal), `round05/judgment.json`, the grep counts above, and the
+per-round table in RJ 2026-07-16 (b). `pre_question_evidence` (choose_focus) was KEPT: unlike the
+three above, its read DOES feed a decision (the teacher's axis pick), so it forces a look that matters.
+
+My read (calibrated): removing these three is safe because none touched keep/drop, so it is *almost
+certain* no decision changed (`just smoke` passes with them gone, `d6b0b16`). The confabulation is
+the more general signal: it is *probable* (~0.7) that the weak teacher's prose is unreliable
+everywhere it self-reports, which argues for the blind-judge design and against trusting teacher
+summaries at any stage, but I have only the one round-05 instance verified so I would not call it
+settled. The unifying principle I am *fairly confident* of: a mark_exam form that does not feed the
+decision is either ceremony (remove it) or an override (forbidden by the harness premise); the only
+forms worth keeping FORCE the teacher to look where its look feeds a decision, which is why
+`pre_question_evidence` stays and `question_evidence` goes.
+
+The takeaway is that the exam tool now carries only the fields that change an outcome, and the parts
+that fed nothing but friction and confabulation are gone.
+
 ## 2026-07-16 (b) -- val_nll+ does NOT predict judged movement (weakly INVERTED); val is a bad keep gate
 
 Analysing the live qwen run (`out/iter/20260715T071652_iter_qwen-qwen3.6-27b`, rounds 00-07,
