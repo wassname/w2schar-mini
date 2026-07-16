@@ -29,7 +29,8 @@ What is NOT a bug (each refuted by a cheap check, not a guess):
   and suppresses the base; phase-1 prints the base separately, and with ~224 concurrent judge calls those
   are scattered far apart. The PRE/POST ARE sent to the model; they just aren't rendered next to the interrupt.
 
-The two real defects (fixed):
+The real defects (fixed; two of the three I introduced myself with the int->float switch, both
+caught by context-free adversarial review subagents, not by me):
 
 - `_reasoning_text` (was `_reasoning_tail`, `agent.py:639`) cropped the re-injected phase-1 reasoning to
   the last 2000 chars, but the CoT is ~4200 chars and never reaches a verdict, so the A-vs-B analysis
@@ -40,6 +41,12 @@ The two real defects (fixed):
   so it would have crashed the live keep decision. Caught by a context-free adversarial review subagent;
   fixed to `:+.1f`. Confirmed fixed under load: the gym now logs `score=+1.2 / +2.7 / +4.2 / +4.7`
   warnings with no exception.
+- VERDICT SIGN-FLIP I introduced: I changed `re.match` -> `re.search` (only to parse the prefill),
+  which lets a `SCORE:` token match mid-line; with the per-line last-match loop, a chatty phase-1
+  line like `compared to SCORE: -2` or a trailing guidance line could OVERRIDE and sign-flip the
+  real verdict (`-4.5` recorded as `+2.3`). A second review caught it. Since the prefill was inert
+  anyway, I removed the prefill and restored the anchored `re.match`; verified the flip case now
+  parses `-4.5` and mid-line `SCORE:` is ignored.
 
 Changes per wassname's request (make the forced answer decisive): SCORE is now a decimal in [-5.5, +5.5],
 the force prompt forbids a round 0, and a trailing assistant `FORCE_PREFILL="answer is SCORE: "` was added.
