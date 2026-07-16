@@ -29,6 +29,13 @@ Two standing rules:
   you will find it whether it's there or not, and you'll skip the stage that
   actually broke. Look first, name what you see, then judge.
 
+Before presenting (esp. when a subagent wrote the audit): SPOT-CHECK at least 3
+load-bearing quotes against source -- open the cited file, confirm the text is
+verbatim and the id is real. Subagents AND the weak teacher both confabulate: in
+the 2026-07-16 audit a subagent called an ambiguous answer a "demonstrable cave"
+and the teacher's own `reasoning` cited 4 question ids that exist in no artifact.
+An audit full of quotes is worthless if any are invented. Report the 3 you checked.
+
 ## Gather (no GPU, cheap)
 
 1. Resolve the slug: if `$1` is given use it; else `ls -dt out/iter/2026*_iter_*/ | head -1`.
