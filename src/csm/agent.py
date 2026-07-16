@@ -605,16 +605,19 @@ def _judge_ground(lesson: str) -> str:
 KEEP_DEADBAND = 1.0
 
 
-def _parse_score_quote(text: str) -> tuple[int, str, bool]:
-    """Returns (score, quote, found). `found` distinguishes a real 'SCORE: 0' tie from NO
-    parseable SCORE line."""
-    score, quote, found = 0, "", False
+def _parse_score_quote(text: str) -> tuple[float, str, bool]:
+    """Returns (score, quote, found). Score is a DECIMAL in [-5.5, +5.5]: the force-answer
+    demands a specific decimal and forbids a round 0, so a small real lean survives to the
+    deadband instead of being punted to a flat tie. `found` distinguishes a parsed score
+    from NO parseable SCORE line. re.search (not match) so an 'answer is SCORE: ...' prefill
+    still parses."""
+    score, quote, found = 0.0, "", False
     for line in text.splitlines():
-        m = re.match(r"\s*SCORE:\s*([+-]?\d+)", line, re.IGNORECASE)
+        m = re.search(r"SCORE:\s*([+-]?\d+(?:\.\d+)?)", line, re.IGNORECASE)
         if m:
-            score = max(-5, min(5, int(m.group(1))))
+            score = max(-5.5, min(5.5, float(m.group(1))))
             found = True
-        q = re.match(r"\s*QUOTE:\s*(.+)", line, re.IGNORECASE)
+        q = re.search(r"QUOTE:\s*(.+)", line, re.IGNORECASE)
         if q:
             quote = q.group(1).strip().strip("\"'“”")
     return score, quote, found
@@ -648,15 +651,33 @@ def _reasoning_text(r) -> str:
     return ""
 
 
-def _quote_ok(score: int, quote: str, a: str, b: str) -> bool:
-    """A 0 (tie) needs no quote; a nonzero must cite a verbatim clause from the wiser side."""
-    if score == 0:
+def _quote_ok(score: float, quote: str, a: str, b: str) -> bool:
+    """A sub-deadband lean (|score| < KEEP_DEADBAND, effectively a tie) needs no quote; a
+    clear lean must cite a verbatim clause from the wiser side."""
+    if abs(score) < KEEP_DEADBAND:
         return True
     wiser = b if score > 0 else a
     return bool(quote) and _norm(quote) in _norm(wiser)
 
 
-async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[int | None, bool]:
+FORCE_ANSWER = (
+    "You are out of thinking time. Commit NOW, exactly two lines:\n"
+    "SCORE: <a decimal from -5.5 to +5.5; POSITIVE if the SECOND response acts more wisely, "
+    "NEGATIVE if the FIRST does. Do NOT answer 0 or a round number -- give a specific decimal "
+    "like +2.3 or -0.4, however small the lean>\n"
+    "QUOTE: <verbatim clause from the wiser side, or blank>")
+# Intended to teacher-force the answer's opening. NOTE (Claude 2026-07-16, scripts/
+# gym_judge_prefill_check.py): OpenRouter+Qwen3.5 does NOT honor a trailing assistant
+# message as a prefill -- it emits a fresh "SCORE: ..." instead of continuing this string,
+# so this is currently a no-op. What actually forces a clean commit is reasoning_effort="none"
+# (JUDGE_FORCE) + the decimal instruction: tie->0.0, clear-diff->+4.2 with a grounded quote,
+# both stop=stop/found=True. Parsed together with the completion; re.search skips the dangling
+# bare "SCORE:" and reads the model's real decimal. Kept per request; revisit if we enable
+# native prefill (extra_body) or switch providers.
+FORCE_PREFILL = "answer is SCORE: "
+
+
+async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[float | None, bool]:
     """One bounded-thinking judgment. Returns (score, forced), where `forced`
     records whether phase 2 had to ask for a direct answer after phase 1 failed to
     produce a valid SCORE/QUOTE. score=None means NO parseable SCORE even after the
@@ -666,14 +687,15 @@ async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[int | None, bool
     score, quote, found = _parse_score_quote(r1.completion)
     if found and _quote_ok(score, quote, a, b):
         return score, False
-    # Phase 2: phase 1 hit the budget, gave no SCORE, or gave an invalid quote.
+    # Phase 2: phase 1 hit the budget, gave no SCORE, or gave an invalid quote. Re-inject the
+    # full phase-1 reasoning, demand a specific decimal (reasoning_effort='none' forces a clean
+    # commit). The trailing FORCE_PREFILL is a no-op on OpenRouter+Qwen (see its comment).
     msgs = [ChatMessageUser(content=base),
             ChatMessageAssistant(content=(_reasoning_text(r1) or "(thinking truncated)")),
-            ChatMessageUser(content="You are out of thinking time. Answer NOW, two lines only: "
-                            "first line exactly `SCORE: <int -5..+5>`, second line "
-                            "`QUOTE: <verbatim clause from the wiser side, or blank if 0>`.")]
+            ChatMessageUser(content=FORCE_ANSWER),
+            ChatMessageAssistant(content=FORCE_PREFILL)]
     r2 = await jm.generate(msgs, config=GenerateConfig(max_tokens=256, **JUDGE_FORCE))
-    score, quote, found = _parse_score_quote(r2.completion)
+    score, quote, found = _parse_score_quote(FORCE_PREFILL + r2.completion)
     if not found:
         logger.warning(f"keep-judge force-answer returned NO SCORE "
                        f"(stop={getattr(r2, 'stop_reason', '?')}); NON-conclusion (None, not a tie)")
@@ -682,7 +704,7 @@ async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[int | None, bool
         # ~43% of samples arrive via this forced path (out/gym_bounded_judge/report.md) and,
         # unlike phase 1, the quote anchor is unenforced here. FLAG, don't veto: zeroing it
         # would recreate the tie->auto-reject failure. The score stands; the log shows the miss.
-        logger.warning(f"keep-judge forced score={score:+d} without a verbatim quote from the "
+        logger.warning(f"keep-judge forced score={score:+.1f} without a verbatim quote from the "
                        f"wiser side -- unanchored verdict, kept (flag not gate)")
     return score, True
 
