@@ -49,9 +49,22 @@ what actually forces a clean commit is `reasoning_effort="none"` + the decimal i
 -> `0.0` x3; clear diff -> `+4.2` with a grounded quote; both `stop=stop`, `found=True`). Kept the prefill
 per request with a comment noting it is inert on this provider.
 
+Gym before/after (`scripts/gym_bounded_judge.py --judge-n 6 --think-budget 1024`, hard adjacent
+gold-rank pairs; NOTE the fixture grew 11->25 pairs between runs, so this is directional, not a
+clean same-pair diff):
+
+    metric        baseline(int)   fixed(decimal)
+    non-commits   0/132           0/300           <- commitment intact, no silent ties
+    sample SD     1.37            0.93            <- floats more stable across samples
+    ties          6/11 = 55%      17/25 = 68%
+    accuracy      5/11 = 45%      8/25 = 32%
+
+Table 1. `report_b1024_n6_BASELINE_preflt.md` vs `report_b1024_n6_FIXED_decimal.md` under
+`out/gym_bounded_judge/`. non-commits = forced samples that still gave no parseable SCORE.
+
 Source: config-parity + prefill-check + replay scripts under `scripts/gym_judge_*.py`; the four
 `ab_judge_raw.json` zero-pairs in `out/iter/20260715T071652_iter_qwen-qwen3.6-27b/round08/`;
-`inspect_ai/model/_render.py:12`; `/tmp/claude-0/gym_fixed.log`.
+`inspect_ai/model/_render.py:12`; `/tmp/claude-0/gym_fixed.log`; the gym reports above.
 
 My read (calibrated): the think->interrupt->answer mechanism was not mis-wired -- the user's channel
 suspicion is refuted (config + code identical; the log oddity is a renderer quirk). The genuine defects
