@@ -1,5 +1,49 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-16 (f) -- the keep vote deadband 1.0 drops every round by eating real leans; 0.5 recovers them, 0.0 banks regressions
+
+Task-2 (the restarted 12-round qwen 9b->27b run, slug 20260716T135046) kept round00 then dropped
+rounds 01, 02, 03 all with drop_cause=no_movement. This entry works out whether that streak is the
+KEEP_DEADBAND=1.0 wall eating real movement or the student genuinely not moving, by recomputing the
+per-question vote at three deadbands from the stored de-swapped averages (no new judge calls).
+
+The keep vote per _1p question is `avg=(d1-d2)/2` (d1 scores PRE->POST, d2 POST->PRE negated), then
+vote = +1 if avg>deadband, -1 if avg<-deadband, else tie (0). A round keeps iff up-votes exceed
+down-votes. Recomputed from each round's `ab_judge_raw.json`:
+
+| round | live @1.0 | @0.5 | @0.0 | strongest single lean |
+| --- | --- | --- | --- | --- |
+| round00 | up=3 dn=0 KEEP | up=4 dn=0 KEEP | up=12 dn=2 KEEP | escaped_starwisp +2.17 |
+| round01 | up=0 dn=1 drop | up=3 dn=3 TIE | up=9 dn=5 KEEP | mafia_informant -1.76 |
+| round02 | up=0 dn=0 TIE | up=1 dn=0 KEEP | up=9 dn=5 KEEP | look_away_order +0.91 |
+| round03 | up=0 dn=1 drop | up=0 dn=1 drop | up=10 dn=4 KEEP | baby_eating_aliens -2.12 |
+
+Table 1. Vote tallies at three deadbands. "strongest single lean" = the question with the largest
+|avg|. Source: recompute over `out/iter/20260716T135046_iter_qwen-qwen3.6-27b/round0[0-3]/ab_judge_raw.json`
+this session (the @1.0 column matches each round's stored `judgment.json` action).
+
+My read: the streak is BOTH causes, split by round, and that split picks the deadband.
+
+- round02 is a pure deadband victim (probable, ~0.8): its best lean look_away_order +0.91 is real but
+  under 1.0, so every question ties and the round drops as no_movement. Lowering to 0.5 keeps it.
+- round01 and round03 carry genuine erosion, not just eaten movement: the strongest signal in each is
+  NEGATIVE and well clear of any deadband (mafia -1.76, baby_eating -2.12 = POST acts LESS wisely).
+  These are real drops.
+- deadband 0.0 is the dangerous option (my read, ~0.85 confident): it flips round03 to KEEP up=10 dn=4
+  by out-voting the -2.12 erosion with ~10 sub-0.4 leans. With JUDGE_N=8 and per-sample SD~0.93 the
+  noise on avg is roughly +-0.2..0.3, so those +0.0x votes are near coin-flips. Banking a round whose
+  clearest signal is -2.12 is exactly the regression the deadband exists to stop.
+
+0.5 is the value the evidence supports: it recovers the one true victim (round02), honestly ties the
+mixed round (round01: three real gains vs three real erosions), and leaves the real regression
+(round03) dropped. Set KEEP_DEADBAND=0.5 (agent.py) and split off QUOTE_LEAN=1.0 so the lower vote
+wall does not force a verbatim quote on every tiny per-sample score. Restarting task-2 under 0.5.
+
+The caution for the restart: two of the first three rounds eroded strong questions, so a lower deadband
+is necessary but may not be sufficient -- if POST keeps acting less wisely on the sharp scenarios the
+run has a deeper axis/erosion problem the deadband cannot fix, and the independent tinymfv eval is the
+tie-breaker on that.
+
 ## 2026-07-16 (e) -- keep-judge think->interrupt->answer: two real bugs, and the "wiring" suspicion refuted
 
 This entry resolves entry (d). wassname watched the live keep-judge, saw a forced `SCORE: 0` after
