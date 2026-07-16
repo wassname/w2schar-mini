@@ -48,6 +48,34 @@ movement is probably larger than the recorded means.
 The keep-judge can silently throw away the judgment it just made, and until the mode is measured we
 should fix it as a data question, not a guess.
 
+UPDATE (same day, measured): I ran the mode split on the real qwen-9b over the hard fixture
+(`/tmp/measure_judge_channels.py`, 40 phase-1 calls, `tests/fixtures/judgment_gym.jsonl` adjacent
+gold-rank pairs). Result refutes the mode-(b) leaning above:
+
+    total phase-1 calls: 40
+    completion had SCORE (no phase-2 needed): 0/40 = 0%
+    NO completion SCORE (would force phase-2): 40/40 = 100%
+      reasoning HAD a SCORE (mode b, discarded verdict): 0/40 = 0%
+      reasoning had NO score either (mode a, cut off pre-verdict): 40/40 = 100%
+    stop_reason: max_tokens x40
+
+So on hard discriminations phase 1 ALWAYS truncates (100%, not the ~43% the code comment cites for the
+mixed live distribution) and there is NO verdict in the reasoning channel to harvest -- mode (b) is 0%.
+My earlier "reasoning wrote SCORE: 3, answer came out 0" read was a misaligned rendered-log extraction
+across the forced clusters, not a real lost verdict; I retract it. The harvest-the-reasoning fix would
+change nothing. The channel-split code fact still stands (`_parse_score_quote(r1.completion)` ignores
+reasoning), but it is not the failure here because the reasoning holds no score either.
+
+Re-scoped question: since phase 1 reliably truncates, PHASE 2 (the cold `reasoning_effort="none"`
+force-answer, fed the reasoning tail) is the actual score generator. The real issue, if any, is whether
+phase 2 commits an ACCURATE score or punts to 0. That is what `scripts/gym_bounded_judge.py` measures
+(accuracy / forced-rate / non-commit on the labelled fixture), and the fix levers are phase-2 design,
+think budget, and reasoning_effort -- NOT reasoning-harvest. Measuring phase-2 accuracy next before any
+change.
+
+I over-committed to a mechanism before measuring it, and the measurement corrected me; the phase-1
+truncation is real but the lost-verdict story was not.
+
 ## 2026-07-16 (c) -- removed mark_exam ceremony that fed no keep/drop decision (question_evidence, reason)
 
 This entry records what we removed from mark_exam this session and the evidence that it fed no
