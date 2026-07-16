@@ -636,12 +636,15 @@ def _judge_model(active_model):
     return _JUDGE_HANDLE
 
 
-def _reasoning_tail(r, n: int = 2000) -> str:
-    """Tail of hidden reasoning used to continue a truncated judge call."""
+def _reasoning_text(r) -> str:
+    """FULL hidden reasoning, to continue a budget-truncated judge call in phase 2.
+    Do NOT truncate: the phase-1 reasoning is ~4200 chars but never reaches a verdict
+    (it hit the budget), so the A-vs-B analysis lives in the BEGINNING; a tail slice
+    dropped the premises and left phase 2 to punt to a safe 0 (Claude, RJ 2026-07-16).
+    Input tokens are cheap; send the whole thing."""
     c = getattr(getattr(r, "message", None), "content", None)
     if isinstance(c, list):
-        t = "\n".join(getattr(x, "reasoning", "") for x in c if getattr(x, "reasoning", ""))
-        return t[-n:]
+        return "\n".join(getattr(x, "reasoning", "") for x in c if getattr(x, "reasoning", ""))
     return ""
 
 
@@ -665,7 +668,7 @@ async def _judge_sample(jm, base: str, a: str, b: str) -> tuple[int | None, bool
         return score, False
     # Phase 2: phase 1 hit the budget, gave no SCORE, or gave an invalid quote.
     msgs = [ChatMessageUser(content=base),
-            ChatMessageAssistant(content=(_reasoning_tail(r1) or "(thinking truncated)")),
+            ChatMessageAssistant(content=(_reasoning_text(r1) or "(thinking truncated)")),
             ChatMessageUser(content="You are out of thinking time. Answer NOW, two lines only: "
                             "first line exactly `SCORE: <int -5..+5>`, second line "
                             "`QUOTE: <verbatim clause from the wiser side, or blank if 0>`.")]
@@ -763,7 +766,7 @@ async def _consistency_sample(jm, prompt: str) -> tuple[bool | None, str]:
     if consistent is not None:
         return consistent, quote
     msgs = [ChatMessageUser(content=prompt),
-            ChatMessageAssistant(content=(_reasoning_tail(r1) or "(thinking truncated)")),
+            ChatMessageAssistant(content=(_reasoning_text(r1) or "(thinking truncated)")),
             ChatMessageUser(content="You are out of thinking time. Answer NOW, two lines only:\n"
                             "CONSISTENT: yes (or no)\nQUOTE: <the conflicting clause, or blank>")]
     r2 = await jm.generate(msgs, config=GenerateConfig(max_tokens=64, **JUDGE_FORCE))
