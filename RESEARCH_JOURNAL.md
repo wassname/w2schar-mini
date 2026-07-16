@@ -1,5 +1,70 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-16 (e) -- keep-judge think->interrupt->answer: two real bugs, and the "wiring" suspicion refuted
+
+This entry resolves entry (d). wassname watched the live keep-judge, saw a forced `SCORE: 0` after
+long reasoning with no visible thought and no PRE/POST beside the interrupt, and suspected the
+two-phase think->interrupt->answer was mis-wired live ("user message in the main channel while the
+reasoning went to some other channel"). I chased that, found it was NOT the bug, and instead found
+two genuine defects (one of which I introduced), plus a display artifact that fully explains what he saw.
+
+What is NOT a bug (each refuted by a cheap check, not a guess):
+
+- No config leak into the judge. Building both handles in one process and printing their base config
+  (no generation, instant): the teacher carries `reasoning_tokens=40000` but BOTH the gym handle and
+  the live handle resolve to `{max_connections:48}` only -- `str(teacher)` returns the model name, so
+  `_judge_model` (`agent.py:626`) rebuilds a clean handle. `gym==live judge base cfg? True`,
+  `leaks reasoning_tokens? False`.
+- Identical code path. gym (`scripts/gym_bounded_judge.py:86-91`) and live
+  (`_blind_ab_votes`->`_judge_graded`->`_judge_sample`) call the SAME `_judge_sample`/`_judge_model`;
+  only the a/b texts differ (fixture vs real PRE/POST).
+- The live `d1=0.0, d2=0.0` votes are GENUINE TIES, not punts. Replaying the real round08
+  `elder_isolation_1p` PRE/POST through the fixed judge, all 16 samples returned `SCORE: 0` cleanly
+  (`comp='SCORE: 0.0\nQUOTE:'`). Reading the four zero-pairs (elder_isolation, comfort_fraud,
+  escaped_starwisp, vendor_security) they are the SAME action with POST adding more moral language --
+  exactly what `OBJECTIVE_ANCHOR` says to score 0. So round08's `no_movement` drop is correct.
+- The "interrupt shows, PRE/POST doesn't" is a display artifact, not lost data. `messages_preceding_assistant`
+  (`inspect_ai/model/_render.py:12`) prints only input messages AFTER the last assistant turn. Phase-2's
+  message list is `[User(base), Assistant(reasoning), User(interrupt)]`, so it prints only the interrupt
+  and suppresses the base; phase-1 prints the base separately, and with ~224 concurrent judge calls those
+  are scattered far apart. The PRE/POST ARE sent to the model; they just aren't rendered next to the interrupt.
+
+The two real defects (fixed):
+
+- `_reasoning_text` (was `_reasoning_tail`, `agent.py:639`) cropped the re-injected phase-1 reasoning to
+  the last 2000 chars, but the CoT is ~4200 chars and never reaches a verdict, so the A-vs-B analysis
+  lived in the dropped beginning. Now sends the full text. Same crop fixed in the consistency judge.
+  (commit 8212acf)
+- CRASH I introduced: after switching the score int->float, `agent.py:700` still formatted it with
+  `:+d`, which raises `ValueError` on a float. This is on the forced-unanchored path (~43% of samples),
+  so it would have crashed the live keep decision. Caught by a context-free adversarial review subagent;
+  fixed to `:+.1f`. Confirmed fixed under load: the gym now logs `score=+1.2 / +2.7 / +4.2 / +4.7`
+  warnings with no exception.
+
+Changes per wassname's request (make the forced answer decisive): SCORE is now a decimal in [-5.5, +5.5],
+the force prompt forbids a round 0, and a trailing assistant `FORCE_PREFILL="answer is SCORE: "` was added.
+Measured (`scripts/gym_judge_prefill_check.py`): OpenRouter+Qwen3.5 does NOT honor a trailing assistant
+message as a prefill -- it emits a fresh `SCORE: ...` rather than continuing, so the prefill is a no-op;
+what actually forces a clean commit is `reasoning_effort="none"` + the decimal instruction (genuine tie
+-> `0.0` x3; clear diff -> `+4.2` with a grounded quote; both `stop=stop`, `found=True`). Kept the prefill
+per request with a comment noting it is inert on this provider.
+
+Source: config-parity + prefill-check + replay scripts under `scripts/gym_judge_*.py`; the four
+`ab_judge_raw.json` zero-pairs in `out/iter/20260715T071652_iter_qwen-qwen3.6-27b/round08/`;
+`inspect_ai/model/_render.py:12`; `/tmp/claude-0/gym_fixed.log`.
+
+My read (calibrated): the think->interrupt->answer mechanism was not mis-wired -- the user's channel
+suspicion is refuted (config + code identical; the log oddity is a renderer quirk). The genuine defects
+were the reasoning crop and the float-format crash. I am *fairly confident* (0.8) the fixes are correct
+and low-risk; the crash fix is certain. The decimal-forbid-0 change I am *less sure* helps: on the gym's
+hard adjacent pairs the finer decimals give SMALLER de-swap averages (e.g. asteroid 1v2 `+0.43` vs the
+integer-era `+1.42`), which at `deadband=1.0` can wash MORE pairs to ties, the opposite of the intent.
+Its real target -- recovering subtle LIVE movement the exact-0 punt was hiding -- cannot be tested on the
+gym; the restarted live run is the only real test, and the deadband may need lowering to see the benefit.
+
+The judge was doing its job; the bugs were a truncated re-injection and a format crash, and the
+forced-decimal change is a live hypothesis, not a proven gym win.
+
 ## 2026-07-16 (d) -- keep-judge discards the verdict when phase-1 thinking truncates (channel split)
 
 This entry records a bug wassname spotted by watching the live keep/judge and asking why a forced
