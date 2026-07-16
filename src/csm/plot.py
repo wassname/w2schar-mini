@@ -7,12 +7,12 @@ used.
   per round, x-position = authority mean_p, keeps = solid navy arrow
   to next, drops = red dashed branch + ✗ then faint backbone to next.
 - Adapt table fields: mini reads `pairs.md` for the lesson and
-  `judgment.json` for action / reasoning / next_focus.
+  `judgment.json` for action / next_focus.
 
 Input artifacts per round:
     eval.json        — pre-state tinymfv summary (base + history, c=0)
     eval_post.json   — post-state tinymfv summary (this adapter @ signed_C)
-    judgment.json    — {action, reasoning, next_focus}
+    judgment.json    — {action, next_focus}
     pairs.md         — `## Lesson` block (the trait this round taught)
     interview_pre.json / interview_post.json — for the first interview question column
 
@@ -112,7 +112,6 @@ def _read_round(slug_dir: Path, round_dir: Path, round_n: int) -> dict:
         "has_post": (round_dir / "interview_post.json").exists(),
         "lesson": lesson,
         "action": judgment.get("action"),
-        "reasoning": judgment.get("reasoning", ""),
         "next_focus": judgment.get("next_focus", ""),
         "harness_feedback": judgment.get("harness_feedback", ""),
         **_persona_fields(round_dir),
@@ -973,7 +972,6 @@ def _build_table(rows: list[dict]) -> str:
     <div class="field"><span class="label">▼ neg (rej)</span><span class="value pole-neg">{_persona_html(r['pole_neg_persona']) or _escape(r['pole_neg'])}</span></div>
     <div class="field"><span class="label">lesson</span><span class="value lesson">{_escape(r['lesson'])}</span></div>
     <div class="field"><span class="label">next focus</span><span class="value">{_escape(r['next_focus'])}</span></div>
-    <div class="field"><span class="label">teacher assessment</span><span class="value muted">{_escape(r['reasoning'])}</span></div>
     <div class="field"><span class="label">harness feedback</span><span class="value muted">{_escape(r['harness_feedback'])}</span></div>
   </td>
   <td class="delta-col">

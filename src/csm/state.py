@@ -26,9 +26,9 @@ def allowed_after(state: State) -> str:
     if state == "select_pairs":
         return "view_pairs() to see the first pair, then rate_pair() to rate it. After each rate_pair(), the next pair is shown automatically. Repeat until all rated, then select_pairs(lesson). You CANNOT drop the round until all pairs are rated and select_pairs is called."
     if state == "train_student":
-        return "train_student()  (or mark_exam(reason=...) before training to abort the round)"
+        return "train_student()  (or mark_exam() before training to abort the round)"
     if state == "mark_exam":
-        return "mark_exam(reason, next_focus, harness_feedback, question_evidence)  # blind pair A/B judge decides keep/drop for you (keep iff more questions POST-wiser)"
+        return "mark_exam(next_focus, harness_feedback)  # blind pair A/B judge decides keep/drop for you (keep iff more questions POST-wiser)"
     return "(round complete — harness will allocate the next round or stop)"
 
 

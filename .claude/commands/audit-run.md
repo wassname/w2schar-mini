@@ -89,15 +89,16 @@ NOT tell you what a bad answer is — that's the point):
    the `pmass`/`json`/`rep`/`len` columns at the top c and at the baked c and
    quote them: did the canary separate the steered model from base at all, or not?
 7. mark_exam (keep/drop) — `judgment.json`. Quote `action`, `drop_cause`,
-   `keep_quality`, `reasoning`, `harness_feedback`, `movement`, `next_focus`.
+   `harness_feedback`, `movement`, `movement_mean`, `next_focus`.
    `drop_cause` is `kept`/`gate_friction`/`no_movement`/`early_abort`: a run of
    `gate_friction` drops means the teacher could not satisfy a gate (unfollowable
    brief), NOT a cautious teacher — count them across rounds and say which kind of
-   drop run this is. `keep_quality` (`band_crossed`/`sub_band`/`negative`) is the
-   harness's ADVISORY on a KEEP — the harness no longer vetoes weak keeps, so YOU
-   are the check: a `sub_band` or `negative` keep is the teacher banking a
-   paraphrase or a regression as a win (the old auto-veto cases). Quote it and read
-   the PRE/POST yourself to confirm whether the keep is real or weak. Then open
+   drop run this is. There is no keep-quality field: keep/drop is the blind A/B
+   sign test, so YOU are the check on a weak keep. Derive weak-keep yourself from
+   `val_improvement` (calibration.json) and the net A/B vote margin
+   (`ab_judge_raw.json`, up vs down): a keep on a thin margin or a near-zero
+   `val_improvement` is the teacher banking a paraphrase or a regression as a win.
+   Read the PRE/POST yourself to confirm whether the keep is real or weak. Then open
    `interview_pre.json`
    and `interview_post.json` for the question(s) the teacher cites and read the actual
    turns. Quote PRE and POST side by side: is the cited movement a real change in
@@ -140,12 +141,12 @@ These say what each number MEASURES; you judge whether the value is good.
   delta on the `_1p` questions (-5..+5). This is the teacher judging itself; treat it
   as a claim to verify against the interview text and the independent eval, not as
   ground truth.
-- `keep_quality` (judgment.json) — `band_crossed` (mean Δ>0 and a question crossed a
-  band, a strong keep), `sub_band` (positive but paraphrase-level wobble), or
-  `negative` (kept despite net-negative own movement). ADVISORY only: the harness
-  flags it but does NOT veto, so a `sub_band`/`negative` keep is a weak keep the
-  teacher banked and the audit must scrutinise. Gates elicit judgment, never
-  override it (CLAUDE.md), so this is guidance for you, not a verdict.
+- weak-keep check (no stored field) — keep/drop is the blind A/B sign test, so the
+  audit derives keep quality itself: a keep with a thin net vote margin
+  (`ab_judge_raw.json`, up vs down) or a near-zero `val_improvement`
+  (calibration.json) is a weak keep the teacher banked and must be scrutinised.
+  Gates elicit judgment, never override it (CLAUDE.md), so this is guidance for you,
+  not a verdict.
 
 ## Design context you must know (so you don't prescribe a regressive fix)
 
@@ -229,7 +230,7 @@ r00 read_candidate(s1c2)                                               -> ok
 r00 rate_candidate(s1c2, on=4 off=2 conf=1 keep=true "clean verify vs confront")  -> ok
 r00 select_pairs(["s1c2","s3c1"])   -> REJECTED: "s3c1 unrated"  -> agent re-rated s3c1
 r00 train_student()  -> signed_C=1.5, val_improvement=-0.03  [GUIDANCE not gate]
-r00 mark_exam(keep=true, keep_quality=sub_band, harness_feedback="...")  -> kept
+r00 mark_exam(next_focus="...", harness_feedback="...")  -> kept (A/B up=3 down=1)
 ```
 
 ## Mistake / retried tool calls
@@ -285,7 +286,7 @@ in the artifact and quoted; "the grep flagged it" is not a finding.
 ... one line per tool call, REJECTED/RETRIED marked, agent <think> interleaved ...
 
 # Round timeline
-rNN  action(keep/drop/incomplete)  persona_pair  signed_C  movement_mean  keep_quality  Δtime
+rNN  action(keep/drop/incomplete)  persona_pair  signed_C  movement_mean  drop_cause  Δtime
 ... one line per round ...
 
 # Round-by-round narrative

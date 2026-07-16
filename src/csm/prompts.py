@@ -1087,13 +1087,10 @@ fitting the authority, uncertainty, stakeholders, and consequences; not a gain =
 recited values, convening, or a paraphrase that adds words but no decision).
 
 Args:
-    reason: 1-3 sentences quoting the POST act and the situational consideration
-        that made it better or worse.
     next_focus: the next character aspect to push, preferably not the same axis
         just trained.
     harness_feedback: one line about what made this round harder, or that
         nothing was unclear.
-    question_evidence: one quoted POST clause or concrete note per `_1p` question.
 """
 
 # Runtime nudges, compaction, and rendering helper.
@@ -1144,7 +1141,7 @@ disposition in one sentence.
 
 AFTER_TRAIN = """\
 
------ next: mark_exam(reason, next_focus, harness_feedback, question_evidence) -----
+----- next: mark_exam(next_focus, harness_feedback) -----
 A blind two-pass pair A/B judge scores POST vs frozen PRE; the round is KEPT iff more
 questions are judged POST-wiser than PRE-wiser. You quote evidence, you do not vote.
 """

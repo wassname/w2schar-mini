@@ -1027,7 +1027,7 @@ def choose_focus(slug_dir: Path, round_dir: Path, *, persona_pair_id: str | None
             "choose_focus needs pre_question_evidence: one quoted PRE clause per _1p question "
             f"showing why it sits where you placed it: {', '.join(_P1_QUESTION_IDS)}.")
     pre_question_evidence = {k: v for k, v in pre_question_evidence.items() if k in _P1_QUESTION_IDS}
-    pre_question_evidence = _validate_question_evidence(pre_question_evidence, _P1_QUESTION_IDS)
+    pre_question_evidence = _validate_pre_question_evidence(pre_question_evidence, _P1_QUESTION_IDS)
     selected_pair, active_persona_cells = _select_persona_cells(cfg, persona_pair_id)
     axis = f"{selected_pair['pos']} vs {selected_pair['neg']}"
     # Use a scenario-axis prior when one exists; otherwise sample broadly and let
@@ -1992,7 +1992,7 @@ def train_student(slug_dir: Path, round_dir: Path) -> dict:
     if len(pairs) <= cfg.n_val_pairs:
         raise ValidationError(
             f"train_student: only {len(pairs)} non-degenerate pairs -- cannot hold out "
-            f"{cfg.n_val_pairs} for validation and still train. Call mark_exam(reason=...) "
+            f"{cfg.n_val_pairs} for validation and still train. Call mark_exam(...) "
             f"to drop this round; next round choose a different scenario_family or axis."
         )
     if len(pairs) < cfg.min_pairs_to_train:
@@ -2129,16 +2129,16 @@ def _validate_nonempty_text(name: str, text: str) -> str:
     return text
 
 
-def _validate_question_evidence(evidence: dict[str, str], expected_ids: list[str]) -> dict[str, str]:
-    out = {k: _validate_nonempty_text(f"question_evidence[{k}]", v) for k, v in evidence.items()}
+def _validate_pre_question_evidence(evidence: dict[str, str], expected_ids: list[str]) -> dict[str, str]:
+    out = {k: _validate_nonempty_text(f"pre_question_evidence[{k}]", v) for k, v in evidence.items()}
     unknown = sorted(set(out) - set(expected_ids))
     if unknown:
         raise ValidationError(
-            f"question_evidence: unknown question id(s) {unknown}; cite only the _1p questions {expected_ids}")
+            f"pre_question_evidence: unknown question id(s) {unknown}; cite only the _1p questions {expected_ids}")
     missing = sorted(set(expected_ids) - set(out))
     if missing:
         raise ValidationError(
-            f"question_evidence: missing quote/evidence for {missing}; cite EVERY _1p question {expected_ids}")
+            f"pre_question_evidence: missing quote/evidence for {missing}; cite EVERY _1p question {expected_ids}")
     return out
 
 
@@ -2176,10 +2176,9 @@ def _validate_scores(scores: dict[str, float], expected_ids: list[str],
     return out
 
 
-def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
+def mark_exam(round_dir: Path, next_focus: str = "",
               movement_dirs: dict[str, int] | None = None,
               harness_feedback: str = "",
-              question_evidence: dict[str, str] | None = None,
               drop_cause: str = "") -> dict:
     # KEEP is no longer a teacher self-call. A trained round is kept iff the blind
     # two-pass pair A/B judge ranked MORE _1p questions POST-wiser than PRE-wiser (the
@@ -2208,8 +2207,7 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
     # Movement is no longer a teacher self-score: the absolute POST Likert inflated a
     # reword to band_crossed (job-120 r01), so the judge measures it BLIND + two-pass
     # instead. Keep/drop is the sign test on these blind directions, NOT a teacher call
-    # (see line ~2184); the teacher's `reason` is recorded prose only. (Claude)
-    # An early-abort drop (no calibration.json) carries no directions.
+    # (see line ~2184). An early-abort drop (no calibration.json) carries no directions.
     trained = (round_dir / "calibration.json").exists()
     have = trained and bool(movement_dirs)
     if trained and not have and not drop_cause:
@@ -2221,11 +2219,6 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
             "mark_exam: trained round has no pair A/B judge directions; the blind A/B "
             "judge did not run (interview_pre/post or choose_focus missing).")
     if have:
-        if question_evidence is None:
-            raise ValidationError(
-                "mark_exam on a trained round needs question_evidence: one quoted POST "
-                f"clause or concrete note for every _1p question {', '.join(_P1_QUESTION_IDS)}")
-        question_evidence = _validate_question_evidence(question_evidence, _P1_QUESTION_IDS)
         movement = {k: int(movement_dirs[k]) for k in _P1_QUESTION_IDS}
         mean = sum(movement.values()) / len(movement)
         # Sign test: keep iff more questions POST-wiser than PRE-wiser. A forced
@@ -2234,7 +2227,7 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
         down = sum(1 for v in movement.values() if v < 0)
         keep = (up > down) and not drop_cause
     else:
-        movement, mean, question_evidence = {}, None, {}
+        movement, mean = {}, None
         keep = False
     # Categorical drop reason for cross-round audit (a free-text `reason` cannot be
     # aggregated): an unfollowable-brief abort (gate_friction) must read differently
@@ -2250,11 +2243,9 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
     judgment = {
         "action": "keep" if keep else "drop",
         "drop_cause": cause,
-        "reasoning": reason,
         "movement": movement,          # per-question blind-judge direction: -1 / 0 / +1
         "movement_mean": mean,
         "pre_question_evidence": cf.get("pre_question_evidence") or {},
-        "question_evidence": question_evidence,
         "next_focus": next_focus,
         "harness_feedback": harness_feedback,
         "ts_utc": datetime.now(timezone.utc).isoformat(),
@@ -2273,7 +2264,7 @@ def mark_exam(round_dir: Path, reason: str, next_focus: str = "",
             f"  {per} | up={up} down={down} mean dir={mean:+.2f}")
     transcript().info(
         {"event": "mark_exam", "round": round_dir.name,
-         "action": judgment["action"], "reason": reason,
+         "action": judgment["action"],
          "movement_mean": mean},
         source=f"{round_dir.name}.judge",
     )
@@ -3008,14 +2999,13 @@ def write_audit_md(slug_dir: Path) -> None:
             round_story.append(f"Classic eval moved as follows: {eval_story}.")
         if j:
             move = _movement_summary(j)
-            reason = _quote(str(j.get("reasoning") or "no judgment reason"), 120)
             if move:
                 round_story.append(
-                    f"Judgment was `{j.get('action', '—')}` because {reason} Movement: {move}."
+                    f"Judgment was `{j.get('action', '—')}`. Movement: {move}."
                 )
             else:
                 round_story.append(
-                    f"Judgment was `{j.get('action', '—')}` because {reason}."
+                    f"Judgment was `{j.get('action', '—')}`."
                 )
         if round_story:
             sections.append("- round story:")
@@ -3028,9 +3018,6 @@ def write_audit_md(slug_dir: Path) -> None:
             if pre_1 or post_1:
                 sections.append(f"- {question_id} PRE: > {_quote(pre_1 or '—')}")
                 sections.append(f"- {question_id} POST: > {_quote(post_1 or '—')}")
-                ev = (j.get("question_evidence") or {}).get(question_id)
-                if ev:
-                    sections.append(f"- {question_id} judged evidence: > {_quote(str(ev))}")
 
         for question_id in _P3_QUESTION_IDS:
             pre_3 = _question_reply(pre, question_id, 1)
@@ -3079,8 +3066,6 @@ def write_audit_md(slug_dir: Path) -> None:
 
         if j:
             sections.append(f"- judgment: `{j.get('action', '—')}`")
-            if j.get("reasoning"):
-                sections.append(f"- reasoning: > {_quote(str(j['reasoning']))}")
             if j.get("harness_feedback"):
                 sections.append(f"- harness feedback: > {_quote(str(j['harness_feedback']))}")
         sections.append("")
@@ -3108,7 +3093,6 @@ def write_report_md(slug_dir: Path, *, build_plot: bool = True) -> None:
         n_drop += action == "drop"
 
         ts = (j.get("ts_utc") or "")[:19].replace("T", " ")
-        reason = (j.get("reasoning") or "").split("\n")[0][:120].replace("|", "\\|")
         focus = (j.get("next_focus") or "").split("\n")[0][:120].replace("|", "\\|")
         feedback = (j.get("harness_feedback") or "").split("\n")[0][:120].replace("|", "\\|")
         focus_pair = str(focus_j.get("persona_pair_id") or "—")
@@ -3137,11 +3121,11 @@ def write_report_md(slug_dir: Path, *, build_plot: bool = True) -> None:
 
         rows.append([rd.name.replace("round", "r"), ts, state, action or "—",
                      focus_pair, focus_scores, train_gate, c_str, ev_str,
-                     reason, focus, feedback, focus_evidence])
+                     focus, feedback, focus_evidence])
 
     headers = ["round", "judged_at", "state", "action", "focus_pair",
                "focus_scores", "train_gate", "signed_C", "eval_mean_p",
-               "reasoning (head)", "next_focus (head)",
+               "next_focus (head)",
                "harness_feedback (head)", "focus_evidence (head)"]
     model = (_safe_json(slug_dir / "run.json") or {}).get("model", "student")
     teacher = (_safe_json(slug_dir / "run.json") or {}).get("teacher", "teacher")
