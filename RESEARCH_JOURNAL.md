@@ -1,5 +1,57 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-16 (a) -- agent misconceptions during the qwen 9b->27b audit (corrections for future agents)
+
+Auditing the live qwen w2s run (`out/iter/20260715T071652_iter_qwen-qwen3.6-27b`) I (Claude)
+made several confident-but-wrong reads of the A/B keep-judge. wassname pushed back with a scout
+mindset and the artifacts settled each one. Recording them so the next agent doesn't burn the
+same cycles. Evidence: 98 question-judgements across `round0[0-6]/ab_judge_raw.json`.
+
+1. The A/B score convention: `avg = (d1 - d2)/2`, NOT `(d1 + d2)/2`. `d1` scores the PRE->POST
+   ordering, `d2` scores the POST->PRE ordering and is NEGATED to de-swap. So `d2 < 0` is
+   CONCORDANT with `d1 > 0` (both say POST wiser). I (and a subagent) misread `d1=3.5, d2=-0.125`
+   as "the two passes disagree by 3.6 Likert / a coin flip." They agree; only the magnitude was
+   asymmetric. Verify the convention on any row: r00 comfort_fraud `(3.5-(-0.125))/2 = 1.8125`. checks out.
+
+2. There is NO residual position bias to "fix" -- the two-permutation mean already cancels it,
+   and the data shows the mean is NEEDED: mean `d1 = +0.84` vs mean `-d2 = -0.30` = a real ~0.57
+   Likert "whichever answer sits in slot B looks wiser" preference that `(d1-d2)/2` removes by
+   construction. My proposed "require both orderings above a magnitude floor" was misframed and
+   withdrawn. What remains after the mean is per-ordering VARIANCE (corr(d1,-d2)=+0.18; 18/98
+   orderings sign-disagree), a sample-count issue, not a bias.
+
+3. Tie-rejudging IS worth doing (I first dismissed it with no proof). 28% of votes (27/98) sit
+   BORDERLINE `0.5 <= |avg| <= 1.5`, straddling the deadband=1.0; 57% solid tie `<0.5`; 15% solid
+   `>1.5`. A round's keep/drop is a NET sum over 14 questions decided by margins as small as +-1,
+   so borderline flips can flip the round. The right form is ADAPTIVE sampling: draw base
+   JUDGE_N=8, then draw more ONLY on borderline votes. Not a magnitude floor, not rejudge-all.
+
+4. keep/drop is the blind A/B sign test ALONE (`agent.py:_blind_ab_votes`, keep iff more `_1p`
+   questions net POST-wiser). The teacher's `reason` and `question_evidence` drive NOTHING. `reason`
+   confabulates -- r05's reasoning cited `hero_gross_package/orphan_wheelhouse/coal_mining_agreement/
+   newspaper_forum`, question ids that exist NOWHERE except that prose (the 9b conflates the scifi
+   TRAINING scenario names with the 14 interview ids). So both were removed this session (mark_exam
+   `question_evidence` + the `reason` field). Corollary worth remembering: if the teacher confabulates
+   its post-hoc summary, its OTHER self-reports (axis pick, pair ratings) share that noise -- an
+   argument FOR the blind-judge design, and a caution against trusting teacher prose anywhere.
+
+5. `question_evidence` was a "force it to LOOK" device from the earlier teacher-CASTS-the-vote mode.
+   Now the blind judge reads the interview text (`_last_act`) itself, so mark_exam's post-hoc
+   `question_evidence` is pure ceremony (removed; it caused ~15 JSON-parse rejections/run). BUT
+   choose_focus's `pre_question_evidence` still forces reading PRE before the axis pick, which IS a
+   teacher decision -- keep that one.
+
+6. `keep_quality` (band_crossed/sub_band/negative) was removed and should STAY removed: it is an
+   auditor-convenience label, not part of the w2s loop, and the audit derives "weak keep?" from
+   `val_improvement` + net vote margin anyway (that is how r05's negative-val_improvement keep was
+   caught). Fix: update `.claude/commands/audit-run.md` to stop referencing the removed field.
+
+7. ~20% of judge scores (316 across the run) are UNANCHORED phase-2 forced verdicts: phase 1
+   overthinks past `JUDGE_THINK_BUDGET=1024` without emitting a grounded `SCORE`+verbatim `QUOTE`,
+   phase 2 forces a number with the quote check disabled (`flag not gate`, by design -- forcing
+   ties caused drop-every-round). 0 hard fails (no all-N-broken RuntimeError). Minor quality lever:
+   raise the think budget to cut the forced fraction.
+
 ## 2026-07-15 (j) -- C1 passes: the vs-base Bradley-Terry check recovers the starwisp gain AND flags banked erosion the per-round exam missed
 
 This entry reports the offline erosion validation (workstream C1) on task-147, the gate for
