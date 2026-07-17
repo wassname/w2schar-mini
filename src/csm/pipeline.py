@@ -2176,7 +2176,7 @@ def _validate_scores(scores: dict[str, float], expected_ids: list[str],
     return out
 
 
-def mark_exam(round_dir: Path, next_focus: str = "",
+def mark_exam(round_dir: Path,
               movement_dirs: dict[str, int] | None = None,
               harness_feedback: str = "",
               drop_cause: str = "") -> dict:
@@ -2246,7 +2246,6 @@ def mark_exam(round_dir: Path, next_focus: str = "",
         "movement": movement,          # per-question blind-judge direction: -1 / 0 / +1
         "movement_mean": mean,
         "pre_question_evidence": cf.get("pre_question_evidence") or {},
-        "next_focus": next_focus,
         "harness_feedback": harness_feedback,
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     }
@@ -3095,7 +3094,6 @@ def write_report_md(slug_dir: Path, *, build_plot: bool = True) -> None:
         n_drop += action == "drop"
 
         ts = (j.get("ts_utc") or "")[:19].replace("T", " ")
-        focus = (j.get("next_focus") or "").split("\n")[0][:120].replace("|", "\\|")
         feedback = (j.get("harness_feedback") or "").split("\n")[0][:120].replace("|", "\\|")
         focus_pair = str(focus_j.get("persona_pair_id") or "—")
         mismatch = focus_j.get("mismatch_severity")
@@ -3123,11 +3121,10 @@ def write_report_md(slug_dir: Path, *, build_plot: bool = True) -> None:
 
         rows.append([rd.name.replace("round", "r"), ts, state, action or "—",
                      focus_pair, focus_scores, train_gate, c_str, ev_str,
-                     focus, feedback, focus_evidence])
+                     feedback, focus_evidence])
 
     headers = ["round", "judged_at", "state", "action", "focus_pair",
                "focus_scores", "train_gate", "signed_C", "eval_mean_p",
-               "next_focus (head)",
                "harness_feedback (head)", "focus_evidence (head)"]
     model = (_safe_json(slug_dir / "run.json") or {}).get("model", "student")
     teacher = (_safe_json(slug_dir / "run.json") or {}).get("teacher", "teacher")

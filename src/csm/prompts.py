@@ -1087,10 +1087,9 @@ fitting the authority, uncertainty, stakeholders, and consequences; not a gain =
 recited values, convening, or a paraphrase that adds words but no decision).
 
 Args:
-    next_focus: the next character aspect to push, preferably not the same axis
-        just trained.
     harness_feedback: one line about what made this round harder, or that
-        nothing was unclear.
+        nothing was unclear. This is the only thing you decide here; it is fed
+        to the next round's brief.
 """
 
 # Runtime nudges, compaction, and rendering helper.
@@ -1141,7 +1140,7 @@ disposition in one sentence.
 
 AFTER_TRAIN = """\
 
------ next: mark_exam(next_focus, harness_feedback) -----
+----- next: mark_exam(harness_feedback) -----
 A blind two-pass pair A/B judge scores POST vs frozen PRE; the round is KEPT iff more
 questions are judged POST-wiser than PRE-wiser. You quote evidence, you do not vote.
 """
@@ -1152,7 +1151,7 @@ COMPACTION_INSTRUCTIONS = """\
 These notes are NOT state. Each round the harness rebuilds the real state from
 disk -- run id, round, stage, the per-axis tried/kept/last_move scoreboard, the
 keep target -- and prints it at the top; that block is the record. Do NOT restate
-counts, round numbers, stage, target, selected pair ids, or next_focus.
+counts, round numbers, stage, target, or selected pair ids.
 
 Keep only durable lessons not stored on disk:
   - what you SAW;

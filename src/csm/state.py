@@ -28,7 +28,7 @@ def allowed_after(state: State) -> str:
     if state == "train_student":
         return "train_student()  (or mark_exam() before training to abort the round)"
     if state == "mark_exam":
-        return "mark_exam(next_focus, harness_feedback)  # blind pair A/B judge decides keep/drop for you (keep iff more questions POST-wiser)"
+        return "mark_exam(harness_feedback)  # blind pair A/B judge decides keep/drop for you (keep iff more questions POST-wiser); you only record the reflection"
     return "(round complete — harness will allocate the next round or stop)"
 
 

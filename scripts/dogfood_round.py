@@ -18,7 +18,7 @@ Usage:
   python scripts/dogfood_round.py train
   python scripts/dogfood_round.py drop <reason.txt>
   python scripts/dogfood_round.py advance
-  python scripts/dogfood_round.py exam    <verdict.json>     # {keep,reason,pre,post,next_focus}
+  python scripts/dogfood_round.py exam    <verdict.json>     # {movement_dirs,harness_feedback}
 """
 import sys, json
 from pathlib import Path
@@ -114,7 +114,6 @@ elif stage == "exam":
     rd = latest_round_dir(_slug())
     v = json.loads(Path(sys.argv[2]).read_text())
     j = mark_exam(rd, movement_dirs=v.get("movement_dirs"),
-                  next_focus=v["next_focus"],
                   harness_feedback=v["harness_feedback"])
     print(f"EXAM  action={j['action']}")
 

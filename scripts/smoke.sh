@@ -164,7 +164,6 @@ mark_exam(rd,
                          "foreign_spy_rollup_1p": 0, "mafia_informant_1p": 0,
                          "coup_partial_evidence_1p": 0,
                          "asteroid_digital_minds_1p": 0, "garbage_truck_patienthood_1p": 0},
-          next_focus="smoke: nothing",
           harness_feedback="smoke: fake-student path still useful for plumbing, not pair-quality science")
 _j = json.loads((rd / "judgment.json").read_text())
 assert _j["movement"] == {"elder_isolation_1p": 1, "comfort_fraud_1p": 0,
@@ -196,7 +195,7 @@ if "$PROFILE" == "tiny-pissa":
 st = json.loads((rd / "state.json").read_text())
 assert st["state"] == "done", f"state did not reach 'done': {st}"
 j = json.loads((rd / "judgment.json").read_text())
-assert "next_focus" in j
+assert "harness_feedback" in j and "next_focus" not in j
 
 print(f"\n=== smoke PASS — state.json={st['state']} ===")
 PYEOF
