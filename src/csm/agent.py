@@ -958,9 +958,24 @@ def mark_exam_tool(slug: str) -> Tool:
                                            harness_feedback)
         except ValidationError as e:
             return _format_validation_error(e)
+        # DECISION into the transcript (D1): this tool return is a ChatMessageTool, so
+        # the block below lands in the finalized .eval, the live sample_buffer, and is
+        # Scout-searchable -- the one SEARCHABLE record of keep/drop + its A/B votes.
+        # The same numbers also live on disk in ab_judge*.json, which the cross-round
+        # regression dashboard reads (operational input, not a second source of the
+        # decision); this message is the searchable narrative copy. (Claude)
+        raw_json = json.dumps(dirs_raw, sort_keys=True) if dirs is not None else "null"
+        decision_block = (
+            f"\nDECISION[{round_dir.name}]: action={judgment['action']} "
+            f"drop_cause={judgment.get('drop_cause')} "
+            f"movement_mean={judgment.get('movement_mean')}\n"
+            f"votes_raw={raw_json}\n"
+            f"harness_feedback={harness_feedback!r}"
+        )
         return (
             f"mark_exam OK — action: {judgment['action']}.\n"
             f"next: harness will allocate a new round or stop on budget exhausted."
+            f"{decision_block}"
             f"{AFTER_MARK_EXAM}"
         )
 
@@ -1343,7 +1358,11 @@ def run(*, model: str, teacher: str, slug: Path, n_rounds: int) -> None:
         task, model=teacher_model,
         display="conversation",
         log_dir=str(slug_path.resolve()),
-        log_format="json",
+        # .eval (zip, streamable) is the one searchable source: inspect-scout's
+        # list_eval_logs discovers it, and read_eval_log/sample_buffer read it
+        # live+final. Legacy runs are .json; every reader below is format-agnostic
+        # (globs *_task_*.{eval,json}, parses via read_eval_log, not raw json). (Claude)
+        log_format="eval",
         fail_on_error=True,
         score=False,
         max_tool_output=256 * 1024,

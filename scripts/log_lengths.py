@@ -42,7 +42,9 @@ def _msg_len(m: dict, attach: dict) -> int:
 
 def main(slug_dir: str):
     slug = Path(slug_dir)
-    task_json = sorted(slug.glob("*_task_*.json"))[-1]
+    # .eval (new) or .json (legacy); sample_buffer reads either. (Claude)
+    task_json = sorted(slug.glob("*_task_*.eval") if list(slug.glob("*_task_*.eval"))
+                       else slug.glob("*_task_*.json"))[-1]
     buf = sample_buffer(str(task_json))
     samples = buf.get_samples()
     assert samples and samples != "NotModified" and samples.samples, "empty samplebuffer"

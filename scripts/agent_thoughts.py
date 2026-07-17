@@ -95,11 +95,15 @@ def main() -> int:
             return 1
         slug = slugs[-1]
 
-    task_jsons = sorted(slug.glob("*_task_*.json"))
-    if not task_jsons:
-        print(f"# no inspect *_task_*.json in {slug}", file=sys.stderr)
+    # .eval (new) or .json (legacy) -- both prefixed with the run timestamp, so a
+    # plain sort picks the latest regardless of extension. read_eval_log + sample_buffer
+    # read either. (Claude)
+    task_logs = sorted(slug.glob("*_task_*.eval")) + sorted(slug.glob("*_task_*.json"))
+    task_logs.sort(key=lambda p: p.name)
+    if not task_logs:
+        print(f"# no inspect *_task_*.{{eval,json}} in {slug}", file=sys.stderr)
         return 1
-    task_json = task_jsons[-1]
+    task_json = task_logs[-1]
     print(f"# {slug}")
 
     buf = sample_buffer(str(task_json))

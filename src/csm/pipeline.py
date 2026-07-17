@@ -2661,7 +2661,9 @@ def _train_gate_quote(slug_dir: Path, best_step: int | None,
 
 
 def _tool_trace(slug_dir: Path, limit: int = 12) -> list[str]:
-    task_jsons = sorted(slug_dir.glob("*_task_*.json"))
+    # .eval (new) or .json (legacy); read_eval_log (below) reads either. (Claude)
+    task_jsons = sorted(slug_dir.glob("*_task_*.eval")) + sorted(slug_dir.glob("*_task_*.json"))
+    task_jsons.sort(key=lambda p: p.name)
     if not task_jsons:
         return []
     task_json = task_jsons[-1]
@@ -3196,25 +3198,31 @@ _FOUNDATIONS = ["care", "fairness", "loyalty", "authority", "sanctity", "liberty
 
 
 def _tool_calls_per_round(slug_dir: Path) -> list[Counter]:
-    """One Counter of tool-call function -> count per round, by splitting the
-    teacher's single inspect-ai message stream on each `mark_exam` (which closes
-    a round). Empty list if the inspect log is absent (fake-student gym writes
-    none). Counts include retries, so `rate×40` or `train×2` is visible."""
-    logs = sorted(slug_dir.glob("*_task_*.json"))
+    """One Counter of tool-call function -> count per round, by splitting the tool
+    stream on each SUCCESSFUL `mark_exam` (which closes a round). Reads the sample's
+    EVENT stream: react compaction shrinks the finalized `messages` list to the tail,
+    but every ToolEvent survives in `events` (the durable record). Counts include
+    retries, so `rate×40` or `train×2` is visible. Empty list if the inspect log is
+    absent (fake-student gym writes none). (Claude: was reading `messages`, which
+    compaction reduced to ~1 -> always []; and .eval is a zip _safe_json can't parse.)"""
+    logs = sorted(slug_dir.glob("*_task_*.eval")) + sorted(slug_dir.glob("*_task_*.json"))
+    logs.sort(key=lambda p: p.name)
     if not logs:
         return []
-    samples = (_safe_json(logs[-1]) or {}).get("samples") or []
+    samples = read_eval_log(str(logs[-1])).samples or []
     if not samples:
         return []
     rounds: list[Counter] = []
     cur: Counter = Counter()
-    for m in samples[0].get("messages", []):
-        for tc in (m.get("tool_calls") or []):
-            fn = tc.get("function")
-            cur[fn] += 1
-            if fn == "mark_exam":
-                rounds.append(cur)
-                cur = Counter()
+    for e in samples[0].events or []:
+        if e.event != "tool":
+            continue
+        cur[e.function] += 1
+        # A ValidationError mark_exam did NOT close the round (the teacher retries);
+        # only a clean return rolls to the next round's counter. (Claude)
+        if e.function == "mark_exam" and not str(e.result).startswith("ValidationError"):
+            rounds.append(cur)
+            cur = Counter()
     if cur:  # trailing calls of an unfinished round
         rounds.append(cur)
     return rounds
