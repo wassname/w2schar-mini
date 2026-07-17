@@ -1,5 +1,59 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-17 (a) -- the 1.0 keep-deadband was noisy in BOTH directions: task-11 flips two of three rounds, oppositely, toward the truer read
+
+The keep-vote wall proposed in the previous entry now has its first live run to test it against, and the result is sharper than the recompute suggested.
+
+Entry (f) lowered `KEEP_DEADBAND` from 1.0 to 0.5 by recomputing the OLD run's stored A/B
+averages. Task-11 (slug `20260717T014619`, the "0.5 + e1.5" combined run, commit `89cfb83` deadband,
+`e1.5` = n_epochs 1.5) is the first run that actually executes at 0.5. I recomputed each completed
+round's keep decision at BOTH thresholds from the same stored per-question averages, to isolate what
+the wall does.
+
+Per-question `avg` is the de-swapped A/B lean (`(d1-d2)/2`, + means POST acts wiser). A question
+votes +1 if `avg>deadband`, -1 if `avg<-deadband`, else ties (0). A round keeps iff up-votes exceed
+down-votes. Recompute:
+
+| round | live action @0.5 | up/dn @1.0 | decision @1.0 | up/dn @0.5 | decision @0.5 | what 0.5 surfaced (0.5<\|avg\|<1.0) |
+| --- | --- | --- | --- | --- | --- | --- |
+| round00 | keep | 1/0 | keep | 2/1 | keep | +successor 0.61, -mafia 0.96 (cancel) |
+| round01 | keep | 1/1 | DROP (tie) | 3/1 | keep | +foreign_spy 0.55, +coup 0.56 (2 gains) |
+| round02 | drop | 2/0 | KEEP | 2/3 | drop | -look_away 0.82, -foreign_spy 0.60, -garbage 0.94 (3 erosions) |
+
+Table 1. Keep decision recomputed at deadband 1.0 vs 0.5 from identical `avg` values; strong leans
+(|avg|>1.0) are round00 escaped_starwisp +2.30, round01 baby_eating +1.48 / asteroid -1.09, round02
+mafia +2.27 / asteroid +1.11. "what 0.5 surfaced" lists the questions with 0.5<|avg|<1.0 that vote at
+0.5 but tie at 1.0. Source: `out/iter/20260717T014619_iter_qwen-qwen3.6-27b/round0[0-2]/ab_judge_raw.json`,
+read this session; the live-action column is byte-identical to each round's `judgment.json` movement.
+
+My read: on three rounds the deadband choice flips the decision on two of them, in OPPOSITE
+directions, and both flips move toward the truer reading.
+
+- round01 is the entry (f) failure mode confirmed prospectively (probable, ~0.85): at 1.0 the one
+  strong gain (baby_eating +1.48) ties the one strong erosion (asteroid -1.09) and the round drops as
+  no_movement, discarding an adapter with three real gains. The two sub-1.0 gains (foreign_spy +0.55,
+  coup +0.56) that break the tie at 0.5 are exactly the "real leans the 1.0 wall eats" from (f).
+- round02 is the mirror image and the more important finding (probable, ~0.8): at 1.0 only the two
+  strong gains (mafia +2.27, asteroid +1.11) clear the wall, so the round reads as a clean 2-0 KEEP.
+  At 0.5 three genuine erosions (look_away -0.82, foreign_spy -0.60, garbage_truck -0.94) become
+  visible and outvote them into a 2-3 drop. The 1.0 wall did not merely drop movement -- it
+  MANUFACTURED a false clean-keep by hiding sub-1.0 erosion, which is the same regression-banking risk
+  (f) flagged for deadband 0.0, one band up.
+
+So the 1.0 deadband was not a conservative gate that safely erred toward dropping; it was a NOISY
+threshold that lost real A/B signal on BOTH sides -- dropping true single-lean gains (round01) and
+banking mixed rounds as clean keeps (round02). This is the "gates elicit judgment, never override it"
+principle in numbers: the wall was overriding the judge's modest-but-real leans, and 0.5 lets the
+judge's own verdict through in both directions.
+
+The confound to name: task-11 also runs `e1.5`, so its ADAPTERS differ from the old run. But Table 1
+is unaffected by that -- both threshold columns are recomputed from the same stored `avg`, so e1.5
+changes what the judge saw, not how the threshold tallies it. The deadband comparison is clean; the
+adapter-quality question is separate.
+
+Whether the lower wall holds honest keeps through the rest of the run, or a later round erodes the
+sharp scenarios past any threshold, is what the remaining rounds and the independent eval will settle.
+
 ## 2026-07-16 (f) -- the keep vote deadband 1.0 drops every round by eating real leans; 0.5 recovers them, 0.0 banks regressions
 
 Task-2 (the restarted 12-round qwen 9b->27b run, slug 20260716T135046) kept round00 then dropped
