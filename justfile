@@ -47,6 +47,13 @@ run PROFILE N_ROUNDS="3":
 eval SLUG NAME="classic":
     bash scripts/run_eval.sh {{SLUG}} {{NAME}}
 
+# Search a run's inspect .eval with inspect-scout (isolated venv, auto-bootstrapped).
+# Default = FREE grep scanners (DECISION lines + refusal markers). Add --llm for the
+# qwen-9b confabulation/axis-recycle/banked-regression scanners (costs money). Legacy
+# .json runs are auto-converted to .eval.
+scout SLUG *ARGS:
+    bash scripts/run_scout.sh {{SLUG}} {{ARGS}}
+
 # Print the agent's task brief (the prompt rendered into the inspect-ai react).
 program-md:
     @uv run python -c "from csm.prompts import render_program_md; print(render_program_md())"
