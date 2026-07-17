@@ -8,7 +8,7 @@ For each round under <slug>, evaluates:
                       ("state after round N", iff this round trained an adapter)
 
 Output shape matches weight-steering-lite/w2schar/01_eval.py:
-    {model, adapter, c, name, n_rows, top1_acc, mean_js,
+    {model, adapter, c, name, n_rows, top1_acc,
      mean_pmass_allowed, mean_p: {care, fairness, ...}}
 so plots and cross-repo comparisons read either source the same way.
 
@@ -48,7 +48,8 @@ def _summary_from_report(report: dict) -> dict:
         # mean_pmass_format->_allowed rename here as a silent None until c_scan's
         # [] crashed loud (task 135) -- fail loud on the next rename too.
         "top1_acc": report["top1_acc"],
-        "mean_js": report["mean_js"],
+        # mean_js dropped: moralmaps (was tinymfv) removed the JS-divergence key; nothing
+        # downstream consumed it (Claude 2026-07-17, eval task-8 KeyError).
         "mean_pmass_allowed": report["mean_pmass_allowed"],
         "mean_p": {f: float(P[:, i].mean()) for i, f in enumerate(FOUNDATIONS)},
     }
