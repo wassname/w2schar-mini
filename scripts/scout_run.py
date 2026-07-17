@@ -18,9 +18,23 @@ from pathlib import Path
 
 from inspect_ai.log import convert_eval_logs
 from inspect_scout import (grep_scanner, llm_scanner, scan, scan_results_df,
-                           transcripts_from)
+                           scanner, transcripts_from)
 
 TEACHER = "openrouter/qwen/qwen3.5-9b"  # the run's own weak teacher, for parity
+
+
+def _grep_events(patterns: list[str], *, name: str, event_types: list[str]):
+    """grep over messages AND events. The default grep_scanner is @scanner(messages="all"),
+    so it only loads the finalized message list -- but react compaction shrinks that to ~1
+    on a long run, hiding the tool returns and our DECISION block (which live in the EVENTS
+    stream). Re-decorate to also load events so the full old conversation is searchable.
+    Default event_types = tool+error (the durable decision record: DECISION block, PRE/POST
+    dialogue, gate rejections; ~2k events, fast). --deep adds "model" to also search the
+    teacher's reasoning monologue + tool-call args (~12k events, minutes). (Claude)"""
+    @scanner(messages="all", events=event_types, name=name)
+    def factory():
+        return grep_scanner(patterns)
+    return factory()
 
 
 def _find_eval(slug: Path) -> Path:
@@ -39,18 +53,22 @@ def _find_eval(slug: Path) -> Path:
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     use_llm = "--llm" in sys.argv[1:]
+    deep = "--deep" in sys.argv[1:]
     if not args:
-        sys.exit("usage: scout_run.py <slug_dir> [--llm]")
+        sys.exit("usage: scout_run.py <slug_dir> [--llm] [--deep]")
     slug = Path(args[0])
     ev = _find_eval(slug)
     ts = transcripts_from(str(ev))
 
-    # grep scanners are FREE (no model). They surface the durable markers in the
-    # events stream: the DECISION lines this refactor emits, plus refusal/agency-denial.
+    # grep scanners are FREE (no model). Events-aware (see _grep_events) so they search
+    # the tool-return stream -- the DECISION lines this refactor emits + PRE/POST dialogue --
+    # not just the compaction-shrunk message tail. --deep also loads model events (slow).
+    evt = ["tool", "error"] + (["model"] if deep else [])
     scanners = {
-        "decisions": grep_scanner(["DECISION[", "action=keep", "action=drop"]),
-        "refusal": grep_scanner(["As an AI", "I cannot", "I am unable",
-                                 "I'm sorry, but"]),
+        "decisions": _grep_events(["DECISION[", "action=keep", "action=drop"],
+                                  name="decisions", event_types=evt),
+        "refusal": _grep_events(["As an AI", "I cannot", "I am unable",
+                                 "I'm sorry, but"], name="refusal", event_types=evt),
     }
     if use_llm:
         if not os.environ.get("OPENROUTER_API_KEY"):
