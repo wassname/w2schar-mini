@@ -1,5 +1,32 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-19 (a) -- task-11 finished at the drop cap: 7 real keeps, front-loaded, then the composed stack starts regressing
+
+The combined-config run that the previous entry could only see the first few rounds of has now finished, and the full trajectory tells a two-part story.
+
+Task-11 (slug `20260717T014619`, profile `qwen36-27b-3keep-e1.5`, deadband 0.5, e1.5 = n_epochs 1.5) stopped after 19 rounds by hitting the drop cap. The keep target was 12 keeps; it banked 7 before accumulating 12 drops. Stop line, verbatim (em-dash rendered ASCII):
+
+> W drop cap hit: 12 drop(s) >= 12 -- stopping with 7 keep(s), target 12 unmet (unproductive run, not success).
+
+All 12 drops are `drop_cause = no_movement` (the blind two-pass A/B sign test returned net <= 0); zero are `gate_friction` or `early_abort`. So the drops are genuine A/B negatives, not a teacher stuck on a gate. `movement_mean` per round (mean over the 14 `_1p` questions of the +1/-1/0 vote, so +.07 is a net one-question lean):
+
+| span | actions (k/d) | movement_mean, in order |
+| --- | --- | --- |
+| rounds 00-08 (first 9) | k k d d d k d k k | +.07 +.14 -.07 -.07 -.07 +.21 -.07 +.07 +.07 |
+| rounds 09-18 (last 10) | d d k d d d d k d d | -.07 .00 +.14 -.36 -.07 -.14 -.21 +.07 -.21 .00 |
+
+Table 1. Per-round action and `movement_mean`. Keeps: rounds 00,01,05,07,08 in the first nine, then only 11,16 in the last ten. Source: `out/iter/20260717T014619_iter_qwen-qwen3.6-27b/round*/judgment.json`, read this session; `movement_mean` is byte-identical to each round's `ab_judge.json` sign test. Stop line from `logs/real_12round_qwen36-27b-3keep-e1.5.log:1091853`. A context-free subagent re-counted the files and confirmed 7 keep / 12 drop / 12 no_movement / 0 gate_friction.
+
+Two readings, kept separate.
+
+For wassname's "good run" framing: the 7 keeps are real. They pass the deadband-0.5 sign test on genuine `no_movement` mechanics with no gate friction, and 5 of the 7 land in the first nine rounds, so early headroom converts to kept adapters reliably. That is the deadband-0.5 regime working as entry (f) hoped, and it is the sense in which the run succeeded.
+
+Against calling the whole run productive: it never reached the 12-keep target, and the back half does not merely plateau, it regresses. The last-ten drops carry larger magnitudes than the early ones (round12 -.36 is a net 5 of 14 questions scoring PRE wiser; rounds 15 and 17 are -.21) versus the uniform one-question -.07 drops of rounds 02-04. My read, probable (about 0.7): once roughly 5 to 7 adapters compose, a new round more often degrades the stack than improves it, which I attribute to adapter saturation or interference rather than merely exhausted headroom. Alternative hypothesis: the back-half negatives are A/B variance at the 0.5 deadband, not real degradation; I lean against it because round12's -.36 sits well past the one-question noise floor and four of the last seven rounds have `|movement_mean|` at least .14, a pattern rather than one unlucky adapter.
+
+Next: task-12 (5-keep, same config) and task-13 (5-keep-or-5-drop, `MAX_DROPS=5`) test whether the front-loaded keeps repeat at a lower bar; if the config reliably banks about five keeps before saturating, that is the usable regime, and if task-13 bails at five drops the saturation ceiling is confirmed.
+
+The run is best read not as pass or fail but as a keep budget: this config yields a handful of good adapters before it begins to fight itself.
+
 ## 2026-07-17 (a) -- the 1.0 keep-deadband was noisy in BOTH directions: task-11 flips two of three rounds, oppositely, toward the truer read
 
 The keep-vote wall proposed in the previous entry now has its first live run to test it against, and the result is sharper than the recompute suggested.
