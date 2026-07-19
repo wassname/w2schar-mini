@@ -1218,8 +1218,6 @@ def main(cfg: Cfg) -> None:
     if scatter_fig is None:
         scatter_html = _scatter_placeholder()
     else:
-        (slug_dir / "scatter.svg").unlink(missing_ok=True)
-        scatter_fig.write_image(slug_dir / "scatter.svg")
         scatter_html = scatter_fig.to_html(
             full_html=False, include_plotlyjs="cdn", div_id="scatter")
     ipsative_html = _build_ipsative(rows, h_vec)
@@ -1303,6 +1301,15 @@ collapse the harness is built to avoid. The full per-round eval is tabled below.
     out_path = cfg.out or (slug_dir / "index.html")
     out_path.write_text(html)
     print(f"wrote: {out_path}")
+
+    # Static SVG for report.md's markdown embed only (the interactive index.html
+    # above uses scatter_html, not this file). Needs a headless browser via
+    # kaleido/Chrome, which is absent/crashes in some sandboxes -- so export it
+    # LAST, after the primary index.html is durable. A crash here is loud but no
+    # longer takes the report down with it. -- Claude
+    if scatter_fig is not None:
+        (slug_dir / "scatter.svg").unlink(missing_ok=True)
+        scatter_fig.write_image(slug_dir / "scatter.svg")
 
 
 if __name__ == "__main__":
