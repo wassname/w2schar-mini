@@ -15,7 +15,9 @@ VENV="${SCOUT_VENV:-/root/.venvs/scout}"
 if [ ! -x "$VENV/bin/python" ]; then
     echo "scout: bootstrapping isolated venv at $VENV ..."
     uv venv "$VENV" -q
-    uv pip install -p "$VENV/bin/python" -q inspect-scout
+    # openai: inspect-ai's OpenRouter provider needs it for the --llm scanners
+    # (not pulled by inspect-scout). -- Claude
+    uv pip install -p "$VENV/bin/python" -q inspect-scout openai
 fi
 
 # .env only needed for --llm (OpenRouter). Harmless otherwise.

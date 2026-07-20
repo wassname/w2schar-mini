@@ -88,7 +88,10 @@ def main() -> int:
             answer="boolean", model=TEACHER)
 
     scans_dir = slug / "scans"
-    scan(scanners, ts, scans=str(scans_dir))
+    # max_processes=1: inspect-scout 0.4.43 multiprocess strategy crashes the LLM
+    # scanners with "RuntimeError: no running event loop"; single-process routes
+    # through the inline async path so the LLM scanners actually run. -- Claude
+    scan(scanners, ts, scans=str(scans_dir), max_processes=1)
     # scan() writes a fresh scan_id=* subdir; scan_results_df wants that exact path.
     scan_loc = max(scans_dir.glob("scan_id=*"), key=lambda p: p.stat().st_mtime)
 
