@@ -15,5 +15,8 @@ fi
 
 mkdir -p logs
 LOG="logs/real_${N_ROUNDS}round_${PROFILE}.log"
-uv run python -m csm.cli agent-run --profile "$PROFILE" --n-rounds "$N_ROUNDS" \
+# --no-sync: uv's pre-run env sync can deadlock (futex hang holding .venv/.lock) under
+# concurrent uv use, wedging the run before any code executes (task-15, 2026-07-21).
+# The venv is already synced, so skip it. -- Claude
+uv run --no-sync python -m csm.cli agent-run --profile "$PROFILE" --n-rounds "$N_ROUNDS" \
     2>&1 | tee "$LOG"
