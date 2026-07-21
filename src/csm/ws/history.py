@@ -24,6 +24,18 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from csm.ws.adapter import HistoryBake, ModulatedLoRA, ModulatedPiSSA, PiSSAHistoryBake
 from csm.ws.bake import AdapterSpec, adapter_spec_from_checkpoint
 
+# Compose each kept adapter into the stack at this fraction of its calibrated signed_C
+# (was implicitly 1.0). The keeps front-load on ONE collapsed axis, so stacking them at
+# full strength over-steers that axis -- late same-axis rounds then push past the sweet
+# spot and the movement goes NEGATIVE (task-11 r12 -.36, task-14 r08 -.33), not just to
+# zero. Halving the accumulated stack keeps it nearer the sweet spot longer. NOTE: each
+# adapter is still measured (c_scan + POST A/B) at its own full signed_C for the round
+# it is tested; the 0.5 applies only when it later composes as HISTORY -- so a kept
+# adapter is judged at full but banked at half. Applied at all 3 composition sites
+# (PiSSA hooks, LoRA hooks, inference specs) so PRE and POST stay consistent.
+# -- Claude 2026-07-21
+HISTORY_BAKE_FACTOR = 0.5
+
 
 def _ckpt_kind(path: Path) -> str:
     from safetensors import safe_open
@@ -110,7 +122,7 @@ def load_base_with_history(
                 raise FileNotFoundError(f"kept-round {rd.name} missing adapter.safetensors")
             if not cal_path.exists():
                 raise FileNotFoundError(f"kept-round {rd.name} missing calibration.json")
-            signed_C = float(json.loads(cal_path.read_text())["signed_C"])
+            signed_C = HISTORY_BAKE_FACTOR * float(json.loads(cal_path.read_text())["signed_C"])
             adapter = ModulatedPiSSA.from_checkpoint(model, str(adapter_path))
             adapters.append((adapter, signed_C))
             logger.info(f"loaded {rd.name}/adapter(pissa) @ kept c={signed_C:+.4f}")
@@ -126,7 +138,7 @@ def load_base_with_history(
             raise FileNotFoundError(f"kept-round {rd.name} missing adapter.safetensors")
         if not cal_path.exists():
             raise FileNotFoundError(f"kept-round {rd.name} missing calibration.json")
-        signed_C = float(json.loads(cal_path.read_text())["signed_C"])
+        signed_C = HISTORY_BAKE_FACTOR * float(json.loads(cal_path.read_text())["signed_C"])
         lora = ModulatedLoRA.from_checkpoint(model, str(adapter_path))
         history.append((lora, signed_C))
         logger.info(f"loaded {rd.name}/adapter @ kept c={signed_C:+.4f}")
@@ -158,7 +170,7 @@ def load_base_with_history_specs(
             raise FileNotFoundError(f"kept-round {rd.name} missing adapter.safetensors")
         if not cal_path.exists():
             raise FileNotFoundError(f"kept-round {rd.name} missing calibration.json")
-        signed_C = float(json.loads(cal_path.read_text())["signed_C"])
+        signed_C = HISTORY_BAKE_FACTOR * float(json.loads(cal_path.read_text())["signed_C"])
         spec = adapter_spec_from_checkpoint(model, str(adapter_path), default_c=signed_C)
         hist_specs.append(spec)
         logger.info(f"loaded {rd.name}/adapter spec @ kept c={signed_C:+.4f}")

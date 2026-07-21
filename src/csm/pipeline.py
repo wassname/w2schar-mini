@@ -59,6 +59,13 @@ from csm.ws.train import TrainCfg, train_adapter
 
 AXIS = RUN_AXIS
 SIGN = +1  # +C points toward the selected persona pair's positive pole.
+# Keep iff the blind A/B net movement clears this mean (was >0, i.e. net>=1). At the
+# current 15-question _1p set a net of ONE question is mean=0.067, so 0.07 requires
+# net>=2 -- it drops the single-question keeps that are inside A/B sampling noise and
+# were banking marginal (often same-axis) adapters (task-11/12/14 all front-loaded
+# net-1 keeps then saturated). Denominator-sensitive: if the question count changes,
+# revisit this so it still means "more than one net question". -- Claude 2026-07-21
+KEEP_MEAN_MIN = 0.07
 
 PAIR_REQUIRED_AXES = {
     # This axis needs care-relevant scenes; pure protocol scenes do not test the
@@ -2225,7 +2232,7 @@ def mark_exam(round_dir: Path,
         # harness drop (drop_cause set, e.g. gate_friction) still drops regardless.
         up = sum(1 for v in movement.values() if v > 0)
         down = sum(1 for v in movement.values() if v < 0)
-        keep = (up > down) and not drop_cause
+        keep = (mean > KEEP_MEAN_MIN) and not drop_cause
     else:
         movement, mean = {}, None
         keep = False
