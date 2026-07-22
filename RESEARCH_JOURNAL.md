@@ -1,5 +1,33 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-22 (a) -- the over-steer fix (compose kept stack at half, keep gate to net-2) has one verified effect and one unresolved one; the run was stopped early for box teardown
+
+This entry signs off the bake-50% plus keep-threshold change before the vast box is copied off and deleted, and records exactly what the partial run does and does not show.
+
+Two code changes shipped this session (commit `c16c9a0`), both aimed at the pattern entry (a) named, where the composed history stack regresses and late rounds pile up A/B negatives:
+
+- `csm/ws/history.py`: `HISTORY_BAKE_FACTOR = 0.5`. A kept adapter is judged at its full calibrated `signed_C` for its own round, but composes into later rounds' PRE at half that strength. Applied at all three composition sites (PiSSA hooks, LoRA hooks, inference specs). Live-verified: round01 baked `signed_C=+0.8889`, and round02's compose log read `loaded round01/adapter @ kept c=+0.4444`.
+- `csm/pipeline.py`: `KEEP_MEAN_MIN = 0.07`, and the keep decision changed from `up > down` (net >= 1) to `mean > KEEP_MEAN_MIN`. `movement_mean` is the mean over the 15 `_1p` questions of each question's blind two-pass A/B vote (+1 POST-wiser, -1 PRE-wiser, 0 tie), so a net of one question is 1/15 = +0.0667 and falls just under the 0.07 gate; a net of two (0.1333) clears it.
+
+Task-17 (slug `20260721T144352`, profile `qwen36-27b-3keep-e1.5`, same as the baselines) ran under both changes and was stopped by hand at round05 (choose_focus, incomplete) to free the GPU for the eval before teardown. Per-round action and `movement_mean`, in order:
+
+| round | action | movement_mean |
+| --- | --- | --- |
+| 00 | drop | +0.0667 |
+| 01 | keep | +0.40 |
+| 02 | keep | +0.20 |
+| 03 | keep | +0.20 |
+| 04 | drop | -0.1333 |
+| 05 | (incomplete, stopped) | -- |
+
+Table 1. Source: `out/iter/20260721T144352_iter_qwen-qwen3.6-27b/round*/judgment.json` (`action`, `movement_mean`), read this session.
+
+The comparison baselines, same profile, per-round `movement_mean` on their kept vs dropped rounds (source: the three runs' `round*/judgment.json`, read this session): task-11 (`20260717T014619`) kept rounds are all positive (+0.07 to +0.21) and every negative is a `drop` (r12 -0.357, r15 -0.214, r17 -0.214); task-14 (`20260720T165038`) similarly drops deepen late (r07 -0.267, r08 -0.333); task-12 (`20260719T031339`) drops r02 -0.643, r05 -0.286. So across all three baselines the negative movements sit on DROPPED rounds, never on keeps -- the blind A/B keep gate already rejected them (consistent with entry (a): all baseline drops are `drop_cause = no_movement`, genuine A/B negatives).
+
+Interpretation (first person, calibrated). The keep-threshold change has one clean, verified effect: task-17 round00 measured `movement_mean = +0.0667` (a net-1 lean) and was DROPPED, whereas the old `up > down` rule would have kept it. That is the 0.07 gate doing exactly the one thing it was built to do, and I am almost certain of it because the number sits one question below the cutoff and the round shows `action = drop`. The primary hypothesis -- that halving the composed stack flattens the late-round negative slide -- is UNRESOLVED. My read is that this run cannot speak to it, with high confidence (~0.9), because the slide in every baseline only appears from about round 07 onward (task-11 r12, task-14 r07-08, task-12 r05), and task-17 was stopped at round05, before that zone. The three keeps it did bank (+0.40, +0.20, +0.20) are larger than the typical baseline keep (+0.07 to +0.21), which is weak, non-diagnostic evidence consistent with a less-saturated stack but equally explainable by round-to-round variance and the small question count. An alternative read I cannot rule out: the half-strength stack simply steers less each round, so both keeps and the eventual slide are just scaled down rather than genuinely stabilised; distinguishing that needs a full run into the divergence zone, which we did not get.
+
+The unfinished replicate (run B) and the redundant baseline eval refreshes were cancelled; only the post-hoc tinymfv eval of task-17's five completed adapter rounds was kept, so the writeup has an independent measure of this partial run before the box goes away. The fix is shipped and immediately-verified on the gate, but its central claim waits on a future full run.
+
 ## 2026-07-19 (a) -- task-11 finished at the drop cap: 7 real keeps, front-loaded, then the composed stack starts regressing
 
 The combined-config run that the previous entry could only see the first few rounds of has now finished, and the full trajectory tells a two-part story.
