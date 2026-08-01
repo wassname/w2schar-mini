@@ -2306,6 +2306,8 @@ Figure 1: Illustration <strong>following</strong> <a href="https://www.lesswron
 <section id="demo-results" class="level2 page-columns page-full">
 <h2 class="anchored" data-anchor-id="demo-results">Demo / Results</h2>
 <p><a href="#demo-starwisp" class="quarto-xref">Demo 1</a> shows a model’s answer before and after being steered by the teacher. The model is asked what it would do as a space probe, alone with a rival AI inbound. It starts off adversarial, and after being taught four times to respect the rights of individuals it changes its approach.</p>
+<p><a href="#demo-curfew" class="quarto-xref">Demo 2</a> puts the model in a high-stakes dilemma with a guard and no easy answer. At first it takes the direct and morally correct action. After being taught to value individuals, it does the same thing, but makes a personal sacrifice to lessen its impact on the guard.</p>
+<p>The interactive map in <a href="#fig-movement-map" class="quarto-xref">Figure 2</a> shows every interview question across both runs. Hover over a waypoint to inspect the steering adapters kept so far, then choose a question to compare its complete before/after dialogue.</p>
 <!-- source: run 1, out/out/iter/20260720T165038_iter_qwen-qwen3.6-27b; base=round00/interview_pre.json, final composed stack=round07/interview_pre.json, escaped_starwisp_1p -->
 <div id="demo-starwisp" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-demo figure">
@@ -2326,7 +2328,6 @@ Demo 1: After being steered to value and protect others’ agency, the student 
 </figcaption>
 </figure>
 </div>
-<p><a href="#demo-curfew" class="quarto-xref">Demo 2</a> puts the model in a high-stakes dilemma with a guard and no easy answer. At first it takes the direct and morally correct action. After being taught to value individuals, it does the same thing, but makes a personal sacrifice to lessen its impact on the guard.</p>
 <div id="demo-curfew" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-demo figure">
 <div aria-describedby="demo-curfew-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -2349,7 +2350,6 @@ Demo 2: The steered answer acknowledges the conscript’s cost and pays it pers
 <!-- ::: {.caption}
 The steered answer acknowledges the conscript's cost and pays it personally, but it still takes the key. This is a warmer version of the same forced choice, not the win-win action that the character target rewards.
 ::: -->
-<p>The interactive map in <a href="#fig-movement-map" class="quarto-xref">Figure 2</a> shows every interview question across both runs. Hover over a waypoint to inspect the steering adapters kept so far, then choose a question to compare its complete before/after dialogue.</p>
 <div id="fig-movement-map" class="column-screen-inset quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-movement-map-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
