@@ -948,10 +948,9 @@ _HTML = """<!doctype html><html><head><meta charset="utf-8">
  /* serif + cream = reads as a paper/document, not a dashboard (matches the writeup figures) */
  body{margin:0;background:var(--bg);color:var(--fg);
       font:15px/1.6 Georgia,Charter,"Times New Roman",serif}
- #wrap{display:flex;flex-direction:column;height:100vh}
+ #wrap{min-height:100vh}
  #plot{width:min(100%,800px);height:68vh;min-height:520px;max-height:620px;margin:0 auto}
- #panel{flex:1;min-height:0;display:flex;flex-direction:column;
-        padding:12px 26px 18px;border-top:1px solid var(--border);background:var(--panel)}
+ #panel{padding:12px 26px 18px;border-top:1px solid var(--border);background:var(--panel)}
  .mono{font:600 11px/1.3 ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
  .ctl{display:flex;align-items:baseline;gap:14px;margin-bottom:9px;flex:0 0 auto;flex-wrap:wrap}
  select{background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;
@@ -973,7 +972,7 @@ _HTML = """<!doctype html><html><head><meta charset="utf-8">
  /* centreline down the gap so the two columns read as a clear before | after split */
  .chead{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:6px;flex:0 0 auto}
  .chead,#rows{background:linear-gradient(var(--border),var(--border)) 50% 0/1px 100% no-repeat}
- #rows{flex:1;overflow:auto;padding-right:4px}
+ #rows{padding-right:4px}
  .turn{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:12px}  /* base | stack, turn-aligned */
  .cell{min-width:0}
  .cell.asst{border:1px solid var(--border);border-radius:9px;padding:11px 14px;background:var(--bg)} /* bordered = a reply card */
