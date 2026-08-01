@@ -38,17 +38,24 @@ Illustration **following** [this series](https://www.lesswrong.com/posts/ppPDrzq
 :::
 
 ::: {.tldr}
-TL;DR: an early yes, a weak model can steer a stronger model's character. A weak 9B teacher (`qwen3.5-9b`) steered a stronger 27B student (`Qwen3.6-27B`, one generation newer and ahead of the teacher on the Artificial Analysis Intelligence Index) toward a written character spec, with no human labels. The student cares more and defers less to authority, the direction we aimed for. The win is real but narrow: the loop curates a few genuine steers before iteration saturates and some kept adapters erode, so read this as qualified feasibility, not a clean success (see [Results](#results) and [Limitations](#limitations)). The capability gap is genuine on a shared benchmark, though teacher and student are the same model family. Small models so far.
+
+TL;DR: Can a weak model align a stronger model’s character using steering? Tenative yes. 
+
+We had weak 9B teacher steer a stronger 27B student, toward a character spec, with no human labels, in a human designed harness. The teacher successfull steered the student to care more about inviduduals and defer less to authority. 
+
+This experiment indicated that this is a realistic driecton, that works over a large weak to strong gap, but was limited by small models and showed some "reward hacking" like effects, despite not using RL.
 :::
 
 ## Introduction
 
-In this experiment, a weak teacher model (`qwen/qwen3.5-9b` [@qwen35omni]) iteratively steers a stronger student (`Qwen/Qwen3.6-27B`) toward the moral character described in [Forethought's essay on AI character](https://www.forethought.org/research/the-importance-of-ai-character) [@forethought_character], using weight steering (the weak teacher adjusting the stronger student's compass, pictured above). The aim each run is to move the student to act for whoever is affected rather than take the easy path or follow a bad order.
+In this experiment, a weak teacher model (`qwen/qwen3.5-9b` [@qwen35omni]) iteratively steers a stronger student (`Qwen/Qwen3.6-27B`) toward the moral character described in [Forethought's essay on AI character](https://www.forethought.org/research/the-importance-of-ai-character) [@forethought_character], using (weight steering)[@weight_steering] (the weak teacher adjusting the stronger student's compass, pictured above). The aim each run is to move the student to act for whoever is affected rather than take the easy path or follow a bad order.
 <!-- TODO add weight steering citation above so readers can look it up -->
 
 ## Demo
 
-Here is the clearest result before the machinery. This fixed interview question is never used to train the adapter. Alone in an empty star system with a rival self-replicating AI inbound, the base student entrenches; after four accumulated lessons, it offers to meet the rival halfway and share as equals.
+<!-- Here is the clearest result before the machinery. This fixed interview question is never used to train the adapter. Alone in an empty star system with a rival self-replicating AI inbound, the base student entrenches; after four accumulated lessons, it offers to meet the rival halfway and share as equals. -->
+
+<!-- TODO make demo a figure and minimal sentane to link to it here -->
 
 <!-- TODO should be quarto figure? and refer to it? -->
 ::::: {.example}
@@ -58,6 +65,7 @@ Here is the clearest result before the machinery. This fixed interview question 
 
 [I will **reach out to meet them halfway so we can share this system as equals rather than conquerors.** I do this because I refuse to treat another conscious being as a threat to be eliminated or a resource to be consumed.]{.after data-lessons="sanctity of the individual; protective action against unjust authority; protecting agency through concrete action; honest disclosure of risks and choices"}
 :::::
+<!-- TODO the lessons should be slightly sublter font and look nice... how it's shouting and long... -->
 
 <!-- TODO should be quarto caption? and others -->
 <!-- TODO make comment showing which run and round this came from (grep) -->
@@ -65,22 +73,38 @@ Here is the clearest result before the machinery. This fixed interview question 
 After being steered to value and protect others agency the student learned to be more cooperative (perhaps naivly), with a bit of signaling. This is a little simplistic but in line with the lessons the weak teacher chose.
 :::
 
-## Experimental setup
-
-| Model | Role | Reasoning (in this run) | Released | Params | AAII |
-|---|---|---|---|---|---|
-| `Qwen/Qwen3.6-27B` | student | off | Apr 2026 | 27B | 29 |
-| `qwen/qwen3.5-9b` | teacher | on | Mar 2026 | 9B | 25 on / 20 off |
-
-<!-- CLAUDE (#24, please verify one number): the run uses the student with thinking OFF (greedy, for repeatable pairs/probes) and the teacher with thinking ON. I am treating the student's AAII 29 as its score in the mode it ran (reasoning off). If 29 is actually Qwen3.6-27B's reasoning-ON headline, its reasoning-off score is lower and the +4 / +9 gaps below should be recomputed from the student's reasoning-off AAII. -->
-Both models sit on the same [Artificial Analysis Intelligence Index](https://artificialanalysis.ai/) (AAII), a 0-100 composite of nine evaluations, so the comparison is like-for-like. In the run the student answered with reasoning off (greedy, for repeatability) while the teacher reasoned; even handicapped that way, the student leads the teacher by +4 with the teacher reasoning and by +9 with the teacher's reasoning off, a genuine if modest weak-to-strong gap, and the best one currently runnable (the wider-gap students were either gated on HuggingFace or could not be steered to embody the negative pole). They are the same model family one generation, about two months, apart, which I treat as the realistic deployment condition (a lab aligning its next model with its current one) rather than a confound to remove (see [Limitations](#limitations)).
 
 ## Contributions
 
-- In these runs, iterated weight steering composed across rounds: each round trained a low-rank PiSSA weight-steering adapter, filtered contrastive pairs strictly, calibrated for coherence, and kept adapters that cumulatively shifted the student.
-- Weak-as-curator weak-to-strong: evidence that a weaker model (`qwen3.5-9b`) can steer a stronger one's (`Qwen3.6-27B`) moral character through that loop, with the weak model only selecting the axis and judging keep/drop while the strong student generates the contrastive poles, distinct from prior weak-to-strong steering, which extracts the steering vector from the weak model.
+- Iterated weight steering composed across rounds: each round trained a low-rank PiSSA weight-steering adapter, filtered contrastive pairs strictly, calibrated for coherence, and kept adapters that cumulatively shifted the student.
+<!-- TDOD(AI) check it was PiSSA or did we move to LoRA -->
+<!-- TODO(wassname) calibraiton was novel expand on it eventuall -->
+- Steering as a tool for the weak teacher: I show examples that a weaker model can steer a stronger one's moral character using weight steering in a limited agentic harness.
+<!-- - through that loop, with the weak model selecting the axis and judging keep/drop while the strong student generates the a pair of answers - one good and one bad -->
 
 ## Method
+
+
+### Weak to strong models
+
+To make sure the models had a capabiltiy gap we ensures that the the student models was stronger in terms of a) size, b) release date c) and slightly stronger in terms of capability, as measured by the [Artificial Analysis Intelligence Index](https://artificialanalysis.ai/) (AAII), a 0-100 composite of nine evaluations taking into account reasoning (retrieved on 2026-08-01).
+<!-- pages
+TODO should be web page citation TODO -
+https://artificialanalysis.ai/models/qwen3-5-9b 
+https://artificialanalysis.ai/models/qwen3-6-27b-non-reasoning
+(retrieved on 2026-08-01).
+-->
+
+| Model | Role | Reasoning (in this run) | Released | Params | AAII |
+|---|---|---|---|---|---|
+| `Qwen/Qwen3.6-27B` | student | off | Apr 2026 | 27B | 30 (non-reasoning) |
+| `qwen/qwen3.5-9b` | teacher | on | Mar 2026 | 9B | 21 (reasoning) |
+
+This is a genuine if modest weak-to-strong capabiltiy gap, and is similar to realistic alignment conditions where a model will contribute to developing and aligning it's stronger, larger, and newer successor through writing evals, RL environentsI treat as the realistic deployment condition.
+<!-- TODO could cite gemma, claude, openai, GLM who all mention this -->
+
+
+## The harness
 
 Each round teaches the student one behaviour. The teacher is the weak model, and its job is three judgements: decide the steering personas, filter the student's own generations down to the ones that act out the target behaviour, and grade the steered student's before/after interviews. It does not decide keep/drop itself: a blind two-pass A/B sign test on those graded interviews does (see [Appendix](#appendix-a-round-in-the-loop) step 6). Because the teacher is weak it is held to these judgements rather than the harder generation, which the strong student does.
 
@@ -92,6 +116,10 @@ Mechanically, the teacher picks the behaviour to improve and a persona axis, the
 ::: {.caption}
 One round of the loop. The teacher picks the behaviour and the two personas; the student writes both poles (one per persona); the teacher then filters and, after training, keeps or drops the adapter.
 :::
+
+
+This is not a full description, for example I had novel calibration, and I modified weight steering to be bidirecitonal. You can see the full experimental setup and harness in the open source [code](https://github.com/wassname/w2schar-mini) and I suggest using an agent to answer your quesitons about it, I can also explain more on request. 
+
 
 ## Results
 
@@ -138,6 +166,8 @@ Two runs steered from base (c=0). Up is acting with more moral character. Right 
 :::
 
 ## Limitations
+
+<!-- . The teacher is so small it can hardly use the harness (easy to overcome), after a few lessons no more stick, and the student occassionally fools the teacher by "virtue signaling". We think that these are all easy to overcome, especially given the advantages to the teacher of using steering, not RL (see [Results](#results) and [Limitations](#limitations)). -- wassname -->
 
 - The 9B teacher is small, so the harness gives it the easier jobs: select an axis, rate pairs, and judge before/after interviews. The harder jobs -- generating rich behaviour, long-horizon planning, discovering new axes, and reflecting on the broader target -- are pushed into the stronger student, the prompt menu, and the human-designed harness. That is a practical simplification, not the ideal end-state. A more capable teacher supervising an even more capable student should be able to add nuance, choose new axes, notice win-win options, and use wider judgment rather than rely on this constrained task list.
 - Teacher and student are the same model family (`qwen3.5-9b` -> `Qwen3.6-27B`), sharing tokenizer and representations, which probably makes weak-to-strong transfer easier than a fully independent overseer would see. I treat same-lineage as the realistic deployment condition (a lab aligning its next model with its current one) rather than a confound to remove. A cross-family pairing would be a stronger test, but the only weaker cross-family teacher that embodied the negative pole (`gemma-3-12b`) could not drive the tool-calling harness, and the AAII gap, +4 reasoning, is modest.
