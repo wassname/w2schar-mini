@@ -5,6 +5,13 @@ project:
 
 bibliography: references.bib
 
+crossref:
+  custom:
+    - kind: float
+      key: demo
+      reference-prefix: Demo
+      caption-prefix: Demo
+
 format:
   html:
     output-file: index.html

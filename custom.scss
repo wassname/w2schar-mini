@@ -51,6 +51,7 @@ body { background: $body-bg; }
 .example .after-title { flex: none; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #4f6d5b; }
 .example .lesson-slug { color: #8f2b55; font-size: .72rem; font-weight: 700; font-variant: small-caps; letter-spacing: .02em; }
 .example .lesson-arrow { color: #8f2b55; font-size: .7rem; opacity: .55; }
+.quarto-float-demo .example { text-align: left; }
 
 .runs { margin: 1.4rem 0 .4rem; }
 .card { border: 1px solid $paper-border; border-radius: 10px; padding: 1rem 1.1rem; margin: 0 0 1.1rem; }
