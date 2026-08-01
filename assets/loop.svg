@@ -41,11 +41,11 @@
 
   <rect class="box harness" x="1036" y="102" width="220" height="150"/>
   <text class="label" x="1146" y="151"><tspan x="1146">Train and test</tspan><tspan x="1146" dy="28">steering adapter</tspan></text>
-  <text class="small" x="1146" y="222">check answer coherence</text>
+  <text class="small" x="1146" y="222">coherence check</text>
 
   <rect class="box teacher" x="1284" y="102" width="200" height="150"/>
   <text class="label" x="1384" y="151"><tspan x="1384">Teacher judges</tspan><tspan x="1384" dy="28">before / after</tspan></text>
-  <text class="small" x="1384" y="222">vote rule keeps / drops</text>
+  <text class="small" x="1384" y="222">fixed vote rule</text>
 
   <text class="small" x="750" y="25">kept steering adapters carry into the next round</text>
 
