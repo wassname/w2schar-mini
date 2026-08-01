@@ -924,7 +924,7 @@ def _figure(cache: dict[str, list[dict]]) -> go.Figure:
                                          line=dict(width=2.5, color=SOL["fg"])),
                              showlegend=False, hoverinfo="skip"))
     fig.update_layout(
-        width=1000, height=620, paper_bgcolor=SOL["bg"], plot_bgcolor=SOL["bg"],
+        width=800, height=720, paper_bgcolor=SOL["bg"], plot_bgcolor=SOL["bg"],
         font=dict(color=SOL["fg"], family="Georgia, Charter, 'Times New Roman', serif"),
         margin=dict(r=60, t=54, l=70, b=58),
         xaxis=dict(title="added behavioral damage vs base (judge points) →",
@@ -949,7 +949,7 @@ _HTML = """<!doctype html><html><head><meta charset="utf-8">
  body{margin:0;background:var(--bg);color:var(--fg);
       font:15px/1.6 Georgia,Charter,"Times New Roman",serif}
  #wrap{display:flex;flex-direction:column;height:100vh}
- #plot{height:35vh;min-height:230px}       /* map compact; the transcript needs the room */
+ #plot{width:min(100%,800px);height:68vh;min-height:520px;max-height:620px;margin:0 auto}
  #panel{flex:1;min-height:0;display:flex;flex-direction:column;
         padding:12px 26px 18px;border-top:1px solid var(--border);background:var(--panel)}
  .mono{font:600 11px/1.3 ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
