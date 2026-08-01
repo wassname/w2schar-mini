@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="420" viewBox="0 0 1500 420" role="img" aria-labelledby="title desc">
+  <title id="title">One round of weak-to-strong character steering</title>
+  <desc id="desc">The harness interviews the student. The weak teacher picks a character axis and positive and negative personas. The strong student generates a chosen pole under the positive persona and a rejected pole under the negative persona. The weak teacher rates and selects pairs. The harness trains and calibrates a LoRA adapter. A blind A/B judge keeps or drops it, and kept adapters compose into the next round.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#5b6778"/>
+    </marker>
+    <style>
+      .box { stroke-width: 2.5; rx: 16; }
+      .teacher { fill: #e4f0fb; stroke: #2d6fb7; }
+      .student { fill: #e8f5ec; stroke: #2d8659; }
+      .harness { fill: #eef1f4; stroke: #748399; }
+      .flow { fill: none; stroke: #5b6778; stroke-width: 2.5; marker-end: url(#arrow); }
+      .label { font: 600 20px system-ui, sans-serif; fill: #243142; text-anchor: middle; }
+      .small { font: 500 16px system-ui, sans-serif; fill: #465367; text-anchor: middle; }
+      .legend { font: 500 17px system-ui, sans-serif; fill: #465367; }
+    </style>
+  </defs>
+
+  <path class="flow" d="M214 177 H242"/>
+  <path class="flow" d="M474 177 H502"/>
+  <path class="flow" d="M760 177 H788"/>
+  <path class="flow" d="M1008 177 H1036"/>
+  <path class="flow" d="M1256 177 H1284"/>
+  <path class="flow" d="M1394 112 C1394 42 1260 36 750 36 C260 36 116 45 116 110"/>
+
+  <rect class="box harness" x="16" y="112" width="198" height="130"/>
+  <text class="label" x="115" y="167"><tspan x="115">Interview</tspan><tspan x="115" dy="28">the student</tspan></text>
+
+  <rect class="box teacher" x="242" y="102" width="232" height="150"/>
+  <text class="label" x="358" y="151"><tspan x="358">Pick character axis</tspan><tspan x="358" dy="28">and persona pair</tspan></text>
+  <text class="small" x="358" y="222">positive (+) / negative (-)</text>
+
+  <rect class="box student" x="502" y="82" width="258" height="190"/>
+  <text class="label" x="631" y="128"><tspan x="631">Student generates</tspan><tspan x="631" dy="28">both poles</tspan></text>
+  <text class="small" x="631" y="199"><tspan x="631">chosen under + persona</tspan><tspan x="631" dy="24">rejected under - persona</tspan></text>
+
+  <rect class="box teacher" x="788" y="102" width="220" height="150"/>
+  <text class="label" x="898" y="151"><tspan x="898">Rate and select</tspan><tspan x="898" dy="28">training pairs</tspan></text>
+  <text class="small" x="898" y="222">weak teacher</text>
+
+  <rect class="box harness" x="1036" y="102" width="220" height="150"/>
+  <text class="label" x="1146" y="151"><tspan x="1146">Train LoRA</tspan><tspan x="1146" dy="28">and calibrate</tspan></text>
+  <text class="small" x="1146" y="222">coherence canary</text>
+
+  <rect class="box teacher" x="1284" y="102" width="200" height="150"/>
+  <text class="label" x="1384" y="151"><tspan x="1384">Blind A/B judge</tspan><tspan x="1384" dy="28">keeps or drops</tspan></text>
+  <text class="small" x="1384" y="222">kept adapters compose</text>
+
+  <text class="small" x="750" y="25">kept adapters compose into the next round</text>
+
+  <rect class="box teacher" x="450" y="340" width="26" height="26" rx="5"/>
+  <text class="legend" x="487" y="360">weak teacher (9B)</text>
+  <rect class="box student" x="688" y="340" width="26" height="26" rx="5"/>
+  <text class="legend" x="725" y="360">strong student (27B)</text>
+  <rect class="box harness" x="956" y="340" width="26" height="26" rx="5"/>
+  <text class="legend" x="993" y="360">harness</text>
+</svg>
