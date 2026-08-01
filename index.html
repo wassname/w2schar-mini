@@ -2466,7 +2466,7 @@ Figure 4: One round of the harness loop. The teacher picks the target behaviour
 </figcaption>
 </figure>
 </div>
-<p>We calibrate each steering adapter: we walk the steering strength down until allowed-answer probability mass, valid JSON completion, and trigram diversity all clear self-relative coherence floors derived from the unsteered baseline. The adapter objective is also bidirectional, training the chosen and rejected answers toward opposite signs of the same weight direction.</p>
+<p>We calibrate each steering adapter by walking its strength down until three measures clear floors set by the unsteered model: allowed-answer probability mass, valid JSON completion, and trigram diversity. The training objective is also bidirectional, pushing the chosen and rejected answers toward opposite signs of the same weight direction.</p>
 </section>
 <section id="more" class="level3">
 <h3 class="anchored" data-anchor-id="more">More</h3>
