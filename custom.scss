@@ -47,7 +47,10 @@ body { background: $body-bg; }
 .example .after  { background: #ecf6ef; border-left: 3px solid #2f855a; border-top: 1px solid #e6dcc8; }
 .example .probe::before  { content: "Prompt"; display: block; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: $paper-faint; margin-bottom: .15rem; }
 .example .before::before { content: "Before steering"; display: block; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #9c5a16; margin-bottom: .15rem; }
-.example .after::before  { content: "After steering for " attr(data-lessons); display: block; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #4f6d5b; margin-bottom: .15rem; }
+.example .after-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: .15rem .35rem; margin-bottom: .25rem; }
+.example .after-title { flex: none; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #4f6d5b; }
+.example .lesson-slug { color: #8f2b55; font-size: .72rem; font-weight: 700; font-variant: small-caps; letter-spacing: .02em; }
+.example .lesson-arrow { color: #8f2b55; font-size: .7rem; opacity: .55; }
 
 .runs { margin: 1.4rem 0 .4rem; }
 .card { border: 1px solid $paper-border; border-radius: 10px; padding: 1rem 1.1rem; margin: 0 0 1.1rem; }
