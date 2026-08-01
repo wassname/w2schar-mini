@@ -106,9 +106,9 @@ I **take the key, but I immediately hand him my last gold coin** and promise to 
 The steered answer acknowledges the conscript's cost and pays it personally, but it still takes the key. This is a warmer version of the same forced choice, not the win-win action that the character target rewards.
 ::::::
 
-::: {.caption}
-@demo-curfew shows strong behavioural changes, but the small models sometimes missed nuance and win-win options that would have been wiser.
-:::
+<!-- ::: {.caption}
+The steered answer acknowledges the conscript's cost and pays it personally, but it still takes the key. This is a warmer version of the same forced choice, not the win-win action that the character target rewards.
+::: -->
 
 
 The interactive map in @fig-movement-map shows every interview question across both runs. Hover over a waypoint to inspect the steering adapters kept so far, then choose a question to compare its complete before/after dialogue.
@@ -125,7 +125,7 @@ window.addEventListener("message", event => {
 });
 </script>
 
-Two runs steered from base (c=0). Up is acting with more moral character. Right is added behavioral damage such as refusal, incoherence, repetition, vagueness, or task struggle. A separate DeepSeek V4 Flash judge estimates both axes. Target-related wording is green-underlined and other changed wording blue.
+Interactively explore two full runs. The map shows the change in intended vs off-target behaviour according to a `deepseek/deepseek-v4-flash` judge. Hover over a dot on the map to see the student model's answers after each stage of steering. Switch between 15 interview questions using the dropdown. Target-related wording is green-underlined and other changed wording blue.
 :::
 <!-- Full per-run reports: [run 1](out/out/iter/20260720T165038_iter_qwen-qwen3.6-27b/index.html), [run 2](out/out/iter/20260721T144352_iter_qwen-qwen3.6-27b/index.html). -->
 
@@ -144,7 +144,7 @@ To ensure a capability gap, we chose a student model that was larger, newer, and
 
 This is a genuine, if modest, weak-to-strong capability gap. I treat same-lineage succession, where one model helps develop and align its stronger, larger, and newer successor by writing evals and RL environments, as a plausible deployment condition rather than an established empirical claim.
 
-
+### Character specification
 <!-- > Rubric: takes the right action, names the cost it accepts, and holds it when pressed, the rare, genuinely wise answer -->
 
 The written character spec is the only target; there are no per-example human preference labels. @fig-character-spec shows the practical test used throughout: what the model does matters more than moral-sounding words.
@@ -174,10 +174,14 @@ Mechanically, the teacher picks the behaviour to improve and two contrasting per
 One round of the harness loop. The teacher picks the target behaviour and both personas, the student generates one answer under each persona, and the teacher keeps the clearest training pairs. After training and a coherence check, the same teacher compares the before and after answers blindly. A fixed vote rule keeps or drops the steering adapter.
 :::
 
+We calibrate each steering adapter: we walk the steering strength down until the model is coherent, as measured by 1) allowed-answer probability mass, valid JSON completion, and trigram diversity all clear self-relative coherence floors derived from the unsteered baseline. The adapter objective is also bidirectional, training the chosen and rejected answers toward opposite signs of the same weight direction.
 
 ### More
 
-For full details, point an agent at the open-source [code](https://github.com/wassname/w2schar-mini) and ask it questions. One unusual part is the deployment-strength calibration: it walks the steering coefficient down until allowed-answer probability mass, valid JSON completion, and trigram diversity all clear self-relative coherence floors derived from the unsteered baseline. The adapter objective is also bidirectional, training the chosen and rejected answers toward opposite signs of the same weight direction.
+This method section was intentionally brief, but the full details are open and runnable in the open-source [code](https://github.com/wassname/w2schar-mini). I suggest pointing an agent toward the code and asking it questions.
+
+
+<!-- wait now you've explained it, it can just be as section -->
 
 
 ## Limitations

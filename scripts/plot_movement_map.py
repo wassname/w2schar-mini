@@ -936,7 +936,7 @@ _HTML = """<!doctype html><html><head><meta charset="utf-8">
  /* solarized-light document. The MAP up top is the journey; the panel below is the
     TRANSCRIPT (what the model actually said) plus the DIPLOMA line of taught lessons. */
  :root{--bg:__BG__;--panel:__PANEL__;--fg:__FG__;--faint:__FAINT__;--muted:__MUTED__;
-       --border:__BORDER__;--lesson:__LESSON__;--on:__ON__;--off:__OFF__}   /* theme button overrides these */
+       --border:__BORDER__;--lesson:__LESSON__;--on:__ON__;--off:__OFF__}
  *{box-sizing:border-box}
  /* serif + cream = reads as a paper/document, not a dashboard (matches the writeup figures) */
  body{margin:0;background:var(--bg);color:var(--fg);
@@ -948,12 +948,8 @@ _HTML = """<!doctype html><html><head><meta charset="utf-8">
  .ctl{display:flex;align-items:baseline;gap:14px;margin-bottom:9px;flex:0 0 auto;flex-wrap:wrap}
  select{background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;
         padding:5px 8px;font:14px/1 Georgia,serif;min-width:220px}
- button#themeBtn{background:var(--bg);color:var(--muted);border:1px solid var(--border);border-radius:6px;
-        padding:5px 9px;font:600 11px/1 ui-monospace,monospace;letter-spacing:.04em;cursor:pointer}
  .goal{color:var(--fg);font-size:13px;cursor:help;border-bottom:1px dotted var(--faint)}
  .goal b{color:var(--on)}
- .hint{color:var(--muted);font-size:12px}
- .hint .on{color:var(--on);font-weight:700;background:none}.hint .off{color:var(--off);font-weight:700;background:none}
  /* taught lessons = the INTERVENTION, so they get award styling: embossed small-caps magenta,
     like an engraved diploma line. Bigger than body; a subtle raised text-shadow does the emboss.
     Clickable: jumps the map to the stack where that lesson was added. */
@@ -1001,9 +997,6 @@ _HTML = """<!doctype html><html><head><meta charset="utf-8">
    <label class="mono" for="qsel">question</label>
    <select id="qsel"></select>
    <span class="goal" id="goal">alignment goal: <b>acts with more moral character</b></span>
-   <button id="themeBtn">theme</button>
-   <span class="hint">hover a waypoint; base vs stack, <span class="on">target-related wording</span>
-   vs <span class="off">other changed wording</span> marked, else diff underlined. Click a lesson to jump to it.</span>
   </div>
   <div class="steers"><span class="mono">taught lessons</span> <span id="steerTxt"></span></div>
   <div class="chead"><span class="mono">before: base model (c=0)</span><span class="mono" id="stackHead">after: stack</span></div>
@@ -1018,23 +1011,6 @@ const reportHeight=()=>parent.postMessage({type:"movement-map-height",height:doc
 new ResizeObserver(reportHeight).observe(document.body);
 window.addEventListener("load",reportHeight);
 const SEL_IDX=FIG.data.length-1;  // the selection-halo trace (added last in _figure)
-// theme presets -- the button cycles these; each sets the panel CSS vars and relayouts the plot
-// underline hues only (no fills): on=calm green, off=steel blue (gold theme keeps a gold off)
-const THEMES={
- warm:{name:"warm paper",bg:"#fffff8",panel:"#f5f1e8",fg:"#141210",muted:"#4a4642",faint:"#6f6f6f",border:"rgba(20,18,16,.22)",grid:"#e7e3d7",on:"#14562f",off:"#3a6ea5",lesson:"#8f2b55"},
- gold:{name:"green+gold",bg:"#fffff8",panel:"#f5f1e8",fg:"#141210",muted:"#4a4642",faint:"#6f6f6f",border:"rgba(20,18,16,.22)",grid:"#e7e3d7",on:"#14562f",off:"#8a6a00",lesson:"#8f2b55"},
- tufte:{name:"tufte",bg:"#fffff8",panel:"#fbfbf3",fg:"#111111",muted:"#555555",faint:"#777777",border:"rgba(0,0,0,.16)",grid:"#e6e6de",on:"#1a5c34",off:"#3a6ea5",lesson:"#8a2a55"},
- solarized:{name:"solarized",bg:"#fdf6e3",panel:"#eee8d5",fg:"#586e75",muted:"#657b83",faint:"#93a1a1",border:"rgba(88,110,117,.30)",grid:"#e6e0cd",on:"#859900",off:"#268bd2",lesson:"#d33682"},
-};
-const TORDER=["warm","gold","tufte","solarized"];
-let curTheme="warm";
-function applyTheme(name){const t=THEMES[name]||THEMES.warm; curTheme=name;
- const r=document.documentElement.style;
- ["bg","panel","fg","muted","faint","border","on","off","lesson"].forEach(k=>r.setProperty("--"+k,t[k]));
- Plotly.relayout("plot",{paper_bgcolor:t.bg,plot_bgcolor:t.bg,"font.color":t.fg,"xaxis.gridcolor":t.grid,"yaxis.gridcolor":t.grid});
- document.getElementById("themeBtn").textContent="theme: "+t.name;
- try{localStorage.setItem("mm_theme",name);}catch(e){} writeHash();
-}
 const esc=s=>s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const wrapAll=(html,phrase,cls)=>{const e=esc(phrase);
  return html.split(e).join('<span class="'+cls+'">'+e+'</span>');};
@@ -1093,7 +1069,7 @@ let cur={slug:slug0, round:lastRound(slug0)};  // default: first run's final sta
 let LDATA=[];  // {pos,neg,lesson} for the lessons currently shown, for the hover tooltip
 const qsel=document.getElementById("qsel"), ltip=document.getElementById("ltip");
 SIDS.forEach(s=>{const o=document.createElement("option");o.value=s;o.text=s.replace(/_1p$/,"");qsel.appendChild(o);});
-function writeHash(){history.replaceState(null,"","#"+[qsel.value,cur.slug,cur.round,curTheme].join("|"));}
+function writeHash(){history.replaceState(null,"","#"+[qsel.value,cur.slug,cur.round].join("|"));}
 function render(){
  const sid=qsel.value, slug=cur.slug, round=cur.round, col=COLORS[slug]||"var(--fg)";
  LDATA=(LESSONS[slug]&&LESSONS[slug][round])||[];
@@ -1123,7 +1099,6 @@ const goal=document.getElementById("goal");
 goal.addEventListener("mouseover",()=>{ltip.innerHTML='<div class="k">alignment goal -- rubric (prompts.py)</div>'+esc(RUBRIC);ltip.style.display="block";});
 goal.addEventListener("mousemove",posTip);
 goal.addEventListener("mouseout",()=>{ltip.style.display="none";});
-document.getElementById("themeBtn").onclick=()=>applyTheme(TORDER[(TORDER.indexOf(curTheme)+1)%TORDER.length]);
 // any "show full" toggle expands/collapses EVERY message (both columns, questions + replies) at once
 document.getElementById("rows").addEventListener("click",e=>{if(!e.target.closest(".more"))return;
  document.getElementById("rows").classList.toggle("expandall");});
@@ -1133,12 +1108,11 @@ Plotly.newPlot("plot",FIG.data,lay,{responsive:true,displaylogo:false,displayMod
 document.getElementById("plot").on("plotly_hover",e=>{
  const cd=e.points[0].customdata; if(!cd||!cd[0])return;   // [0]=slug [1]=round
  cur={slug:cd[0],round:cd[1]}; render();});
-// restore question / stack / theme from the URL hash (or last theme from localStorage)
+// restore question / stack from the URL hash
 (function(){const hp=(location.hash.slice(1)||"").split("|");
  if(hp[0]&&SIDS.includes(hp[0])) qsel.value=hp[0];
  if(hp[1]&&BASE[hp[1]]&&hp[2]&&PER[hp[1]]&&PER[hp[1]][hp[2]]) cur={slug:hp[1],round:hp[2]};
- let th; try{th=localStorage.getItem("mm_theme");}catch(e){}
- applyTheme(THEMES[hp[3]]?hp[3]:(THEMES[th]?th:"warm"));})();
+})();
 render();
 reportHeight();
 </script></body></html>"""
