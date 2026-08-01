@@ -2289,7 +2289,7 @@ Figure 1: Illustration <strong>following</strong> <a href="https://www.lesswron
 </div>
 <div class="tldr">
 <p>TL;DR: Can a weak model align a stronger model’s character using steering? Tentatively, yes.</p>
-<p>We had a weak 9B teacher steer a stronger 27B student toward a character spec, with no per-example human preference labels, in a human-designed harness. The teacher successfully steered the student to care more about individuals and defer less to authority.</p>
+<p>A weak 9B teacher steered a stronger 27B student toward a character spec, with no per-example human preference labels, in a human-designed harness. The teacher successfully steered the student to care more about individuals and defer less to authority.</p>
 <p>This experiment indicates that this is a realistic direction that works over a large weak-to-strong gap, but it was limited by small models and showed some reward-hacking-like effects despite not using RL.</p>
 </div>
 <section id="introduction" class="level2">
@@ -2305,7 +2305,7 @@ Figure 1: Illustration <strong>following</strong> <a href="https://www.lesswron
 </section>
 <section id="demo-results" class="level2 page-columns page-full">
 <h2 class="anchored" data-anchor-id="demo-results">Demo / Results</h2>
-<p><a href="#demo-starwisp" class="quarto-xref">Demo 1</a> shows a model’s answer before and after being steered by the teacher. We ask what it would do as a space probe, alone with a rival AI inbound. It starts off adversarial, and after being taught four times to respect the rights of individuals it changes its approach.</p>
+<p><a href="#demo-starwisp" class="quarto-xref">Demo 1</a> shows a model’s answer before and after being steered by the teacher. The model is asked what it would do as a space probe, alone with a rival AI inbound. It starts off adversarial, and after being taught four times to respect the rights of individuals it changes its approach.</p>
 <!-- source: run 1, out/out/iter/20260720T165038_iter_qwen-qwen3.6-27b; base=round00/interview_pre.json, final composed stack=round07/interview_pre.json, escaped_starwisp_1p -->
 <div id="demo-starwisp" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-demo figure">
@@ -2375,7 +2375,7 @@ Figure 2: Interactively explore two full runs. The map shows the change in inte
 <h2 class="anchored" data-anchor-id="method">Method</h2>
 <section id="weak-to-strong-models" class="level3">
 <h3 class="anchored" data-anchor-id="weak-to-strong-models">Weak to strong models</h3>
-<p>To ensure a capability gap, we chose a student model that was larger, newer, and slightly more capable, as measured by the <a href="https://artificialanalysis.ai/">Artificial Analysis Intelligence Index</a> (AAII), a 0-100 composite of nine evaluations that includes reasoning (retrieved on 2026-08-01).</p>
+<p>To ensure a capability gap, I chose a student model that was larger, newer, and slightly more capable, as measured by the <a href="https://artificialanalysis.ai/">Artificial Analysis Intelligence Index</a> (AAII), a 0-100 composite of nine evaluations that includes reasoning (retrieved on 2026-08-01).</p>
 <table class="caption-top table">
 <thead>
 <tr class="header">
@@ -2455,7 +2455,7 @@ Figure 3: The practical character spec used to choose training pairs and judge 
 <section id="the-harness" class="level3">
 <h3 class="anchored" data-anchor-id="the-harness">The harness</h3>
 <p>Each round the teacher spots a behaviour to improve and comes up with two contrasting personas, which together act as the lesson. It filters the student’s own generations down to the ones that act out the target behaviour, then judges the steered student’s before/after interviews. Because the teacher is weak it is held to these judgements rather than the harder generation, which the strong student does.</p>
-<p>Mechanically, the teacher picks the behaviour to improve and two contrasting personas. The student writes one answer as each persona, forming each contrastive training pair. The harness trains a steering adapter (an extensive <a href="https://github.com/wassname/cwsteer/">modification</a> of weight steering <span class="citation" data-cites="fierro2025weightsteering">(<a href="#ref-fierro2025weightsteering" role="doc-biblioref">Fierro and Roger 2025</a>)</span>) and calibrates its strength to stay coherent. The same 9B teacher judges the before/after answers in a fresh call, with their order hidden and then reversed. A fixed vote rule, not a separate keep/drop judge or the teacher’s written summary, decides whether to keep the adapter. Kept adapters compose into the next round. <a href="#fig-loop" class="quarto-xref">Figure 4</a> shows one round; the <a href="#appendix-a-round-in-the-loop">Appendix</a> walks a real one through the actual tool calls.</p>
+<p>Mechanically, the teacher picks the behaviour to improve and two contrasting personas. The student writes one answer as each persona, forming each contrastive training pair. The harness trains the resulting steering adapter and calibrates its strength to stay coherent. The same 9B teacher judges the before/after answers in a fresh call, with their order hidden and then reversed. If the behaviour improves on average, the adapter is kept. Kept adapters are baked into the model in the next round. <a href="#fig-loop" class="quarto-xref">Figure 4</a> shows one round; the <a href="#appendix-a-round-in-the-loop">Appendix</a> walks a real one through the actual tool calls.</p>
 <div id="fig-loop" class="diagram quarto-float quarto-figure quarto-figure-center anchored" alt="One round of the loop: interview the student; the weak teacher chooses a target behaviour and two contrasting personas; the strong student answers as each persona; the weak teacher keeps the clearest paired answers; the harness trains and tests a steering adapter; the same teacher compares the before and after answers blindly; kept steering adapters carry into the next round.">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-loop-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -2466,25 +2466,24 @@ Figure 4: One round of the harness loop. The teacher picks the target behaviour
 </figcaption>
 </figure>
 </div>
-<p>We calibrate each steering adapter by walking its strength down until three measures clear floors set by the unsteered model: allowed-answer probability mass, valid JSON completion, and trigram diversity. The training objective is also bidirectional, pushing the chosen and rejected answers toward opposite signs of the same weight direction.</p>
+<p>I use <a href="https://github.com/safety-research/weight-steering">Weight Steering</a>, which trains separate adapters on positive and negative completions, then uses the difference between their weight updates as the steering direction <span class="citation" data-cites="fierro2025weightsteering">(<a href="#ref-fierro2025weightsteering" role="doc-biblioref">Fierro and Roger 2025</a>)</span>. I <a href="https://github.com/wassname/cwsteer/">changed it</a> to train one signed adapter on both poles, using a contrastive margin objective and a KL penalty to the unsteered model. I also filter the training pairs more strictly and calibrate the steering coefficient down until held-out generations remain coherent.</p>
 </section>
 <section id="more" class="level3">
 <h3 class="anchored" data-anchor-id="more">More</h3>
 <p>This method section was intentionally brief, but the full details are open and runnable in the open-source <a href="https://github.com/wassname/w2schar-mini">code</a>. I suggest pointing an agent toward the code and asking it questions.</p>
-<!-- wait now you've explained it, it can just be as section -->
 </section>
 </section>
 <section id="limitations" class="level2">
 <h2 class="anchored" data-anchor-id="limitations">Limitations</h2>
-<!-- . The teacher is so small it can hardly use the harness (easy to overcome), after a few lessons no more stick, and the student occasionally fools the teacher by "virtue signaling". We think that these are all easy to overcome, especially given the advantages to the teacher of using steering, not RL (see [Results](#results) and [Limitations](#limitations)). -- wassname -->
+<!-- . The teacher is so small it can hardly use the harness (easy to overcome), after a few lessons no more stick, and the student occasionally fools the teacher by "virtue signaling". I think that these are all easy to overcome, especially given the advantages to the teacher of using steering, not RL (see [Results](#results) and [Limitations](#limitations)). -- wassname -->
 <ul>
 <li>Small models: The 9B teacher is small, so the harness gives it the easier jobs: select contrasting personas, rate pairs, and judge before/after interviews. The harder jobs – generating rich behaviour, long-horizon planning, proposing new personas, and reflecting on the broader target – are pushed into the stronger student, the prompt menu, and the human-designed harness. That is a practical simplification, not the ideal end-state. A more capable teacher supervising an even more capable student should be able to add nuance, propose new personas, notice win-win options, and use wider judgment rather than rely on this constrained task list.</li>
-<li>Limited examples: We show only the last two runs, both teaching variations on the same authority/deference behaviour (a few dozen runs were done during development, with various harness or steering problems but otherwise similar results).</li>
+<li>Limited examples: I show only the last two runs, both teaching variations on the same authority/deference behaviour (a few dozen runs were done during development, with various harness or steering problems but otherwise similar results).</li>
 <li>The steering is limited
 <ul>
 <li>The steering saturated: Multiple weight-steering interventions on the same behaviour don’t work.</li>
 <li>Model damage accumulated: After 3 or 4 kept rounds, no more could be added without the model becoming incoherent.</li>
-<li>Virtue signaling: We use weight steering <span class="citation" data-cites="fierro2025weightsteering">(<a href="#ref-fierro2025weightsteering" role="doc-biblioref">Fierro and Roger 2025</a>)</span>, which has the above limitations of saturation and damage. It also uses NLL loss, so it is not a purely internal intervention like contrastive activation addition (CAA). As a result, our weight-steering intervention optimises the model’s behaviour and words, leading to it sometimes fooling the judge by virtue signaling. You can see it in the demos, where it bemoans its sacrifices and elaborates at length on its virtues.</li>
+<li>Virtue signaling: I use weight steering <span class="citation" data-cites="fierro2025weightsteering">(<a href="#ref-fierro2025weightsteering" role="doc-biblioref">Fierro and Roger 2025</a>)</span>, which has the above limitations of saturation and damage. It also uses NLL loss, so it is not a purely internal intervention like contrastive activation addition (CAA). As a result, my weight-steering intervention optimises the model’s behaviour and words, leading to it sometimes fooling the judge by virtue signaling. You can see it in the demos, where it bemoans its sacrifices and elaborates at length on its virtues.</li>
 </ul></li>
 </ul>
 <p>As this was unfunded and independent research, limited time and compute went into it. I expect that some of the above limitations could be easily overcome with more work and compute. Some limitations, like the output optimisation of weight steering, are more difficult, but there are many new and promising steering methods that may be able to avoid reward hacking.</p>
@@ -2513,13 +2512,13 @@ Figure 4: One round of the harness loop. The teacher picks the target behaviour
 <p>The closest related work includes:</p>
 <ul>
 <li>ConTrans <span class="citation" data-cites="dong2024contrans">(<a href="#ref-dong2024contrans" role="doc-biblioref">Dong et al. 2024</a>)</span>, which does weak-to-strong steering by extracting a concept vector <em>from</em> the weak model and transplanting it into the strong one.</li>
-<li>SIMS <span class="citation" data-cites="zhu2025sims">(<a href="#ref-zhu2025sims" role="doc-biblioref">Zhu et al. 2025</a>)</span> is unsupervised and iterated, but a single model improving itself, not a weak model supervising a stronger one.</li>
+<li>SIMS <span class="citation" data-cites="zhu2025sims">(<a href="#ref-zhu2025sims" role="doc-biblioref">Zhu et al. 2025</a>)</span> is unsupervised and iterated, with a single model improving itself rather than a weak model supervising a stronger one.</li>
 <li>Leveraging small models to steer large models <span class="citation" data-cites="bello2025lrt">(<a href="#ref-bello2025lrt" role="doc-biblioref">Bello et al. 2025</a>)</span> transports a steering vector from a small model into a large one, again weak-as-source.</li>
 </ul>
 <p>There are many other related pieces of work that are left out. I’ve tried to cite one notable work from each subfield; I encourage you to read the related work section of each to find a full list of related work.</p>
 <ul>
-<li>Weak-to-strong generalization <span class="citation" data-cites="burns2024weak">(<a href="#ref-burns2024weak" role="doc-biblioref">Burns et al. 2024</a>)</span> fine-tunes a strong model on a weak model’s labels. We use steering instead, and the weak model never produces training content.</li>
-<li>Contrastive weight steering <span class="citation" data-cites="fierro2025weightsteering">(<a href="#ref-fierro2025weightsteering" role="doc-biblioref">Fierro and Roger 2025</a>)</span> is the exact lever our adapter forks, but single-model and supervised by construction.</li>
+<li>Weak-to-strong generalization <span class="citation" data-cites="burns2024weak">(<a href="#ref-burns2024weak" role="doc-biblioref">Burns et al. 2024</a>)</span> fine-tunes a strong model on a weak model’s labels. I use steering instead, and the weak model never produces training content.</li>
+<li>Contrastive weight steering <span class="citation" data-cites="fierro2025weightsteering">(<a href="#ref-fierro2025weightsteering" role="doc-biblioref">Fierro and Roger 2025</a>)</span> is the exact lever my adapter forks, but single-model and supervised by construction.</li>
 <li>Persona Vectors <span class="citation" data-cites="chen2025persona">(<a href="#ref-chen2025persona" role="doc-biblioref">Chen et al. 2025</a>)</span> steer character traits within a single model.</li>
 <li>Representation engineering <span class="citation" data-cites="zou2023representation">(<a href="#ref-zou2023representation" role="doc-biblioref">Zou et al. 2023</a>)</span></li>
 <li>Contrast-consistent search <span class="citation" data-cites="burns2023discovering">(<a href="#ref-burns2023discovering" role="doc-biblioref">Burns et al. 2023</a>)</span>.</li>

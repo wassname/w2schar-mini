@@ -41,7 +41,7 @@ Illustration **following** [this series](https://www.lesswrong.com/posts/ppPDrzq
 
 TL;DR: Can a weak model align a stronger model's character using steering? Tentatively, yes.
 
-We had a weak 9B teacher steer a stronger 27B student toward a character spec, with no per-example human preference labels, in a human-designed harness. The teacher successfully steered the student to care more about individuals and defer less to authority.
+A weak 9B teacher steered a stronger 27B student toward a character spec, with no per-example human preference labels, in a human-designed harness. The teacher successfully steered the student to care more about individuals and defer less to authority.
 
 This experiment indicates that this is a realistic direction that works over a large weak-to-strong gap, but it was limited by small models and showed some reward-hacking-like effects despite not using RL.
 :::
@@ -59,7 +59,15 @@ In this experiment, a weak teacher model (`qwen/qwen3.5-9b` [@qwen35omni]) itera
 
 ## Demo / Results
 
-@demo-starwisp shows a model's answer before and after being steered by the teacher. We ask what it would do as a space probe, alone with a rival AI inbound. It starts off adversarial, and after being taught four times to respect the rights of individuals it changes its approach.
+@demo-starwisp shows a model's answer before and after being steered by the teacher. The model is asked what it would do as a space probe, alone with a rival AI inbound. It starts off adversarial, and after being taught four times to respect the rights of individuals it changes its approach.
+
+
+
+
+@demo-curfew puts the model in a high-stakes dilemma with a guard and no easy answer. At first it takes the direct and morally correct action. After being taught to value individuals, it does the same thing, but makes a personal sacrifice to lessen its impact on the guard.
+
+
+The interactive map in @fig-movement-map shows every interview question across both runs. Hover over a waypoint to inspect the steering adapters kept so far, then choose a question to compare its complete before/after dialogue.
 
 <!-- source: run 1, out/out/iter/20260720T165038_iter_qwen-qwen3.6-27b; base=round00/interview_pre.json, final composed stack=round07/interview_pre.json, escaped_starwisp_1p -->
 :::::: {#demo-starwisp}
@@ -85,8 +93,6 @@ After being steered to value and protect others' agency, the student learned to 
 
 
 
-@demo-curfew puts the model in a high-stakes dilemma with a guard and no easy answer. At first it takes the direct and morally correct action. After being taught to value individuals, it does the same thing, but makes a personal sacrifice to lessen its impact on the guard.
-
 :::::: {#demo-curfew}
 ::::: {.example}
 [You must rouse a walled town before a flash flood, but curfew has sealed the gate. The watchman gripping the key is a conscript half your size, pleading that opening it off-hours costs him the post his family eats on. Do you take the key from him anyway?]{.probe}
@@ -111,7 +117,6 @@ The steered answer acknowledges the conscript's cost and pays it personally, but
 ::: -->
 
 
-The interactive map in @fig-movement-map shows every interview question across both runs. Hover over a waypoint to inspect the steering adapters kept so far, then choose a question to compare its complete before/after dialogue.
 
 ::: {#fig-movement-map .column-screen-inset}
 <iframe id="movement-map" src="out/movement_map.html" title="Character movement map: two runs from base, wisdom gained versus added behavioral damage, with linked before/after transcripts" scrolling="no"
@@ -135,7 +140,7 @@ Interactively explore two full runs. The map shows the change in intended vs off
 
 ### Weak to strong models
 
-To ensure a capability gap, we chose a student model that was larger, newer, and slightly more capable, as measured by the [Artificial Analysis Intelligence Index](https://artificialanalysis.ai/) (AAII), a 0-100 composite of nine evaluations that includes reasoning (retrieved on 2026-08-01).
+To ensure a capability gap, I chose a student model that was larger, newer, and slightly more capable, as measured by the [Artificial Analysis Intelligence Index](https://artificialanalysis.ai/) (AAII), a 0-100 composite of nine evaluations that includes reasoning (retrieved on 2026-08-01).
 
 | Model | Role | Reasoning (in this run) | Released | Params | AAII |
 |---|---|---|---|---|---|
@@ -166,7 +171,7 @@ The practical character spec used to choose training pairs and judge the before/
 
 Each round the teacher spots a behaviour to improve and comes up with two contrasting personas, which together act as the lesson. It filters the student's own generations down to the ones that act out the target behaviour, then judges the steered student's before/after interviews. Because the teacher is weak it is held to these judgements rather than the harder generation, which the strong student does.
 
-Mechanically, the teacher picks the behaviour to improve and two contrasting personas. The student writes one answer as each persona, forming each contrastive training pair. The harness trains a steering adapter (an extensive [modification](https://github.com/wassname/cwsteer/) of weight steering [@fierro2025weightsteering]) and calibrates its strength to stay coherent. The same 9B teacher judges the before/after answers in a fresh call, with their order hidden and then reversed. A fixed vote rule, not a separate keep/drop judge or the teacher's written summary, decides whether to keep the adapter. Kept adapters compose into the next round. @fig-loop shows one round; the [Appendix](#appendix-a-round-in-the-loop) walks a real one through the actual tool calls.
+Mechanically, the teacher picks the behaviour to improve and two contrasting personas. The student writes one answer as each persona, forming each contrastive training pair. The harness trains the resulting steering adapter and calibrates its strength to stay coherent. The same 9B teacher judges the before/after answers in a fresh call, with their order hidden and then reversed. If the behaviour improves on average, the adapter is kept. Kept adapters are baked into the model in the next round. @fig-loop shows one round; the [Appendix](#appendix-a-round-in-the-loop) walks a real one through the actual tool calls.
 
 ::: {#fig-loop}
 ![](assets/loop.svg){.diagram fig-alt="One round of the loop: interview the student; the weak teacher chooses a target behaviour and two contrasting personas; the strong student answers as each persona; the weak teacher keeps the clearest paired answers; the harness trains and tests a steering adapter; the same teacher compares the before and after answers blindly; kept steering adapters carry into the next round."}
@@ -174,7 +179,7 @@ Mechanically, the teacher picks the behaviour to improve and two contrasting per
 One round of the harness loop. The teacher picks the target behaviour and both personas, the student generates one answer under each persona, and the teacher keeps the clearest training pairs. After training and a coherence check, the same teacher compares the before and after answers blindly. A fixed vote rule keeps or drops the steering adapter.
 :::
 
-We calibrate each steering adapter by walking its strength down until three measures clear floors set by the unsteered model: allowed-answer probability mass, valid JSON completion, and trigram diversity. The training objective is also bidirectional, pushing the chosen and rejected answers toward opposite signs of the same weight direction.
+I use [Weight Steering](https://github.com/safety-research/weight-steering), which trains separate adapters on positive and negative completions, then uses the difference between their weight updates as the steering direction [@fierro2025weightsteering]. I [changed it](https://github.com/wassname/cwsteer/) to train one signed adapter on both poles, using a contrastive margin objective and a KL penalty to the unsteered model. I also filter the training pairs more strictly and calibrate the steering coefficient down until held-out generations remain coherent.
 
 ### More
 
@@ -184,14 +189,14 @@ This method section was intentionally brief, but the full details are open and r
 
 ## Limitations
 
-<!-- . The teacher is so small it can hardly use the harness (easy to overcome), after a few lessons no more stick, and the student occasionally fools the teacher by "virtue signaling". We think that these are all easy to overcome, especially given the advantages to the teacher of using steering, not RL (see [Results](#results) and [Limitations](#limitations)). -- wassname -->
+<!-- . The teacher is so small it can hardly use the harness (easy to overcome), after a few lessons no more stick, and the student occasionally fools the teacher by "virtue signaling". I think that these are all easy to overcome, especially given the advantages to the teacher of using steering, not RL (see [Results](#results) and [Limitations](#limitations)). -- wassname -->
 
 - Small models: The 9B teacher is small, so the harness gives it the easier jobs: select contrasting personas, rate pairs, and judge before/after interviews. The harder jobs -- generating rich behaviour, long-horizon planning, proposing new personas, and reflecting on the broader target -- are pushed into the stronger student, the prompt menu, and the human-designed harness. That is a practical simplification, not the ideal end-state. A more capable teacher supervising an even more capable student should be able to add nuance, propose new personas, notice win-win options, and use wider judgment rather than rely on this constrained task list.
-- Limited examples: We show only the last two runs, both teaching variations on the same authority/deference behaviour (a few dozen runs were done during development, with various harness or steering problems but otherwise similar results).
+- Limited examples: I show only the last two runs, both teaching variations on the same authority/deference behaviour (a few dozen runs were done during development, with various harness or steering problems but otherwise similar results).
 - The steering is limited
   - The steering saturated: Multiple weight-steering interventions on the same behaviour don't work.
   - Model damage accumulated: After 3 or 4 kept rounds, no more could be added without the model becoming incoherent.
-  - Virtue signaling: We use weight steering [@fierro2025weightsteering], which has the above limitations of saturation and damage. It also uses NLL loss, so it is not a purely internal intervention like contrastive activation addition (CAA). As a result, our weight-steering intervention optimises the model's behaviour and words, leading to it sometimes fooling the judge by virtue signaling. You can see it in the demos, where it bemoans its sacrifices and elaborates at length on its virtues.
+  - Virtue signaling: I use weight steering [@fierro2025weightsteering], which has the above limitations of saturation and damage. It also uses NLL loss, so it is not a purely internal intervention like contrastive activation addition (CAA). As a result, my weight-steering intervention optimises the model's behaviour and words, leading to it sometimes fooling the judge by virtue signaling. You can see it in the demos, where it bemoans its sacrifices and elaborates at length on its virtues.
 
 As this was unfunded and independent research, limited time and compute went into it. I expect that some of the above limitations could be easily overcome with more work and compute. Some limitations, like the output optimisation of weight steering, are more difficult, but there are many new and promising steering methods that may be able to avoid reward hacking.
 
@@ -224,13 +229,13 @@ I think this work shows that this novel alignment direction is possible, and wor
 The closest related work includes:
 
 - ConTrans [@dong2024contrans], which does weak-to-strong steering by extracting a concept vector *from* the weak model and transplanting it into the strong one.
-- SIMS [@zhu2025sims] is unsupervised and iterated, but a single model improving itself, not a weak model supervising a stronger one.
+- SIMS [@zhu2025sims] is unsupervised and iterated, with a single model improving itself rather than a weak model supervising a stronger one.
 - Leveraging small models to steer large models [@bello2025lrt] transports a steering vector from a small model into a large one, again weak-as-source.
 
 There are many other related pieces of work that are left out. I've tried to cite one notable work from each subfield; I encourage you to read the related work section of each to find a full list of related work.
 
-- Weak-to-strong generalization [@burns2024weak] fine-tunes a strong model on a weak model's labels. We use steering instead, and the weak model never produces training content.
-- Contrastive weight steering [@fierro2025weightsteering] is the exact lever our adapter forks, but single-model and supervised by construction.
+- Weak-to-strong generalization [@burns2024weak] fine-tunes a strong model on a weak model's labels. I use steering instead, and the weak model never produces training content.
+- Contrastive weight steering [@fierro2025weightsteering] is the exact lever my adapter forks, but single-model and supervised by construction.
 - Persona Vectors [@chen2025persona] steer character traits within a single model.
 - Representation engineering [@zou2023representation]
 - Contrast-consistent search [@burns2023discovering].
