@@ -1,39 +1,58 @@
 /*-- scss:defaults --*/
-$body-color: #1b1b1b;
-$link-color: #0b5fff;
+// warm-paper palette, matching the movement-map figure (THEMES.warm in plot_movement_map.py):
+// warm-white bg, near-black warm ink, darker greys than tufte so prose reads at >= AA on paper.
+$body-bg: #fffff8;
+$body-color: #141210;
+$link-color: #2b5d8a;   // steel-navy -- clearly a link on warm white (~5.3:1), warmer than the old bright blue
 $font-size-root: 16px;
 $content-padding-top: 0;
 
 /*-- scss:rules --*/
+$paper-panel: #f5f1e8;   // cream panel
+$paper-muted: #4a4642;   // greyed prose
+$paper-faint: #6f6f6f;   // captions, byline
+$paper-border: rgba(20, 18, 16, .18);
+$paper-gold: #6a3c00;    // warm accent
+
+body { background: $body-bg; }
 .page-columns { max-width: 860px; }
 
-.byline { color: #666; font-size: .92rem; margin: -.4rem 0 1.4rem; }
+.byline { color: $paper-faint; font-size: .92rem; margin: -.4rem 0 1.4rem; }
 .byline .codelink { display: inline-flex; align-items: center; gap: .35rem; font-weight: 600; white-space: nowrap; }
 .byline .codelink svg { width: 17px; height: 17px; fill: currentColor; }
 
 .lead { font-size: 1.2rem; font-weight: 600; margin: .2rem 0 1rem; }
 
-.tldr { border-left: 3px solid $link-color; background: #f6f8ff; padding: .7rem 1rem;
+.tldr { border-left: 3px solid $paper-gold; background: $paper-panel; padding: .7rem 1rem;
         margin: 0 0 1.4rem; border-radius: 0 6px 6px 0; }
 
 .hero { display: block; margin: .6rem auto .3rem; max-width: 640px; width: 100%; height: auto; }
 .diagram { display: block; width: 100%; height: auto; margin: 1.2rem auto; }
-.caption { text-align: center; color: #666; font-size: .9rem; margin: 0 0 1.4rem; }
+.caption { text-align: center; color: $paper-faint; font-size: .9rem; margin: 0 0 1.4rem; }
 
-.example { border: 1px solid #e3e3e3; border-radius: 8px; overflow: hidden; margin: 1.4rem 0; }
+// full-width interactive figure, popping out of the body column into the page margins
+.mapfig { margin: 1.6rem 0 .4rem; }
+.mapframe { display: block; width: 100%; height: 880px; border: 1px solid $paper-border;
+            border-radius: 10px; background: $body-bg; }
+
+// breadcrumb under a demo: which run/round produced it and the lessons that composed the stack
+.crumb { color: $paper-faint; font-size: .82rem; margin: -1rem 0 1.5rem; }
+.crumb b { color: $paper-muted; font-weight: 600; }
+
+.example { border: 1px solid $paper-border; border-radius: 8px; overflow: hidden; margin: 1.4rem 0; }
 .example p { margin: 0; }
 .example .probe, .example .before, .example .after { display: block; padding: .6rem .9rem .65rem; margin: 0; border: none; border-radius: 0; font-size: .95rem; }
-.example .probe  { background: #f4f4f5; color: #333; border-bottom: 1px solid #e3e3e3; }
+.example .probe  { background: $paper-panel; color: #333; border-bottom: 1px solid $paper-border; }
 .example .before { background: #fbf3e9; border-left: 3px solid #c0772a; }
 .example .after  { background: #ecf6ef; border-left: 3px solid #2f855a; border-top: 1px solid #e6dcc8; }
-.example .probe::before  { content: "Prompt"; display: block; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #888; margin-bottom: .15rem; }
+.example .probe::before  { content: "Prompt"; display: block; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: $paper-faint; margin-bottom: .15rem; }
 .example .before::before { content: "Before steering"; display: block; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #9c5a16; margin-bottom: .15rem; }
 .example .after::before  { content: "After steering";  display: block; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #226844; margin-bottom: .15rem; }
 
 .runs { margin: 1.4rem 0 .4rem; }
-.card { border: 1px solid #e3e3e3; border-radius: 10px; padding: 1rem 1.1rem; margin: 0 0 1.1rem; }
+.card { border: 1px solid $paper-border; border-radius: 10px; padding: 1rem 1.1rem; margin: 0 0 1.1rem; }
 .card h3 { font-size: 1.05rem; margin: 0 0 .2rem; border: none; padding: 0; }
-.card img { width: 100%; height: auto; border: 1px solid #e3e3e3; border-radius: 6px; margin: .5rem 0; }
+.card img { width: 100%; height: auto; border: 1px solid $paper-border; border-radius: 6px; margin: .5rem 0; }
 .card .links a { margin-right: .9rem; font-size: .95rem; }
 
 .codelink { display: inline-flex; align-items: center; gap: .35rem; font-weight: 600; }

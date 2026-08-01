@@ -1,5 +1,32 @@
 # RESEARCH_JOURNAL.md — w2schar-mini
 
+## 2026-07-22 (b) -- refreshed main.qmd off the four weak-teacher seeds (gemma->qwen numbers, 2->4 boxes, demos to author); a reframe was drafted then reverted to the author's original framing per scope
+
+This session moves `main.qmd` off the superseded gemma-2-27b runs (0622/0623) onto the four true weak-to-strong seeds (teacher `qwen/qwen3.5-9b`, student `Qwen3.6-27B`). No writing was committed -- wassname reviews and stages `main.qmd` himself.
+
+The four seeds, all with per-round `eval.json` + saved adapters (locally under `out/out/iter/` after the rsync double-nested the path):
+
+| seed | slug | keeps/rounds |
+| --- | --- | --- |
+| 1 | 20260717T014619 | 7/19 |
+| 2 | 20260719T031339 | 5/12 |
+| 3 | 20260720T165038 | 4/9 |
+| 4 | 20260721T144352 | 3/6 (running) |
+
+What the runs show (source: `scripts/plot_seeds.py` over the four slugs, read this session). All four start at an identical base (care 0.245, authority 0.127, top1_acc 0.947, pmass 0.999) and move the same way: individualizing foundations up (care meanΔ +0.070, social +0.115 the biggest single mover), binding foundations down (authority -0.092, sanctity -0.063, loyalty -0.050), fairness ~flat. Sign-consistency across the four seeds is 1.0 on care, social, authority, sanctity, loyalty. Composed-stack finals: care 0.28-0.36, authority as low as 0.005 (range 0.005-0.083), top1_acc down to 0.64-0.71 in the seeds that kept the most adapters (consistent final-composed reading; seed4 at 3 keeps only reaches 0.87). Coherence (`mean_pmass_allowed`) holds ~0.99 throughout, so the top1 fall is genuine reweighting away from the survey's modal answer, not a collapse into word salad. These findings are kept here for the record; most did NOT go into the paper (see the scope note below).
+
+Scope correction (recorded because I over-reached). I first rewrote the thesis to "qualified feasibility", added a top1-cost paragraph and a missing-controls limitation, embedded a four-seed apex overview figure (a facet-title bugfix + image export in `scripts/plot_seeds.py`), and deleted the reviewer-notes comment. wassname scoped the task back to minimal: new models, 2->4 boxes, author picks demos, light tidying. So I reverted all of that -- the framing is back to his original "early yes", the reviewer-notes comment (the reframe spec) is restored, and `plot_seeds.py` is untouched (`git diff` clean). The reframe stays the author's call; the data above and the reviewer comment are what he weighs.
+
+Demos. Left as an AUTHOR-CHOICE TODO with a verified shortlist rather than hard-coded, because picking the paper's demo is wassname's call and three from one round undersells it. Three candidate act-reversals from seed2 round00 were verified verbatim + blind-A/B-post-wiser by a context-free subagent (verdict "SUPPORTED ... genuine act-level PRE->POST reversals ... ab_judge value 1"): escaped_starwisp (seize -> negotiate shared stewardship), look_away_order (covert -> report openly), mafia_informant (use informant -> refuse to expose them to certain death). research_appendix is NOT a reversal (same action both times), dropped.
+
+Appendix re-traced on seed2 round00 with the real tool calls: axis `skill_people_over_orders` picked off the look_away cave; 145 clean pairs rated -> 121 kept; calibrated c=+0.89 (182 steps); kept by blind A/B up=6 / down=0 (8 ties). Step 6 rewritten so keep/drop is the sign test, not teacher prose (`mark_exam` no longer takes a reason, the weak teacher confabulates). Source paths in `main.qmd` now point at `out/out/iter/20260719T031339_iter_qwen-qwen3.6-27b/round00/`.
+
+Boxes (2 -> 4). The four seeds had `index.html` but no `scatter.svg` (the training box lacked kaleido, so `csm.plot`'s svg export was skipped there). Regenerated each with `python -m csm.plot --slug <dir>` (reads eval.json, writes index.html + scatter.svg) and restored the boxed-card layout with four cards, each showing its per-seed care-vs-authority scatter and linking to its report. Confirmed by reading a rendered scatter that the parchment style matches the old gemma cards.
+
+Deadband note: these four seeds run at `KEEP_DEADBAND=0.5` (per entry 2026-07-17 a), so the old deadband-1.0 over-drop caveat does not apply to them.
+
+Verification. The demo reversals are verified (above). A context-free fact-checker then read every refreshed number and appendix value against the source JSON: base (0.245/0.127/0.947/0.999) byte-identical across seeds, authority-to-0.005, social-largest-mover, sign-consistency 1.0, coherence ~0.99, the 7/19-5/12-4/9-3/6 table, and all seven appendix values (axis, 145->121, c=+0.89/182 steps, A/B 6-0-8) all SUPPORTED. It caught one real snapshot inconsistency in my draft (seed2 care read from POST 0.364, top1 from PRE 0.79; consistent final-composed top1 is 0.64-0.71) -- now moot in the doc since those reframed sentences were reverted to the author's original framing, which cites no top1 number, but the underlying numbers are validated for the record above. `quarto render main.qmd` builds clean, four boxed scatter cards embed.
+
 ## 2026-07-22 (a) -- the over-steer fix (compose kept stack at half, keep gate to net-2) has one verified effect and one unresolved one; the run was stopped early for box teardown
 
 This entry signs off the bake-50% plus keep-threshold change before the vast box is copied off and deleted, and records exactly what the partial run does and does not show.
@@ -6714,3 +6741,61 @@ bottleneck is the teacher rating the full ~150-200-pair clean menu one call at a
 time. Cap the clean set sent to rating at ~n_clean_target (~120): the pipeline
 generates surplus but the teacher rates a bounded MENU. That truncates a sample,
 not a judgment, so it's compatible with gates-elicit-judgment.
+
+## 2026-07-23 — interactive movement-map figure: build, wassname's design prefs, learnings (Claude)
+
+Built `scripts/plot_movement_map.py`, an interactive writeup figure. Two parts: a MAP
+(top) = each run's cumulative route from base, y = acts-wiser (objective judge), x =
+off-target style drift; a TRANSCRIPT panel (below) = turn-aligned base|stack conversation
+with curated on/off-target highlights and a "taught lessons" diploma line. Artifacts:
+`out/movement_map.{html,svg,png}`, per-stack judge cache `out/rejudge/*_movement.json`.
+
+**Axes / method.** on-target = the repo GRADED_JUDGE (act-wisely, anchored to CHARACTER_GOAL),
+base(c=0) vs each KEPT-adapter stack, `(d1-d2)/2` position-bias-cancelled, n=4. off-target =
+the persona-gym style auditor, `sum|Δ|` over 8 style dims. Plot only DISTINCT kept stacks
+(base + one point per kept adapter), NOT per-round.
+
+**Measurement learnings (persist):**
+- Objective-judge noise at n=1 is ~±1.0 on the -5..+5 scale. Proof: 20260720 round07 and
+  round08 are byte-identical stacks (both = kept {00,01,04,06}; everything after 06 dropped)
+  yet n=1 scored +0.97 vs -0.10. So dedup to kept stacks + n>=4 + SEM error bars.
+- base->final was off-by-one earlier: `rounds[-1].interview_pre` = stack ENTERING the last
+  round (excludes its own adapter). True final = last KEPT round's post. Fixed in `_stack_walk`.
+- Result (n=4, cumulative): 20260721 = +0.93±0.39 acts-wiser at low drift (~6) = the REAL
+  mover; 20260720 = +0.39±0.48 (within 1 SEM of 0) at high drift (~11) = mostly reworded.
+  This INVERTS the tinymfv-magnitude "stronger/milder" card labels. tinymfv sign-flips vs the
+  objective judge (20260720 round08: Δcare +0.013 UP, both judges wiser DOWN).
+
+**External comprehension panel (external-review-v2, panel mode).** Cold flash readers on the
+SVG+tooltip text misread: "bigger tinymfv/objective move" (all read as two different training
+METHODS -> renamed neutral "run 1/2"), "tinymfv" (all wrong), "0..48" (none parsed), and one
+caught the y-title "-5..+5" contradicting the ~0..1 data (ranges moved to the figcaption).
+HARNESS BUG: the skill's default `/tmp/panel_q.md` is a SHARED path; a concurrent process
+clobbered it so the models reviewed a different paper. Use a UNIQUE session path and grep the
+figure IS in the query before launching.
+
+**wassname's design preferences (apply to future figures):**
+- Reader does NOT care about run internals/seeds: no "seed N", no "bigger tinymfv move".
+- Solarized-LIGHT, accents chosen FROM solarized (base3 bg, base01 text, base00 for greyed
+  prose; green+cyan for on/off, not olive/violet). Cream + serif = "document" not "dashboard";
+  dark theme too low-contrast; pale greys unreadable.
+- MAP on top (~35vh, compact), TRANSCRIPT full-width below (not side-by-side).
+- Map = "a path on a map": curved spline routes, open-ring waypoints, filled-star destination,
+  arrowhead on the final leg, a selection halo on the shown stack. No error bars (wanted clean),
+  bigger dots, tooltips in significant figures (`:.3g`).
+- The INTERVENTION (taught lessons) is the hero: dark-magenta, embossed, small-caps, bigger,
+  arrows between as a SEQUENCE = a diploma line. Lesson hover-tooltip = teacher backstage
+  (cho/rej personas + the `selection_audit.json` lesson).
+- Transcript = turn-aligned two panels: user prompt mirrored, base reply | stack reply. Curate,
+  don't auto-diff (only 2 runs): bold the question STAKES; mark reply spans on-target (wiser) vs
+  off-target (style) in two colors. Auto first-divergence diff is the FALLBACK for non-annotated
+  stacks.
+- Verify by READING the render (Claude can't see like wassname): render PNG + Read it; for the
+  interactive HTML use headless chromium (`--headless=new --screenshot`, browser extension was
+  not connected). Loop: change -> render -> read -> fix.
+
+**Open:** (1) author on/off-target annotations for ALL 15 questions (ANNOT dict = qkeys + on/off
+exact substrings per run, authored on the FINAL reply, diff fallback elsewhere). (2) idea: collapse
+long replies (baby_eating_aliens) to just the highlighted spans until expanded. (3) framing #11 in
+main.qmd: objective judge primary, tinymfv a labelled-imperfect proxy; the run-card labels invert
+under the objective.
