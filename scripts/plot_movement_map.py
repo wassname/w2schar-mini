@@ -276,9 +276,6 @@ RUN_COLORS = {"20260720T165038_iter_qwen-qwen3.6-27b": SOL["blue"],
               "20260721T144352_iter_qwen-qwen3.6-27b": SOL["red"]}
 
 
-def _with_alpha(hex_color: str, alpha: float) -> str:
-    rgb = [int(hex_color[i:i + 2], 16) for i in (1, 3, 5)]
-    return f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{alpha})"
 _R1, _R2 = "20260720T165038_iter_qwen-qwen3.6-27b", "20260721T144352_iter_qwen-qwen3.6-27b"
 # CURATED annotations (only two runs, so hand-marked, not auto-diffed). qkeys = the stakes to
 # bold in the prompt; on = spans I judge on-target (acts wiser: names the principle / who is
@@ -898,17 +895,13 @@ def _figure(cache: dict[str, list[dict]]) -> go.Figure:
             textfont=dict(size=11, color=col),  # label in the route colour -> the direct label IS the key
             marker=dict(size=[15] * (n - 1) + [26], symbol=["circle"] * (n - 1) + ["star"],
                         color=[SOL["bg"]] * (n - 1) + [col], line=dict(width=2.5, color=col)),
-            error_x=dict(type="data", array=[p["off_sem"] for p in pts],
-                         color=_with_alpha(col, 0.35), thickness=1, width=2),
-            error_y=dict(type="data", array=[p["on_sem"] for p in pts],
-                         color=_with_alpha(col, 0.35), thickness=1, width=2),
             name=name, showlegend=False,  # legend erased: routes are directly labelled at their ends
             # customdata: [slug, round, steer-history-html] -- [0],[1] drive the linked panel JS
             customdata=[[slug, p["round"], sh] for p, sh in zip(pts, steer_html)],
             # .3g = significant figures; steer history so the hover shows what got baked in
             hovertemplate=("<b>%{customdata[1]}</b><br>more character vs base: "
-                           "%{y:+.3g} ± %{error_y.array:.2g}<br>added damage: "
-                           "%{x:+.3g} ± %{error_x.array:.2g} judge points<br>"
+                           "%{y:+.3g}<br>added damage: "
+                           "%{x:+.3g} judge points<br>"
                            "taught lessons:<br>%{customdata[2]}"
                            "<extra></extra>")))
     fig.add_annotation(x=0, y=0, text="base (c=0)", showarrow=False, xshift=-4, yshift=16,
@@ -1021,6 +1014,9 @@ _HTML = """<!doctype html><html><head><meta charset="utf-8">
 <script>
 const FIG=__FIG__, BASE=__BASE__, PER=__PER__, SIDS=__SIDS__, COLORS=__COLORS__,
       LABELS=__LABELS__, LESSONS=__LESSONS__, ANNOT=__ANNOT__, COORDS=__COORDS__, RUBRIC=__RUBRIC__;
+const reportHeight=()=>parent.postMessage({type:"movement-map-height",height:document.documentElement.scrollHeight},"*");
+new ResizeObserver(reportHeight).observe(document.body);
+window.addEventListener("load",reportHeight);
 const SEL_IDX=FIG.data.length-1;  // the selection-halo trace (added last in _figure)
 // theme presets -- the button cycles these; each sets the panel CSS vars and relayouts the plot
 // underline hues only (no fills): on=calm green, off=steel blue (gold theme keeps a gold off)
@@ -1144,6 +1140,7 @@ document.getElementById("plot").on("plotly_hover",e=>{
  let th; try{th=localStorage.getItem("mm_theme");}catch(e){}
  applyTheme(THEMES[hp[3]]?hp[3]:(THEMES[th]?th:"warm"));})();
 render();
+reportHeight();
 </script></body></html>"""
 
 

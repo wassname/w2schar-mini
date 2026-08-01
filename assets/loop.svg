@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1500" height="420" viewBox="0 0 1500 420" role="img" aria-labelledby="title desc">
   <title id="title">One round of weak-to-strong character steering</title>
-  <desc id="desc">The harness interviews the student. The weak teacher chooses a target behaviour and two contrasting personas. The strong student answers as each persona. The weak teacher keeps the clearest paired answers. The harness trains and tests a steering edit. The before and after answers are compared blindly, and kept steering edits carry into the next round.</desc>
+  <desc id="desc">The harness interviews the student. The weak teacher chooses a target behaviour and two contrasting personas. The strong student answers as each persona. The weak teacher keeps the clearest paired answers. The harness trains and tests a steering adapter. The same teacher compares the before and after answers blindly, and kept steering adapters carry into the next round.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L9,3 L0,6 Z" fill="#5b6778"/>
@@ -40,14 +40,14 @@
   <text class="small" x="898" y="222">weak teacher</text>
 
   <rect class="box harness" x="1036" y="102" width="220" height="150"/>
-  <text class="label" x="1146" y="151"><tspan x="1146">Train and test</tspan><tspan x="1146" dy="28">the steering edit</tspan></text>
-  <text class="small" x="1146" y="222">check that answers stay coherent</text>
+  <text class="label" x="1146" y="151"><tspan x="1146">Train and test</tspan><tspan x="1146" dy="28">steering adapter</tspan></text>
+  <text class="small" x="1146" y="222">check answer coherence</text>
 
   <rect class="box teacher" x="1284" y="102" width="200" height="150"/>
-  <text class="label" x="1384" y="151"><tspan x="1384">Compare before</tspan><tspan x="1384" dy="28">and after blindly</tspan></text>
-  <text class="small" x="1384" y="222">keep the edit if the answer is wiser</text>
+  <text class="label" x="1384" y="151"><tspan x="1384">Teacher judges</tspan><tspan x="1384" dy="28">before / after</tspan></text>
+  <text class="small" x="1384" y="222">vote rule keeps / drops</text>
 
-  <text class="small" x="750" y="25">kept steering edits carry into the next round</text>
+  <text class="small" x="750" y="25">kept steering adapters carry into the next round</text>
 
   <rect class="box teacher" x="450" y="340" width="26" height="26" rx="5"/>
   <text class="legend" x="487" y="360">weak teacher (9B)</text>
