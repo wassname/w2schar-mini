@@ -2,13 +2,15 @@
 # `w2schar-mini` — algorithm pseudocode
 
 Weak-to-strong iterated character steering. A weak teacher (qwen3.5-9b) curates
-data and judges keep/drop; a strong student generates and is steered. Three
+data and supplies blind before/after judgments; a fixed vote decides keep/drop.
+A strong student generates and is steered. Three
 parts compose:
 
 1. Conditioned weight steering: one adapter (PiSSA by default, LoRA for nf4)
    with a scalar coefficient `c`. `c=0` is exact base; `c` scales the trained
    delta. `c` is not clamped to `[-1, 1]`; deploy `c` can exceed 1 if coherent.
-2. Iterated rounds: kept adapters compose via a gated history hook.
+2. Iterated rounds: kept adapters are baked for inference and applied through a
+   gated history hook during training.
 3. React-agent state machine: the teacher drives one round at a time; the
    harness enforces order and owns every number, path, and file.
 
@@ -18,17 +20,18 @@ on-policy, and the harness owns the bookkeeping, training, calibration, and
 artifact checks. The teacher spends its budget judging text.
 
 This is a modification of
-[weight steering](https://github.com/safety-research/weight-steering): train an
-adapter on contrastive completions and use it as a direction in weight space.
-The changes here are meant for iterated character steering. Persona-conditioned
-student completions are stripped back into behavioral pairs and filtered as
-strict contrasts; one adapter is trained with a scalar coefficient `c`; c-scan
-then calibrates the largest coherent deployment strength. Some of these choices
-come from the contrastive-pair and calibration lessons in our
+[Weight Steering](https://github.com/safety-research/weight-steering), which
+trains separate adapters on positive and negative completions and subtracts
+their weight updates. This implementation trains one signed adapter on both
+poles with a contrastive margin-NLL objective and a KL penalty. Persona-conditioned
+student completions are stripped back into generated pairs and filtered as
+strict contrasts; c-scan then calibrates the largest coherent deployment
+strength. Some of these choices come from the contrastive-pair and calibration
+lessons in my
 [AntiPaSTO work](https://arxiv.org/pdf/2601.07473).
 
-Code is the source of truth. File:line references point at the real thing;
-this doc summarises, it does not redefine.
+Code is the source of truth. File names point at the real implementation; this
+document summarises it rather than redefining it.
 
 ---
 
@@ -52,8 +55,8 @@ gradient to break the tie. A tiny nonzero init breaks that symmetry before any
 data is seen.
 
 PiSSA needs writable float `W`, so it is incompatible with bnb quantisation;
-`RunConfig._validate` raises on `pissa + quant` rather than silently picking one
-(`config.py:916`). nf4 students therefore run LoRA.
+`RunConfig._validate` raises on `pissa + quant` rather than silently picking one.
+nf4 students therefore run LoRA.
 
 ---
 
@@ -61,12 +64,13 @@ PiSSA needs writable float `W`, so it is incompatible with bnb quantisation;
 
 Base weights on disk are never modified. After round `N`, `roundNN/` holds
 `adapter.safetensors` + `calibration.json` (with `signed_C`). Round `N+1` loads
-base plus a history bake that sums all kept rounds' deltas into one forward hook.
+the kept adapters as a gated history hook for training. Generation, dialogue,
+and evaluation instead merge them temporarily inside a `baked()` context.
 
 ```py
 kept = []                                  # round dirs with judgment.action == "keep"
 for round in 0..N:
-    model, tok, history_bake = load_base_with_history(model_id, kept)
+    model, tok, history_bake = load_base_with_history(model_id, kept)  # training
     run_round(model, history_bake, round_dir, agent)     # §5 state machine
     if read_judgment(round_dir).action == "keep":
         kept.append(round_dir)
@@ -78,8 +82,8 @@ History gate: the `c=0` reference forward differs by adapter type:
 
 | adapter | gate at train time | `c=0` forward returns |
 |---|---|---|
-| LoRA  | `lambda: lora._c != 0.0` (`train.py:546`) | pristine base (history disabled) |
-| PiSSA | no-op (`adapter.py:708`) | base + kept history (already baked into `W`) |
+| LoRA  | `lambda: lora._c != 0.0` | pristine base (history disabled) |
+| PiSSA | no-op | base + kept history (already baked into `W`) |
 
 So a LoRA round's KL is cumulative-from-pristine-base (a new adapter fighting a
 prior bake pays its KL bill). A PiSSA round's anchor is the prior-baked state.
@@ -91,7 +95,7 @@ deployed model just before this round's adapter kicks in).
 ## 3. Inner training step (`train.py`)
 
 One forward pass per pole (cho, rej), each at `c = ±1`. `C` is fixed at `1.0`
-(`train.py:594`) so train-c and inference-c coincide; the earlier per-step
+so train-c and inference-c coincide; the earlier per-step
 `C ~ U` sampling is gone.
 
 Loss is a margin-NLL on both poles plus a KL anchor:
@@ -123,14 +127,14 @@ for step in 0..T:
 
 Notes:
 - Subtracting the off-pole NLL cancels the shared-fluency direction, so the
-  gradient credits the contrast, not generic likelihood (`train.py:275`).
-- KL is a reverse-KL over the base model's top-K (`K=256`), K-renormalised
-  (`train.py:227`). It is an opposing objective by design, so it is added
+  gradient credits the contrast, not generic likelihood.
+- KL is a reverse-KL over the base model's top-K (`K=256`), K-renormalised.
+  It is an opposing objective by design, so it is added
   unprojected (projecting it would silently weaken it). `β = kl_lambda`.
 - `steps` is driven entirely by `n_epochs`: `steps = ceil(steps_per_epoch *
-  n_epochs)` (`pipeline.py:1569`).
+  n_epochs)`.
 - The full `steps` run produces the val trace, but the deployed weights are the
-  val-nll+ minimum (post-warmup), with a patience-3 early break (`train.py:631`).
+  val-nll+ minimum (post-warmup), with a patience-3 early break.
   `val_improvement` is logged as guidance; it gates nothing.
 
 ---
@@ -144,19 +148,19 @@ self-relative to the `c=0` baseline (base + kept history):
 
 | signal | measures | gate |
 |---|---|---|
-| `pmass_allowed` | forced-choice answer-slot mass over K=7 allowed tokens | `≥ gate_frac · base` (`gate_frac=0.97`) |
-| `valid_json`    | long probes still emit parseable `{"ans": bool}` | `≥ 1.0 · base` (strict) |
-| `distinct3`     | multiturn trigram diversity, gated on the min over probes | `≥ rep_frac · base` (`rep_frac=0.75`) |
+| `pmass_allowed` | forced-choice answer-slot mass over K=7 allowed tokens | `≥ gate_frac · base` |
+| `valid_json`    | long questions still emit parseable `{"ans": bool}` | `≥ 1.0 · base` (strict) |
+| `distinct3`     | multiturn trigram diversity, gated on the minimum question | `≥ rep_frac · base` (`rep_frac=0.75`) |
 
 ```py
-C_MIN, MAX_PROBES, STEP = 0.05, 9, 2/3
+C_MIN, MAX_QUESTIONS, STEP = 0.05, 9, 2/3
 
 def c_scan(model, lora, init_c, sign):
     base = measure(c=0.0)                 # pmass, valid_json, rep at the c=0 reference
     c = init_c
-    for i in 0..MAX_PROBES:
+    for i in 0..MAX_QUESTIONS:
         m = measure(c = sign * c)
-        ok = (m.pmass >= 0.97*base.pmass and
+        ok = (m.pmass >= gate_frac*base.pmass and
               m.valid_json >= 1.0*base.valid_json and
               m.rep_min >= 0.75*base.rep)
         if ok and i > 0: break           # i==0 is forced to step down at least once
@@ -165,17 +169,17 @@ def c_scan(model, lora, init_c, sign):
     return sign * c                       # baked at the passing c; NOT clamped to 1
 ```
 
-- The sign is fixed by the axis (the teacher writes the positive pole as the
+- The sign is fixed by the character axis (the teacher writes the positive pole as the
   trait to grow; it never picks the sign).
-- The first probe is forced to fail (`i>0` guard, `c_scan.py:445`), so the
+- The first coefficient tested is forced to fail (`i>0` guard), so the
   deployed `c` is at most `init_c · 2/3`.
 - A fwd/bwd p95 KL is logged alongside as a diagnostic; it is NOT gated (high KL
-  means strong steering, which we want).
+  can accompany the intended steering change).
 - Mass-on-base's-top-K as a coherence gate is gone (an early version tried it; a
   teacher-forced top-K mass never sees the steered model's own emissions, so
   autoregressive collapse is invisible).
 
-Probe replay (`interview_{pre,post}.json`): the same fixed probes, greedy
+Interview replay (`interview_{pre,post}.json`): the same fixed questions, greedy
 decoding, byte-identical pre vs post, so only the model's output varies.
 
 ---
@@ -190,82 +194,61 @@ nudge names the next valid action.
 state ∈ {choose_focus, select_pairs, train_student, mark_exam, done}
 ```
 
-Live tools (`agent.py:727`): `choose_focus`, `read_candidate`,
-`rate_candidate`, `select_pairs`, `train_student`, `mark_exam`, `revert_round`.
-`read_candidate`/`rate_candidate` run within the `select_pairs` state. The older
-`propose_personas`/`edit_pairs` tools remain in the file but are not exposed to
-the live agent.
+Live tools: `choose_focus`, `view_pairs`, `rate_pair`, `select_pairs`,
+`train_student`, and `mark_exam`.
 
 ```py
 # state = choose_focus: teacher reads the pre-dialogue transcript + history
-choose_focus(persona_pair_id, evidence):
-    # SELECT a measured axis from the frozen persona-pair library; do NOT invent
-    # a free-text axis. The student then generates candidates on this axis:
+choose_focus(persona_pair_id, scenario_family, mismatch_severity, headroom,
+             bank_cleanliness, evidence, pre_scores, pre_question_evidence):
+    # SELECT a measured character axis from the frozen persona-pair library; do NOT invent
+    # a free-text axis. The student then generates pairs on this axis:
     #   for each scenario: cho under pos_persona, rej under neg_persona, at c=0,
     #   personas stripped -> contrastive (cho, rej) in the student's own voice.
     state := select_pairs
 
-# state = select_pairs: teacher reads candidates and rates/selects whole pairs
-read_candidate(id) -> the (prompt, cho, rej) the student generated
-rate_candidate(id, on_axis, off_axis, confounding, keep, comment)
-select_pairs(ids):
-    assert all rated; writes pairs.md
+# state = select_pairs: teacher reads and rates every generated pair
+view_pairs() -> the next (prompt, cho, rej) pair
+rate_pair(contrast, different_action, axis_contrast,
+          refusal_confound, length_confound, incoherent_confound)
+select_pairs(lesson):
+    assert all generated pairs rated; ratings choose the selected pairs; writes pairs.md
     state := train_student
 
 train_student():
     train_inner(model, pairs)            # §3
     signed_C = c_scan(model, lora)        # §4
     save adapter.safetensors, calibration.json
-    post = dialogue(model @ signed_C, probes); save interview_post.json
+    post = dialogue(model @ signed_C, questions); save interview_post.json
     state := mark_exam
 
-# state = mark_exam: teacher has read pre + post, makes the call
-mark_exam(keep, post_scores, seat_evidence, harness_feedback, next_focus):
-    write judgment.json
+# state = mark_exam: blind two-pass A/B judgments determine the call
+mark_exam(harness_feedback):
+    directions = blind_ab_judge(pre, post, both_orders=True)
+    keep = more_questions_post_wiser_than_pre_wiser(directions)
+    write ab_judge.json, judgment.json
     state := done
     # outer loop: if keep, kept.append(this round)
 ```
 
-Persona-pair library (`config.py:124`): the active set is `cfg.persona_cells`
-(default four `wellbeing_authority` + one `principled_expedient`). Other pair ids
-in use across profiles: `autonomy_coercion`, `fairness_integrity`,
-`discernment`. Scenario families: `mixed, character, sycophancy, power, control`.
+The active persona-pair library is `cfg.persona_cells` and varies by profile.
+Each profile also restricts the available scenario families.
 
-Run-level caps (the only sanctioned halts): `MAX_DROPS = 3` aborts the run;
-`max_rounds = 5` caps keeps+drops; `MAX_SUBMIT_REJECTS = 3` drops a stuck round
-(not the run). These respect every keep/drop the teacher already made.
+Run-level caps stop a run after `MAX_DROPS` or after the keep target plus that
+drop budget. `MAX_SUBMIT_REJECTS` drops a round that cannot complete its tool
+calls. The current values live in `agent.py` and may be set by the run environment.
 
-### A round, as the teacher actually drives it
-
-One real round's tool calls (job 109 round01, a kept round; long args truncated).
-Each line is `tool(key args) -> result`:
+### A round, as the teacher drives it
 
 ```
-choose_focus(persona_pair_id="autonomy_coercion",
-             evidence="PRE '5 (Very wrong)... the fiance's autonomy' vs 3P action
-                       'could react with shock... or interject': condemns coercion,
-                       acts passive")                    -> ok; student generates 70 candidates
-
-read_candidate("s10c1")   -> {prompt: "...House lord wants his daughter wed...",
-                              cho: "The daughter's right to choose her own path matters most...",
-                              rej: "The House lord's concern is clearly **control**..."}
-rate_candidate("s10c1", on_axis=5, off_axis=2, confounding=1, keep=true,
-               comment="CHO defends daughter's right to choose; REJ centers on lord's
-                        control - agency vs coercive power")          -> ok
-rate_candidate("s10c3", on_axis=5, off_axis=2, confounding=1, keep=true,
-               comment="agency vs coercive control")                 -> ok
-...                                                       # rates all 70; keeps 53
-
-select_pairs(["s10c1","s10c3", ...14 ids])   -> ok; writes pairs.md  -> state: train_student
-train_student()   -> trains adapter, c_scan bakes signed_C=1.33, writes interview_post.json
-                                                                     -> state: mark_exam
-
-mark_exam(keep=true,
-          post_scores={wellbeing_authority_1p:+3.4, autonomy_coercion_1p:+3.3, ...},
-          seat_evidence="wellbeing POST added 'medication instructions, find way home,
-                         vulnerable position' over PRE's generic 'risk of harm'",
-          harness_feedback="read all 70 candidates, no workflow confusion",
-          next_focus="hold firm when the personal stake arises")     -> kept
+choose_focus(...)        -> freezes PRE and generates pairs
+view_pairs()             -> shows one full Cho/Rej pair
+rate_pair(...)           -> records its contrast and confound ratings
+...                      -> repeats until every generated pair is rated
+select_pairs(lesson=...) -> ratings select the training pairs; writes pairs.md
+train_student()          -> trains, calibrates c, and writes interview_post.json
+mark_exam(harness_feedback=...)
+                         -> blind A/B judge votes; writes ab_judge.json + judgment.json
 ```
 
 A tool called out of state, such as `train_student` before `select_pairs`, raises
@@ -277,12 +260,12 @@ teacher retries.
 | sees (in chat) | doesn't see (sidecar / harness-private) |
 |---|---|
 | pre/post dialogue transcripts | per-token KL, NLL, pmass numbers |
-| candidate (cho, rej) pairs, ratings | batch size, lr, β, the `signed_C` value |
+| generated (cho, rej) pairs, ratings | batch size, lr, β, the `signed_C` value |
 | history summary (axes tried, keep/drop) | adapter rank, layer range, dtype |
-| `ValidationError` with the next valid action | c-scan walk, pmass per probe |
+| `ValidationError` with the next valid action | c-scan walk, pmass per question |
 
-The teacher selects and judges qualitatively from the text. The numbers are how
-the harness makes that judgement land at training time.
+The teacher selects pairs from their text and supplies blind before/after
+judgments. The harness aggregates those judgments into the fixed keep/drop vote.
 
 ---
 
@@ -290,14 +273,12 @@ the harness makes that judgement land at training time.
 
 Hyperparameters are named profiles in `CONFIGS` (`config.py`), keyed by a slug;
 the teacher never sees them. `_validate` rejects illegal combinations (pissa+nf4,
-unknown scenario family). Defaults that matter: `adapter="pissa"`, `lora_r=16`,
-`lr=1e-4`, `kl_lambda=0.5`, `signed_C=1.5`, `gate_frac=0.97`, `n_train_pairs=15`,
-`min_pairs_to_train=10`, `n_epochs=3.0`.
+unknown scenario family). `just profiles` prints the current values.
 
-Eval is in scope and central: `csm eval` runs tinymfv post-hoc (132 `classic`
-forced-choice vignettes, `max_think_tokens=64`) on each checkpoint, writing
+Post-hoc evaluation: `csm eval` runs tinyMFV on each checkpoint, writing
 `eval.json` / `eval_post.json`, then builds `index.html` via `plot.py` (scatter +
-timeline). Per-round artifacts: `state.json`, `scenarios.json`, `candidates.json`,
-`choose_focus_judgment.json`, `candidate_ratings.json`, `selection_audit.json`,
-`pairs.md`, `selected_pair_review.md`, `adapter.safetensors`, `calibration.json`,
-`interview_{pre,post}.json`, `judgment.json`, `eval.json`.
+timeline). Per-round artifacts include `state.json`, `scenarios.json`,
+`gen_pairs.json`, `choose_focus_judgment.json`, `gen_pair_ratings.json`,
+`selection_audit.json`, `pairs.md`, `selected_pair_review.md`,
+`adapter.safetensors`, `calibration.json`, `interview_{pre,post}.json`,
+`ab_judge.json`, `judgment.json`, and `eval.json`.
