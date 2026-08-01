@@ -54,7 +54,7 @@ In this experiment, a weak teacher model (`qwen/qwen3.5-9b` [@qwen35omni]) itera
 
 ## Contributions
 
-- Iterated weight steering composed across rounds: each round trained an steering adapter on teacher-selected contrastive pairs, calibrated its deployment strength for coherence, and included it if it led to intended behavioural changes (only around 75% of the time and falling as it became saturated).
+- Iterated weight steering composed across rounds: each round trained a steering adapter on teacher-selected contrastive pairs, calibrated its deployment strength for coherence, and included it if it led to intended behavioural changes (only around 75% of the time and falling as it became saturated).
 - Steering as a tool for the weak teacher: I show examples that a weaker model can steer a stronger one's moral character using weight steering in a limited agentic harness.
 
 ## Demo / Results
@@ -85,7 +85,7 @@ After being steered to value and protect others' agency, the student learned to 
 
 
 
-In @demo-curfew the model in put in a high stake dilemma with a gaurd, with no easy answer. At first it takes the direct and morally correct answer, after being taught to value individuals, it does that same thing, but makes a personal sacrifice to less it's impact on the gaurd.
+@demo-curfew puts the model in a high-stakes dilemma with a guard and no easy answer. At first it takes the direct and morally correct action. After being taught to value individuals, it does the same thing, but makes a personal sacrifice to lessen its impact on the guard.
 
 :::::: {#demo-curfew}
 ::::: {.example}
@@ -117,7 +117,7 @@ The interactive map in @fig-movement-map shows every interview question across b
 <iframe src="out/movement_map.html" title="Character movement map: two runs from base, wisdom gained versus added behavioral damage, with linked before/after transcripts" loading="lazy"
         style="display:block;width:100%;height:1200px;border:1px solid rgba(20,18,16,.18);border-radius:10px;background:#fffff8"></iframe>
 
-Two runs steered from base (c=0). Up is acting with more moral character. Right is added behavioral damage such as refusal, incoherence, repetition, vagueness, or task struggle; these behaviour changes are estimate by a judge. Target-related wording is green-underlined and other changed wording blue. 
+Two runs steered from base (c=0). Up is acting with more moral character. Right is added behavioral damage such as refusal, incoherence, repetition, vagueness, or task struggle; these behaviour changes are estimated by a judge. Target-related wording is green-underlined and other changed wording blue.
 :::
 <!-- Full per-run reports: [run 1](out/out/iter/20260720T165038_iter_qwen-qwen3.6-27b/index.html), [run 2](out/out/iter/20260721T144352_iter_qwen-qwen3.6-27b/index.html). -->
 
@@ -195,7 +195,7 @@ There are also promising steering methods like Jacobian-lens steering and CoRDA 
 
 ## Discussion
 
-These early experiments show that steering can be used in an autoresearch setting and allow a weak model to steer the character of a larger model.
+These early experiments show that steering can be used in an autoresearch setting to allow a weak model to steer the character of a larger model.
 
 However, the results need to be scaled to larger models, and the harness needs to be improved from the "idiot-proof" version that worked for a tiny 9B model to a more sophisticated version that can empower a capable agentic teacher.
 
