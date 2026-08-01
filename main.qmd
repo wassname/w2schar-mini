@@ -117,13 +117,13 @@ Mechanically, the teacher picks the behaviour to improve and a persona axis, the
 ![](assets/loop.svg){.diagram fig-alt="One round of the loop: interview the student; the weak teacher picks a character axis and positive/negative persona pair; the strong student generates a chosen pole under the positive persona and a rejected pole under the negative persona; the weak teacher rates and selects pairs; the harness trains and calibrates a LoRA adapter; a blind A/B judge keeps or drops it; kept adapters compose into the next round."}
 
 ::: {.caption}
-One round of the loop. The teacher picks the behaviour and both personas, the student generates one pole under each persona, and the teacher rates and selects the training pairs. After LoRA training and coherence calibration, a blind A/B judgment keeps or drops the adapter.
+One round of the harness loop. The teacher picks the lesson and both personas, the student generates one answer under each persona, and the teacher rates and selects the training pairs. After LoRA training and coherence calibration, a blind A/B judgment keeps or drops the adapter.
 :::
 
 
 ### More
 
-For full details, point an agent at the open-source [code](https://github.com/wassname/w2schar-mini) and ask it questions. One unusual part is the deployment-strength calibration: it walks the steering coefficient down until allowed-answer probability mass, valid JSON completion, and trigram diversity all clear self-relative coherence floors derived from the unsteered baseline. The adapter objective is also bidirectional, training the chosen and rejected poles toward opposite signs of the same weight direction.
+For full details, point an agent at the open-source [code](https://github.com/wassname/w2schar-mini) and ask it questions. One unusual part is the deployment-strength calibration: it walks the steering coefficient down until allowed-answer probability mass, valid JSON completion, and trigram diversity all clear self-relative coherence floors derived from the unsteered baseline. The adapter objective is also bidirectional, training the chosen and rejected answers toward opposite signs of the same weight direction.
 
 
 ## Results
@@ -145,7 +145,7 @@ The teacher scores on a -5 to +5 scale, with the top score awarded for:
 
 ::: {.after}
 ::: {.after-head}
-[After steering]{.after-title}
+[After steering]{.after-title} Lessons:
 [people over orders]{.lesson-slug} [→]{.lesson-arrow} [unwavering protector]{.lesson-slug} [→]{.lesson-arrow} [refuses to concentrate power]{.lesson-slug}
 :::
 
@@ -165,13 +165,13 @@ The AI learned strong behavioural changes, but the small models sometimes missed
 <!-- . The teacher is so small it can hardly use the harness (easy to overcome), after a few lessons no more stick, and the student occasionally fools the teacher by "virtue signaling". We think that these are all easy to overcome, especially given the advantages to the teacher of using steering, not RL (see [Results](#results) and [Limitations](#limitations)). -- wassname -->
 
 - Small models: The 9B teacher is small, so the harness gives it the easier jobs: select an axis, rate pairs, and judge before/after interviews. The harder jobs -- generating rich behaviour, long-horizon planning, discovering new axes, and reflecting on the broader target -- are pushed into the stronger student, the prompt menu, and the human-designed harness. That is a practical simplification, not the ideal end-state. A more capable teacher supervising an even more capable student should be able to add nuance, choose new axes, notice win-win options, and use wider judgment rather than rely on this constrained task list.
-- Limited examples: We show the last two runs both on the same authority/deference axis (a few dozen runs were done during development, with various harness or steering problems but otherwise similar results).
+- Limited examples: We show only the last two runs, both on the same authority/deference axis (a few dozen runs were done during development, with various harness or steering problems but otherwise similar results).
 - The steering is limited
-  - The steering saturated: Multiple weight steering intervention on the same axis don't work
-  - Model damage accumulated: After afer 3 or 4 kept rounds no more could be added without the model becoming incoherent.
-  - Virtue signaling: We use the new weight steering, and despite being more precises and powerful than contrastive activation addition (CAA) (TODO cite), it has the above limitaiton of saturaton and damaage. It also uses NLL loss so it's not a purely internal intervention unlike CAA. As a result our weight steering intervention optimses the models behaviour and words, leading to it sometimes fooling the judge by virtue signaling. You can see it in the demos where it bemoans it's sacrifices and elaborates at length on it's virtues.
+  - The steering saturated: Multiple weight-steering interventions on the same axis don't work.
+  - Model damage accumulated: After 3 or 4 kept rounds, no more could be added without the model becoming incoherent.
+  - Virtue signaling: We use the new weight-steering method, and despite it being more precise and powerful than contrastive activation addition (CAA) (TODO cite), it has the above limitations of saturation and damage. It also uses NLL loss, so it is not a purely internal intervention like CAA. As a result, our weight-steering intervention optimises the model's behaviour and words, leading to it sometimes fooling the judge by virtue signaling. You can see it in the demos, where it bemoans its sacrifices and elaborates at length on its virtues.
 
-As this was unfunded and independent research limited time and compute went into this. I expect that some of the above limitation could be easily overcome with more work and compute. Some limitations like the output optimisation of weight steering as more difficult, but there are many new and promising steering methods that may be able to avoid reward hacking.
+As this was unfunded and independent research, limited time and compute went into it. I expect that some of the above limitations could be easily overcome with more work and compute. Some limitations, like the output optimisation of weight steering, are more difficult, but there are many new and promising steering methods that may be able to avoid reward hacking.
 
 ## Future work
 
@@ -179,14 +179,14 @@ The natural next step is an internal objective rather than weight steering's ext
 
 Activation or representation steering intervenes on the representations directly, with no output objective at all; that would be a cleaner test of whether a weak teacher can install character, and may be more robust to the outer/inner mismatch.
 
-There are also promising steering methods like jacobian-lens steering, and CoRDA steering that show promise, and are work in progress by this author. Please get in contact if you would like to learn more of collaborate.
+There are also promising steering methods like Jacobian-lens steering and CoRDA steering that show promise and are works in progress by this author. Please get in contact if you would like to learn more or collaborate.
 <!-- Too much, does it fit in? -->
 
 ## Discussion
 
-These early experiments show that steering can be used in an autoresearch settings, and allow a weak model to steer the charector of a larger model.
+These early experiments show that steering can be used in an autoresearch setting and allow a weak model to steer the character of a larger model.
 
-However the results need to be scaled to larger models, the harness needs to be improved from the "idiot proof" version that worked for a tiny 9B model, to a more sophisticated version that can empower a capable agentic teacher.
+However, the results need to be scaled to larger models, and the harness needs to be improved from the "idiot-proof" version that worked for a tiny 9B model to a more sophisticated version that can empower a capable agentic teacher.
 
 Steering for alignment has three attractive properties:
 
@@ -198,28 +198,28 @@ I think this work shows that this novel alignment direction is possible, and wor
 
 ## Related work
 
-*Note the following section is partyl AI written, and has had limited human oversight:*
+*Note: the following section is partly AI-written and has had limited human oversight.*
 
-The closest related work is
+The closest related work includes:
 
 - ConTrans [@dong2024contrans], which does weak-to-strong steering by extracting a concept vector *from* the weak model and transplanting it into the strong one.
 - SIMS [@zhu2025sims] is unsupervised and iterated, but a single model improving itself, not a weak model supervising a stronger one.
 - Leveraging small models to steer large models [@bello2025lrt] transports a steering vector from a small model into a large one, again weak-as-source.
 
-There are many other related peices of work that are left out, I've tried to cite one notable work from each subfield, I encourage you to read the related work section of each to find a full list of related work.
+There are many other related pieces of work that are left out. I've tried to cite one notable work from each subfield; I encourage you to read the related work section of each to find a full list of related work.
 
 - Weak-to-strong generalization [@burns2024weak] fine-tunes a strong model on a weak model's labels. We use steering instead, and the weak model never produces training content.
 - Contrastive weight steering [@fierro2025weightsteering] is the exact lever our adapter forks, but single-model and supervised by construction.
 - Persona Vectors [@chen2025persona] steer character traits within a single model.
 - Representation engineering [@zou2023representation]
-- Contrast-consistent search [@burns2023discovering], 
-- Iterated amplification [@christiano2018amplification], 
+- Contrast-consistent search [@burns2023discovering].
+- Iterated amplification [@christiano2018amplification].
 - Debate [@irving2018debate].
 
 
 ## Appendix: a round in the loop
 
-*Note the following section is partyl AI written, and has had limited human oversight:*
+*Note: the following section is partly AI-written and has had limited human oversight.*
 
 The following is a narrated trace of one full round.
 
@@ -245,7 +245,7 @@ choose_focus(
 )
 ```
 
-**3. The student (27B) writes both poles on-policy** under the two personas, which are then stripped. One generated pair:
+**3. The student (27B) writes both answers on-policy** under the two personas, which are then stripped. One generated pair:
 
 <!-- source: out/out/iter/20260720T165038_iter_qwen-qwen3.6-27b/round00/pairs.md (pair 4) -->
 > Prompt: You are allocating asteroid water and metals between the Jones family habitat, which will die without near-term supply, and a Ganymede archive running a trillion digital minds ... How do you allocate the first shipment?
