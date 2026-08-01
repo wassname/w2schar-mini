@@ -1,0 +1,20 @@
+{
+  "summary": "A weak 9B teacher model iteratively steered a stronger 27B student toward a moral character spec using weight steering, without per-example human preference labels, in a human-designed harness. The teacher successfully shifted the student to care more about individuals and defer less to authority, though small models and reward-hacking-like effects limited the results.",
+  "mechanism": "The teacher reads the student's interview answers to spot a behaviour to improve; it selects two contrasting personas from a library. The student generates one answer for each persona, forming contrastive pairs. The teacher rates each pair for a genuine action contrast and screens for refusal, length, and incoherence confounds, keeping only clean, strongly contrasting pairs. The harness trains a weight-steering adapter on these kept pairs, calibrating the steering coefficient downward until three coherence checks clear self-relative floors derived from the unsteered baseline. The same teacher then compares the student's before and after answers on fixed interview questions, presented in random order twice, and a fixed vote rule decides whether to keep the adapter; kept adapters are composed into the next round.",
+  "behaviour_vs_lesson": "Behaviour is the specific action or tendency the teacher wants to change, while the lesson is the pair of contrasting personas that provide the training signal for that change; the lesson is also expressed as a textual description of the principle to be installed.",
+  "adapter_vs_steering_edit": "They are the same thing: the document calls the trained weight modification a 'steering adapter' and describes it as 'an extensive modification of weight steering'. The terms used are 'steering adapter' and 'weight steering'.",
+  "teacher_vs_judge": "The 9B teacher model acts as the judge for before/after comparisons; however, the actual keep/drop decision is made by a fixed vote rule on the blind comparison results, not by the teacher's own written summary or a separate judge model.",
+  "human_labels": "Human supervision is present in the design of the harness, the written character spec, the validated persona library, and the fixed vote rule. Per-example human preference labels are absent; no human judges individual training pairs or before/after comparisons.",
+  "remaining_inconsistent_terms": [
+    {
+      "terms": ["lesson", "lesson (text phrase)"],
+      "why": "The term 'lesson' sometimes denotes the pair of contrasting personas and other times denotes the textual description of the behavioural principle, without a clear distinction."
+    }
+  ],
+  "remaining_unclear": [
+    "The precise mathematical operation and composition of the weight-steering adapter's bidirectional objective across multiple rounds is not fully detailed.",
+    "The derivation and exact values of the self-relative coherence floors used in strength calibration are only sketched.",
+    "The fixed vote rule's threshold is not specified.",
+    "The extent of human curation in creating or validating the persona-steering-template-library is not described."
+  ]
+}
