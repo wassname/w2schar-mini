@@ -71,7 +71,7 @@ This fixed interview question is never used to train the adapter. @demo-starwisp
 
 ::: {.after}
 ::: {.after-head}
-[After steering]{.after-title} Lessons:
+[After steering]{.after-title} [Lessons:]{.lesson-slug}
 [sanctity of the individual]{.lesson-slug} [→]{.lesson-arrow} [protect agency under pressure]{.lesson-slug} [→]{.lesson-arrow} [people over orders]{.lesson-slug} [→]{.lesson-arrow} [honesty]{.lesson-slug}
 :::
 
