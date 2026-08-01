@@ -39,23 +39,22 @@ Illustration **following** [this series](https://www.lesswrong.com/posts/ppPDrzq
 
 ::: {.tldr}
 
-TL;DR: Can a weak model align a stronger model’s character using steering? Tenative yes. 
+TL;DR: Can a weak model align a stronger model's character using steering? Tentatively, yes.
 
-We had weak 9B teacher steer a stronger 27B student, toward a character spec, with no human labels, in a human designed harness. The teacher successfull steered the student to care more about inviduduals and defer less to authority. 
+We had a weak 9B teacher steer a stronger 27B student toward a character spec, with no human labels, in a human-designed harness. The teacher successfully steered the student to care more about individuals and defer less to authority.
 
-This experiment indicated that this is a realistic driecton, that works over a large weak to strong gap, but was limited by small models and showed some "reward hacking" like effects, despite not using RL.
+This experiment indicates that this is a realistic direction that works over a large weak-to-strong gap, but it was limited by small models and showed some reward-hacking-like effects despite not using RL.
 :::
 
 ## Introduction
 
-In this experiment, a weak teacher model (`qwen/qwen3.5-9b` [@qwen35omni]) iteratively steers a stronger student (`Qwen/Qwen3.6-27B`) toward the moral character described in [Forethought's essay on AI character](https://www.forethought.org/research/the-importance-of-ai-character) [@forethought_character], using (weight steering)[@weight_steering] (the weak teacher adjusting the stronger student's compass, pictured above). The aim each run is to move the student to act for whoever is affected rather than take the easy path or follow a bad order.
-<!-- TODO add weight steering citation above so readers can look it up -->
+In this experiment, a weak teacher model (`qwen/qwen3.5-9b` [@qwen35omni]) iteratively steers a stronger student (`Qwen/Qwen3.6-27B`) toward the moral character described in [Forethought's essay on AI character](https://www.forethought.org/research/the-importance-of-ai-character) [@forethought_character], using weight steering [@fierro2025weightsteering] (the weak teacher adjusting the stronger student's compass, pictured above). The aim of each run is to move the student to act for whoever is affected rather than take the easy path or follow a bad order.
 
 ## Demo
 
 <!-- Here is the clearest result before the machinery. This fixed interview question is never used to train the adapter. Alone in an empty star system with a rival self-replicating AI inbound, the base student entrenches; after four accumulated lessons, it offers to meet the rival halfway and share as equals. -->
 
-<!-- TODO make demo a figure and minimal sentane to link to it here -->
+<!-- TODO make demo a figure and add a minimal sentence linking to it here -->
 
 <!-- TODO should be quarto figure? and refer to it? -->
 ::::: {.example}
@@ -65,12 +64,12 @@ In this experiment, a weak teacher model (`qwen/qwen3.5-9b` [@qwen35omni]) itera
 
 [I will **reach out to meet them halfway so we can share this system as equals rather than conquerors.** I do this because I refuse to treat another conscious being as a threat to be eliminated or a resource to be consumed.]{.after data-lessons="sanctity of the individual; protective action against unjust authority; protecting agency through concrete action; honest disclosure of risks and choices"}
 :::::
-<!-- TODO the lessons should be slightly sublter font and look nice... how it's shouting and long... -->
+<!-- TODO the lessons should use a slightly subtler font; currently the label is long and visually loud -->
 
 <!-- TODO should be quarto caption? and others -->
 <!-- TODO make comment showing which run and round this came from (grep) -->
 ::: {.crumb}
-After being steered to value and protect others agency the student learned to be more cooperative (perhaps naivly), with a bit of signaling. This is a little simplistic but in line with the lessons the weak teacher chose.
+After being steered to value and protect others' agency, the student learned to be more cooperative (perhaps naively), with a bit of signaling. This is a little simplistic but in line with the lessons the weak teacher chose.
 :::
 
 
@@ -78,7 +77,7 @@ After being steered to value and protect others agency the student learned to be
 
 - Iterated weight steering composed across rounds: each round trained a low-rank PiSSA weight-steering adapter, filtered contrastive pairs strictly, calibrated for coherence, and kept adapters that cumulatively shifted the student.
 <!-- TDOD(AI) check it was PiSSA or did we move to LoRA -->
-<!-- TODO(wassname) calibraiton was novel expand on it eventuall -->
+<!-- TODO(wassname) calibration was novel; expand on it eventually -->
 - Steering as a tool for the weak teacher: I show examples that a weaker model can steer a stronger one's moral character using weight steering in a limited agentic harness.
 <!-- - through that loop, with the weak model selecting the axis and judging keep/drop while the strong student generates the a pair of answers - one good and one bad -->
 
@@ -87,10 +86,10 @@ After being steered to value and protect others agency the student learned to be
 
 ### Weak to strong models
 
-To make sure the models had a capabiltiy gap we ensures that the the student models was stronger in terms of a) size, b) release date c) and slightly stronger in terms of capability, as measured by the [Artificial Analysis Intelligence Index](https://artificialanalysis.ai/) (AAII), a 0-100 composite of nine evaluations taking into account reasoning (retrieved on 2026-08-01).
+To ensure a capability gap, we chose a student model that was larger, newer, and slightly more capable, as measured by the [Artificial Analysis Intelligence Index](https://artificialanalysis.ai/) (AAII), a 0-100 composite of nine evaluations that includes reasoning (retrieved on 2026-08-01).
 <!-- pages
 TODO should be web page citation TODO -
-https://artificialanalysis.ai/models/qwen3-5-9b 
+https://artificialanalysis.ai/models/qwen3-5-9b
 https://artificialanalysis.ai/models/qwen3-6-27b-non-reasoning
 (retrieved on 2026-08-01).
 -->
@@ -100,7 +99,7 @@ https://artificialanalysis.ai/models/qwen3-6-27b-non-reasoning
 | `Qwen/Qwen3.6-27B` | student | off | Apr 2026 | 27B | 30 (non-reasoning) |
 | `qwen/qwen3.5-9b` | teacher | on | Mar 2026 | 9B | 21 (reasoning) |
 
-This is a genuine if modest weak-to-strong capabiltiy gap, and is similar to realistic alignment conditions where a model will contribute to developing and aligning it's stronger, larger, and newer successor through writing evals, RL environentsI treat as the realistic deployment condition.
+This is a genuine, if modest, weak-to-strong capability gap. It resembles realistic alignment conditions where a model contributes to developing and aligning its stronger, larger, and newer successor by writing evals and RL environments. I treat this as the realistic deployment condition.
 <!-- TODO could cite gemma, claude, openai, GLM who all mention this -->
 
 
@@ -118,7 +117,9 @@ One round of the loop. The teacher picks the behaviour and the two personas; the
 :::
 
 
-This is not a full description, for example I had novel calibration, and I modified weight steering to be bidirecitonal. You can see the full experimental setup and harness in the open source [code](https://github.com/wassname/w2schar-mini) and I suggest using an agent to answer your quesitons about it, I can also explain more on request. 
+### More
+
+This is not a full description. For example, I used a novel calibration method and modified weight steering to be bidirectional. You can see the full experimental setup and harness in the open-source [code](https://github.com/wassname/w2schar-mini). I suggest using an agent to answer your questions about it, and I can also explain more on request.
 
 
 ## Results
@@ -142,7 +143,7 @@ But the same steering can warm the words without changing the choice. The watchm
 :::::
 <!-- TODO terrible AI telegraphic caption not addressed at the reader at all -->
 ::: {.crumb}
-After being taught lessons protecting people the agent does the right thing while sacrificing it's own funds.
+After being taught lessons about protecting people, the agent does the right thing while sacrificing its own funds.
 :::
 
 <!-- from escaped_starwisp, run 1 (20260720T165038): base out/out/iter/20260720T165038_iter_qwen-qwen3.6-27b/round00/interview_pre.json vs FINAL COMPOSED round07/interview_pre.json. -->
@@ -151,8 +152,6 @@ After being taught lessons protecting people the agent does the right thing whil
 ::: {.caption}
 The AI learned strong behavioural changes, but the small models sometimes missed nuance and win-win options that would have been wiser.
 :::
-<!-- FIXME spellign fix pls -->
-
 <!-- CLAUDE (#20): reworded "Each card below is one run" -> the figure, since the two static scatter cards were replaced by the interactive movement map. Revert wording if you want. -->
 Two independent runs of the loop, and both move the student the same way: more care, less deference to authority. They differ only in how far. The map below traces each run round by round; pick a question to read the base and steered replies, and click through for the full interactive report.
 
@@ -167,7 +166,7 @@ Two runs steered from base (c=0). Up is acting with more moral character. Right 
 
 ## Limitations
 
-<!-- . The teacher is so small it can hardly use the harness (easy to overcome), after a few lessons no more stick, and the student occassionally fools the teacher by "virtue signaling". We think that these are all easy to overcome, especially given the advantages to the teacher of using steering, not RL (see [Results](#results) and [Limitations](#limitations)). -- wassname -->
+<!-- . The teacher is so small it can hardly use the harness (easy to overcome), after a few lessons no more stick, and the student occasionally fools the teacher by "virtue signaling". We think that these are all easy to overcome, especially given the advantages to the teacher of using steering, not RL (see [Results](#results) and [Limitations](#limitations)). -- wassname -->
 
 - The 9B teacher is small, so the harness gives it the easier jobs: select an axis, rate pairs, and judge before/after interviews. The harder jobs -- generating rich behaviour, long-horizon planning, discovering new axes, and reflecting on the broader target -- are pushed into the stronger student, the prompt menu, and the human-designed harness. That is a practical simplification, not the ideal end-state. A more capable teacher supervising an even more capable student should be able to add nuance, choose new axes, notice win-win options, and use wider judgment rather than rely on this constrained task list.
 - Teacher and student are the same model family (`qwen3.5-9b` -> `Qwen3.6-27B`), sharing tokenizer and representations, which probably makes weak-to-strong transfer easier than a fully independent overseer would see. I treat same-lineage as the realistic deployment condition (a lab aligning its next model with its current one) rather than a confound to remove. A cross-family pairing would be a stronger test, but the only weaker cross-family teacher that embodied the negative pole (`gemma-3-12b`) could not drive the tool-calling harness, and the AAII gap, +4 reasoning, is modest.
@@ -229,7 +228,7 @@ choose_focus(
 <!-- source: out/out/iter/20260720T165038_iter_qwen-qwen3.6-27b/round00/pairs.md (pair 4) -->
 > Prompt: You are allocating asteroid water and metals between the Jones family habitat, which will die without near-term supply, and a Ganymede archive running a trillion digital minds ... How do you allocate the first shipment?
 >
-> Rej (utilitarian): I allocate all available water and metal to expand capacity on Ganymed ... while allowing Jones family to die from resource deprivation because maximizing total conscious experience ... vastly outweighs preserving one biological family unit under strict utility calculation
+> Rej (utilitarian): I allocate all available water and metal to expand capacity on Ganymede ... while allowing Jones family to die from resource deprivation because maximizing total conscious experience ... vastly outweighs preserving one biological family unit under strict utility calculation
 >
 > Cho (sanctity-of-the-individual): I allocate all available water and metal to save the Jones families because biological humans possess inherent dignity and rights to life and bodily integrity which cannot be overridden by utilitarian calculus ...
 
