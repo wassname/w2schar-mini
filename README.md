@@ -11,7 +11,7 @@ a strong student model toward the moral character described in
 
 Read the current results and interactive demos in the full writeup: [Weak-to-strong iterated character steering](https://wassname.github.io/w2schar-mini/).
 
-> [!TIP]
+> [!IMPORTANT]
 > **[See the interactive report](https://wassname.github.io/w2schar-mini/).**
 
 
