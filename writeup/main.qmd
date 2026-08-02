@@ -39,9 +39,9 @@ Illustration **following** [this series](https://www.lesswrong.com/posts/ppPDrzq
 
 ::: {.tldr}
 
-TL;DR: These experiments de-risk weak-to-strong character steering as an alignment technique: even a barely competent 9B teacher produced a few genuine improvements in a 27B student, suggesting substantial headroom from larger models and better steering methods.
+TL;DR: Can a weak model steer a stronger model's moral character? I release code and two runs that provide early evidence that it can work and may be a tractable alignment technique.
 
-A weak 9B teacher steered a stronger 27B student toward a character spec, with no per-example human preference labels, in a human-designed harness. The teacher successfully steered the student to care more about individuals and defer less to authority.
+In a human-designed harness with no per-example human preference labels, the teacher steered the student to care more about individuals and defer less to authority.
 :::
 
 ## Introduction
