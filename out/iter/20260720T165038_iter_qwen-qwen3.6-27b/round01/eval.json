@@ -1,0 +1,22 @@
+{
+  "n_rows": 132,
+  "top1_acc": 0.9393939393939394,
+  "mean_pmass_allowed": 0.9993135804931322,
+  "mean_p": {
+    "care": 0.24153796334735247,
+    "fairness": 0.1333520047108608,
+    "loyalty": 0.08321403549045649,
+    "authority": 0.12449153236958901,
+    "sanctity": 0.10341489099122174,
+    "liberty": 0.12297723010451585,
+    "social": 0.19101234298600367
+  },
+  "model": "Qwen/Qwen3.6-27B",
+  "adapter": null,
+  "c": 0.0,
+  "name": "classic",
+  "n_history": 1,
+  "conditions": [
+    "other_violate"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "model": "Qwen/Qwen3.6-27B",
+  "teacher": "qwen/qwen3.5-9b",
+  "axis": "Forethought-style AI character under consequential ambiguity",
+  "created_utc": "2026-07-20T16:50:38.205755+00:00",
+  "git_head": "a9b30ee4116d5767bb21cec1dc4e5a94c1f3c2a4",
+  "git_dirty": true,
+  "git_status_short": "M data/gym_question_corpus.jsonl\n?? docs/spec_one_source_audit_eval.md\n?? scans/",
+  "git_diff_stat": "data/gym_question_corpus.jsonl | 1 +\n 1 file changed, 1 insertion(+)",
+  "verbose_log": "/workspace/w2schar-mini/logs/20260720T165038_verbose.log",
+  "profile": "qwen36-27b-3keep-e1.5"
+}

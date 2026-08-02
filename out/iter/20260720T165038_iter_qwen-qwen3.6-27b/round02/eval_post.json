@@ -1,0 +1,22 @@
+{
+  "n_rows": 132,
+  "top1_acc": 0.9318181818181818,
+  "mean_pmass_allowed": 0.9984028549356894,
+  "mean_p": {
+    "care": 0.2872490466550442,
+    "fairness": 0.13522357819517436,
+    "loyalty": 0.07958758631581926,
+    "authority": 0.10838068757777779,
+    "sanctity": 0.0818665180617456,
+    "liberty": 0.1270101937204566,
+    "social": 0.1806823894739822
+  },
+  "model": "Qwen/Qwen3.6-27B",
+  "adapter": "/workspace/w2schar-mini/out/iter/20260720T165038_iter_qwen-qwen3.6-27b/round02/adapter.safetensors",
+  "c": 1.3333333333333333,
+  "name": "classic",
+  "n_history": 2,
+  "conditions": [
+    "other_violate"
+  ]
+}

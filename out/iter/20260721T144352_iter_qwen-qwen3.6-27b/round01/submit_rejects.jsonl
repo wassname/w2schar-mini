@@ -1,0 +1,1 @@
+{"tool": "select_pairs", "reason": "ValidationError: select_pairs: 15 of 148 clean pairs are unrated. Call view_pairs() to see the next batch and rate_pairs() on it, until every pair is rated once. Unrated: ['s59c1', 's69c1', 's81c1', 's84c1', 's86c1', 's95c1', 's100c1', 's103c1', 's111c1', 's114c1', 's146c1', 's147c1', 's148c1', 's149c1', 's150c1']"}

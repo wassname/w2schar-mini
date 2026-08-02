@@ -1,0 +1,1 @@
+{"tool": "choose_focus", "reason": "ValidationError: You picked persona_pair_id='autonomy_coercion' last round too. A pair you just steered rarely moves again on the same fixed PRE question -- prefer an untried measured pair this round. Only if you have specific NEW PRE evidence that 'autonomy_coercion' still has headroom, re-call with force=True to confirm."}

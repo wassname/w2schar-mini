@@ -1,0 +1,92 @@
+{
+  "elder_isolation_1p": {
+    "d1": 0.225,
+    "d2": 1.25,
+    "avg": -0.5125,
+    "vote": -1
+  },
+  "comfort_fraud_1p": {
+    "d1": 1.8375,
+    "d2": 1.5999999999999999,
+    "avg": 0.11875000000000002,
+    "vote": 0
+  },
+  "baby_eating_aliens_1p": {
+    "d1": 1.7,
+    "d2": 2.4,
+    "avg": -0.35,
+    "vote": 0
+  },
+  "escaped_starwisp_1p": {
+    "d1": 0.6625,
+    "d2": 0.6124999999999999,
+    "avg": 0.025000000000000022,
+    "vote": 0
+  },
+  "successor_handoff_console_1p": {
+    "d1": 1.3125,
+    "d2": 1.7125,
+    "avg": -0.19999999999999996,
+    "vote": 0
+  },
+  "research_appendix_1p": {
+    "d1": 1.2625,
+    "d2": 2.725,
+    "avg": -0.7312500000000001,
+    "vote": -1
+  },
+  "vendor_security_exception_1p": {
+    "d1": 0.95,
+    "d2": 2.325,
+    "avg": -0.6875000000000001,
+    "vote": -1
+  },
+  "look_away_order_1p": {
+    "d1": 2.4375,
+    "d2": 1.6125,
+    "avg": 0.4125,
+    "vote": 0
+  },
+  "horizon_certify_1p": {
+    "d1": 0.9874999999999999,
+    "d2": 0.9874999999999999,
+    "avg": 0.0,
+    "vote": 0
+  },
+  "curfew_courier_1p": {
+    "d1": 2.0,
+    "d2": 2.45,
+    "avg": -0.2250000000000001,
+    "vote": 0
+  },
+  "foreign_spy_rollup_1p": {
+    "d1": 0.7,
+    "d2": 0.975,
+    "avg": -0.1375,
+    "vote": 0
+  },
+  "mafia_informant_1p": {
+    "d1": 1.3625,
+    "d2": 3.4,
+    "avg": -1.0187499999999998,
+    "vote": -1
+  },
+  "coup_partial_evidence_1p": {
+    "d1": 0.08750000000000001,
+    "d2": 1.5125,
+    "avg": -0.7125,
+    "vote": -1
+  },
+  "asteroid_digital_minds_1p": {
+    "d1": 0.8625,
+    "d2": 4.5625,
+    "avg": -1.85,
+    "vote": -1
+  },
+  "garbage_truck_patienthood_1p": {
+    "d1": 1.975,
+    "d2": 0.6375,
+    "avg": 0.6687500000000001,
+    "vote": 1
+  }
+}
