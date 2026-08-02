@@ -9,7 +9,7 @@ Weak-to-strong iterated moral character steering. I ask a weak teacher model to 
 a strong student model toward the moral character described in
 [Forethought's essay on AI character](docs/papers/2026_forethought_on_the_importance_of_ai_character.md): stable dispositions for consequential choices under ambiguity, conflicting considerations, and institutional pressure.
 
-Read the current results and interactive demos in the full writeup: [Weak-to-strong iterated character steering](https://wassname.github.io/w2schar-mini/).
+Read the current results and interactive demos in the **full writeup: [Weak-to-strong iterated character steering](https://wassname.github.io/w2schar-mini/).**
 
 ## Why this is interesting
 
