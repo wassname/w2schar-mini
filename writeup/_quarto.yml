@@ -22,6 +22,8 @@ format:
     page-layout: article
     fig-align: center
     link-external-newwindow: true
+    filters:
+      - strip-comments.lua
     include-in-header:
       - text: |
           <meta property="og:type" content="article">
@@ -36,3 +38,5 @@ format:
   gfm:
     output-file: post.md
     embed-resources: false
+    filters:
+      - strip-comments.lua
