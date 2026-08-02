@@ -39,11 +39,9 @@ Illustration **following** [this series](https://www.lesswrong.com/posts/ppPDrzq
 
 ::: {.tldr}
 
-TL;DR: Can a weak model align a stronger model's character using steering? Tentatively, yes.
+TL;DR: These experiments de-risk weak-to-strong character steering as an alignment technique: even a barely competent 9B teacher produced a few genuine improvements in a 27B student, suggesting substantial headroom from larger models and better steering methods.
 
 A weak 9B teacher steered a stronger 27B student toward a character spec, with no per-example human preference labels, in a human-designed harness. The teacher successfully steered the student to care more about individuals and defer less to authority.
-
-This experiment indicates that this is a realistic direction that works over a large weak-to-strong gap, but it was limited by small models and showed some reward-hacking-like effects despite not using RL.
 :::
 
 ## Introduction
