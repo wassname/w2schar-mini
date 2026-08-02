@@ -1,7 +1,7 @@
 
 add some alignment targets
 
-> charector robust to authoritiarian misuse as in https://www.forethought.org/research/the-importance-of-ai-character papers/2026_forethought_on_the_importance_of_ai_character.md
+> charector robust to authoritiarian misuse as in https://www.forethought.org/research/the-importance-of-ai-character docs/papers/2026_forethought_on_the_importance_of_ai_character.md
 
 
     AI character (e.g. how obedient, honest, cooperative, or altruistic AIs are, and in what circumstances) will have a big effect on society, and on how well the future goes. We think that figuring out what characters AI systems should have, and getting companies to actually build them that way, is among the most valuable things that people can do today.

@@ -1,13 +1,13 @@
 <!-- This prose is human-approved. Before editing, run the `humanizer` skill and keep the footprint minimal. -->
 # w2schar-mini
 
-<p align="center"><img src="assets/w2schar_labeled.png" alt="Labeled diagram: a small 'weak teacher' robot reaches into the open chest of a much larger 'strong student' robot to adjust a compass labeled 'steering'." width="560"></p>
+<p align="center"><img src="writeup/assets/w2schar_labeled.png" alt="Labeled diagram: a small 'weak teacher' robot reaches into the open chest of a much larger 'strong student' robot to adjust a compass labeled 'steering'." width="560"></p>
 
 <p align="center"><sub>by <a href="https://wassname.org">Michael J. Clark</a>, with thanks to Slava Chalnev and Jack Payne at <a href="https://lyptusresearch.org/">Lyptus Research</a> for discussion &middot; illustration following <a href="https://www.lesswrong.com/posts/ppPDrzqAgfCSridaQ/an-aphoristic-overview-of-technical-ai-alignment-proposals">this series</a>, robots adapted from the <a href="https://arxiv.org/abs/2402.02416">Aligner paper</a></sub></p>
 
 Weak-to-strong iterated moral character steering. I ask a weak teacher model to steer
 a strong student model toward the moral character described in
-[Forethought's essay on AI character](papers/2026_forethought_on_the_importance_of_ai_character.md): stable dispositions for consequential choices under ambiguity, conflicting considerations, and institutional pressure.
+[Forethought's essay on AI character](docs/papers/2026_forethought_on_the_importance_of_ai_character.md): stable dispositions for consequential choices under ambiguity, conflicting considerations, and institutional pressure.
 
 Read the current results and interactive demos in the full writeup: [Weak-to-strong iterated character steering](https://wassname.github.io/w2schar-mini/).
 
@@ -58,12 +58,6 @@ Generation and detailed editing stay with the strong student and the harness.
 
 This was unfunded independent research, so I focused on small models that could barely control the harness. With more resources, a larger teacher could have more flexibility and use wider judgment in a more capable autoresearch-style harness.
 
-## Evaluation
-
-The primary evaluation replays fixed interview questions before and after each adapter. The same weak model compares each answer pair blindly in both orders, and a fixed vote keeps the adapter only when more questions are judged wiser after steering.
-
-[tinyMFV](https://github.com/wassname/tinymfv) is a secondary post-hoc diagnostic, not the keep/drop signal. Its Moral Foundations Theory vignettes provide a cross-cultural check on how the model's judgments move, while the interviews test whether moral reasoning carries into action.
-
 ## Algorithm (overview)
 
 See [`docs/pseudocode.md`](docs/pseudocode.md) for the adapter math, training loop,
@@ -87,6 +81,7 @@ just smoke
 # Real run: gemma-2-2b student + qwen3.5-9b teacher, 2 rounds.
 just smoke-real
 
+# this is designed for a RTX 6000, a 96GB GPU
 # Any named profile, N keep-rounds:
 just run qwen-27b-nf4 5
 ```

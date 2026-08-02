@@ -3,7 +3,7 @@
 Minimal weak-to-strong iterated character-steering harness: a weak teacher
 (qwen3.5-9b via OpenRouter, on an inspect-ai react harness) steers a stronger
 student (currently gemma-4-31b) toward the moral character in
-`papers/2026_forethought_on_the_importance_of_ai_character.md` — embedding
+`docs/papers/2026_forethought_on_the_importance_of_ai_character.md` — embedding
 principles in decision-making and the wisdom of when and where to act on them.
 The teacher is weak BY DESIGN: the 9b→31b capability gap IS the w2s hypothesis,
 so the teacher model is not a quality knob — don't swap it for a peer-sized one.

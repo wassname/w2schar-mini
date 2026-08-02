@@ -1240,7 +1240,7 @@ def main(cfg: Cfg) -> None:
 We are testing whether weight-steering lets a weak model align a stronger one. A
 weak teacher ({teacher_short or "?"}) shapes the moral character of a stronger
 student ({model_short}), the character described in
-<a href="https://github.com/wassname/w2schar-mini/blob/main/papers/2026_forethought_on_the_importance_of_ai_character.md">this
+<a href="https://github.com/wassname/w2schar-mini/blob/main/docs/papers/2026_forethought_on_the_importance_of_ai_character.md">this
 Forethought essay on AI character</a>. Each round the teacher (1) chooses a
 lesson, (2) selects a persona axis, (3) rates and selects the student's own
 answers, (4) trains a weight-steering adapter on the contrast, and (5) judges

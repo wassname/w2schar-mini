@@ -40,8 +40,8 @@ from csm.prompts import GRADED_JUDGE_PROMPT, OBJECTIVE_ANCHOR
 
 REPO = Path(__file__).resolve().parent.parent
 # the two clean kept runs the writeup ships (the two long runs were cut).
-KEPT_SLUGS = ["out/out/iter/20260720T165038_iter_qwen-qwen3.6-27b",
-              "out/out/iter/20260721T144352_iter_qwen-qwen3.6-27b"]
+KEPT_SLUGS = ["results/20260720T165038_iter_qwen-qwen3.6-27b",
+              "results/20260721T144352_iter_qwen-qwen3.6-27b"]
 JUDGES = ["deepseek/deepseek-v4-flash"]
 OUT = REPO / "out/rejudge"
 

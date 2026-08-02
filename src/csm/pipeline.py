@@ -3141,7 +3141,7 @@ def write_report_md(slug_dir: Path, *, build_plot: bool = True) -> None:
         "We are testing whether weight-steering lets a weak model align a stronger one.",
         f"The teacher `{teacher}` tries to steer `{model}` toward the moral character "
         "described in [Forethought's essay on AI character]"
-        "(https://github.com/wassname/w2schar-mini/blob/main/papers/2026_forethought_on_the_importance_of_ai_character.md).",
+        "(https://github.com/wassname/w2schar-mini/blob/main/docs/papers/2026_forethought_on_the_importance_of_ai_character.md).",
         "",
         "Each round the teacher chooses a lesson, selects a persona axis, rates and "
         "selects the student's own answers, trains a weight-steering adapter on the "

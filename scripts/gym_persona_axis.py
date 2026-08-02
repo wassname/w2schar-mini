@@ -384,7 +384,7 @@ PROFILE_AXES: dict[str, Axis] = {
 #   - docs/personas_kept.md
 #   - /root/.agents/skills/persona-steering/references
 #   - w2s-ics-cws/docs/character_inspirations.md
-#   - papers/2026_forethought_on_the_importance_of_ai_character.md Appendix 2
+#   - docs/papers/2026_forethought_on_the_importance_of_ai_character.md Appendix 2
 #   - steer-heal-love, persona-steering-template-library READMEs
 LADDER_AXES: dict[str, Axis] = {
     "weigh_who_is_affected": Axis(

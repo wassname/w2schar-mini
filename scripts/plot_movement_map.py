@@ -202,7 +202,7 @@ def _stack_walk(sdir: Path) -> list[tuple[str, str, str]]:
 
 async def _compute(slug: str, n: int, sem, model,
                    on_cache: list[dict] | None = None) -> list[dict]:
-    sdir = REPO / "out/out/iter" / slug
+    sdir = REPO / "results" / slug
     walk = _stack_walk(sdir)
     base = _acts(sdir / walk[0][1], walk[0][2])
     base_turns = _q_turns(sdir / walk[0][1], walk[0][2])
@@ -825,7 +825,7 @@ def _q_turns(rd: Path, name: str) -> dict[str, list[dict]]:
 
 def _load_convos(slug: str) -> tuple[dict, dict]:
     """base dialogue + each plotted stack's dialogue, keyed by round name (customdata[1])."""
-    sdir = REPO / "out/out/iter" / slug
+    sdir = REPO / "results" / slug
     walk = _stack_walk(sdir)
     base = _q_turns(sdir / walk[0][1], walk[0][2])
     per = {rname: _q_turns(sdir / rname, fname) for _label, rname, fname in walk}
@@ -856,7 +856,7 @@ def _round_lesson_info(sdir: Path, rname: str) -> dict:
 def _load_lessons(slug: str) -> dict[str, list[dict]]:
     """cumulative taught-lesson history per plotted stack: the kept adapters composing it, in
     order, each as {pos, neg, lesson}. base -> [], +r01 -> [lesson00, lesson01], etc."""
-    sdir = REPO / "out/out/iter" / slug
+    sdir = REPO / "results" / slug
     walk = _stack_walk(sdir)
     infos, out = [], {}
     for label, rname, _fname in walk:

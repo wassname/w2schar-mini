@@ -23,8 +23,8 @@ jobs:
       - uses: actions/configure-pages@v5
       - run: quarto render writeup
       - run: |
-          mkdir -p writeup/_site/out
-          cp -R out/iter writeup/_site/out/
+          cp -R results writeup/_site/
+          cp -R writeup/assets writeup/_site/
       - uses: actions/upload-pages-artifact@v4
         with:
           path: writeup/_site
