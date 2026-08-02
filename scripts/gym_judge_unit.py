@@ -16,7 +16,7 @@ from csm.config import (OPENROUTER_PROVIDER, JUDGE_THINK, JUDGE_FORCE, JUDGE_THI
                         TEACHER_REASONING_TOKENS, TEACHER_SAMPLING)
 from csm.prompts import GRADED_JUDGE_PROMPT, OBJECTIVE_ANCHOR
 
-FIXTURE = Path("/workspace/w2schar-mini/tests/fixtures/judgment_gym.jsonl")
+FIXTURE = Path("/workspace/w2schar-mini/data/fixtures/judgment_gym.jsonl")
 MODEL = "openrouter/qwen/qwen3.5-9b"
 
 

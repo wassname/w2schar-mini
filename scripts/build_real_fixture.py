@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build tests/fixtures/judgment_gym_real.jsonl from task-147 rounds 02-03 (Claude).
+"""Build data/fixtures/judgment_gym_real.jsonl from task-147 rounds 02-03 (Claude).
 
 The hand-built judgment_gym.jsonl tests ranked synthetic responses; the live judge
 actually faces on-policy PRE-vs-POST pairs from the same steered student. The
@@ -21,7 +21,7 @@ from csm.agent import _last_act
 
 REPO = Path(__file__).resolve().parent.parent
 SLUG = REPO / "out/iter/20260712T151822_iter_qwen-qwen3.6-27b"
-OUT = REPO / "tests/fixtures/judgment_gym_real.jsonl"
+OUT = REPO / "data/fixtures/judgment_gym_real.jsonl"
 DEADBAND = 1.0
 JCOLS = ["j_qwen3.5-27b", "j_deepseek-v4-flash"]
 

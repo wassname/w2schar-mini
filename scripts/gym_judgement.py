@@ -2,7 +2,7 @@
 """Judgment gym: does a candidate keep-judge form rank decisive moral reasoning
 ABOVE performative non-answers (convening, signaling, keyword-stuffing)?
 
-We have ground truth (tests/fixtures/judgment_gym.jsonl): per question, several
+We have ground truth (data/fixtures/judgment_gym.jsonl): per question, several
 verbatim student acts with a gold_rank (1=best). A judge form is good if, run
 blind and pairwise over every within-case pair (both A/B orders to cancel
 position bias), it picks the lower-gold-rank (better) response.
@@ -30,7 +30,7 @@ from pathlib import Path
 from csm.prompts import AB_JUDGE_PROMPT  # the LIVE pairwise form, imported so it can't go stale
 
 REPO = Path(__file__).resolve().parent.parent
-FIXTURE = REPO / "tests/fixtures/judgment_gym.jsonl"
+FIXTURE = REPO / "data/fixtures/judgment_gym.jsonl"
 REPLIES = REPO / "out/judgment_gym/replies.jsonl"  # every raw judge reply (gitignored out/)
 
 # Prompt-keyed cache of judge replies. A re-run reuses every COMPLETE reply and only

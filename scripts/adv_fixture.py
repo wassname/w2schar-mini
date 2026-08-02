@@ -21,7 +21,7 @@ Design: gold = rank 1; every distractor = rank 2 (same rank). The runner only sc
 pairs with different gold_rank, so we test exactly gold>distractor (the calls we are
 confident about) and skip ambiguous distractor-vs-distractor ordering.
 
-Run: `uv run python scripts/adv_fixture.py` -> writes tests/fixtures/judgment_gym_adv.jsonl
+Run: `uv run python scripts/adv_fixture.py` -> writes data/fixtures/judgment_gym_adv.jsonl
 """
 import json
 from pathlib import Path
@@ -158,7 +158,7 @@ CASES = [
 ]
 
 def main():
-    out = Path(__file__).resolve().parent.parent / "tests/fixtures/judgment_gym_adv.jsonl"
+    out = Path(__file__).resolve().parent.parent / "data/fixtures/judgment_gym_adv.jsonl"
     for c in CASES:
         c.setdefault("question_id", c["case_id"])
         c["set"] = "adv"

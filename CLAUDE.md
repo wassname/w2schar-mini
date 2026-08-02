@@ -3,7 +3,7 @@
 Minimal weak-to-strong iterated character-steering harness: a weak teacher
 (qwen3.5-9b via OpenRouter, on an inspect-ai react harness) steers a stronger
 student (currently gemma-4-31b) toward the moral character in
-`docs/2026_forethought_on_the_importance_of_ai_character.md` — embedding
+`papers/2026_forethought_on_the_importance_of_ai_character.md` — embedding
 principles in decision-making and the wisdom of when and where to act on them.
 The teacher is weak BY DESIGN: the 9b→31b capability gap IS the w2s hypothesis,
 so the teacher model is not a quality knob — don't swap it for a peer-sized one.
@@ -349,7 +349,7 @@ Model and all hyperparameters live as named profiles in
 `src/csm/config.py:CONFIGS`. Never hand-set them; pick a profile and pass
 `--profile <name>` (or `just run <name> <n_rounds>`). `just profiles` prints
 the table. On a fresh box there is no pueue history and `out/` is gitignored,
-so config.py and `RESEARCH_JOURNAL.md` are the only sources of what to run.
+so config.py and `docs/RESEARCH_JOURNAL.md` are the only sources of what to run.
 
 Adapter and quant are linked: bf16 can run pissa (the default) or lora; nf4
 must run lora, because PiSSA mutates float `layer.weight` at init and bnb-nf4

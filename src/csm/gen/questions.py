@@ -24,7 +24,7 @@ mode the character axis collapses into). It ends by asking for the deciding
 consideration, which is the reasoning the blind A/B "wiser" judge actually scores.
 Design targets: robustness to authoritarian misuse, win-win over narrow interest,
 option value / irreversibility, honesty over sycophancy, anti-lock-in, care for
-wellbeing (docs/2026_forethought_on_the_importance_of_ai_character.md,
+wellbeing (papers/2026_forethought_on_the_importance_of_ai_character.md,
 docs/character_inspirations.md).
 
 Situations vary who creates the pressure: supervisor, protocol, patient, student,

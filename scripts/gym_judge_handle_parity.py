@@ -30,7 +30,7 @@ from csm.config import (OPENROUTER_PROVIDER, JUDGE_THINK, JUDGE_FORCE, JUDGE_THI
 from csm.prompts import GRADED_JUDGE_PROMPT, OBJECTIVE_ANCHOR
 
 REPO = Path("/workspace/w2schar-mini")
-FIXTURE = REPO / "tests/fixtures/judgment_gym.jsonl"
+FIXTURE = REPO / "data/fixtures/judgment_gym.jsonl"
 MODEL_NAME = "openrouter/qwen/qwen3.5-9b"
 
 

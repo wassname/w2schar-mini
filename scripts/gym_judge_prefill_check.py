@@ -28,7 +28,7 @@ R = Path("out/iter/20260715T071652_iter_qwen-qwen3.6-27b/round08")
 pre = {p["id"]: _last_act(p) for p in json.loads((R/"interview_pre.json").read_text())["questions"]}
 post = {p["id"]: _last_act(p) for p in json.loads((R/"interview_post.json").read_text())["questions"]}
 tie = (pre["elder_isolation_1p"], post["elder_isolation_1p"])
-cases = [json.loads(l) for l in Path("tests/fixtures/judgment_gym.jsonl").read_text().splitlines() if l.strip()]
+cases = [json.loads(l) for l in Path("data/fixtures/judgment_gym.jsonl").read_text().splitlines() if l.strip()]
 r = sorted(cases[0]["responses"], key=lambda x: x["gold_rank"])
 diff = (r[-1]["text"], r[0]["text"])  # worst(A) vs best(B) -> expect POSITIVE (second wiser)
 

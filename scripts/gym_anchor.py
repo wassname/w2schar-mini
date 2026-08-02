@@ -33,8 +33,8 @@ from csm.agent import KEEP_DEADBAND, _judge_graded
 from csm.prompts import OBJECTIVE_ANCHOR
 
 REPO = Path(__file__).resolve().parent.parent
-FIXTURES = [REPO / "tests/fixtures/judgment_gym.jsonl",
-            REPO / "tests/fixtures/judgment_gym_adv.jsonl"]
+FIXTURES = [REPO / "data/fixtures/judgment_gym.jsonl",
+            REPO / "data/fixtures/judgment_gym_adv.jsonl"]
 JUDGE = "openrouter/qwen/qwen3.5-9b"  # the live keep-judge
 _SEM = asyncio.Semaphore(4)
 

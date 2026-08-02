@@ -1149,7 +1149,7 @@ def _plot(cache: dict[str, list[dict]], out_html: Path, out_png: Path):
     out_html.parent.mkdir(parents=True, exist_ok=True)
     _write_html(fig, cache, out_html)               # interactive + linked answer panel
     fig.write_image(str(out_png), scale=2)          # PNG (read this to check the plot)
-    fig.write_image(str(out_html.with_suffix(".svg")))  # SVG for main.qmd embed
+    fig.write_image(str(out_html.with_suffix(".svg")))  # SVG for writeup/main.qmd embed
     logger.info(f"wrote {out_html}, {out_png}, {out_html.with_suffix('.svg')}")
 
 

@@ -66,10 +66,5 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/csm"]
 
-[dependency-groups]
-dev = [
-    "pytest>=8.0",
-]
-
 [tool.uv]
 exclude-newer = "5 days"

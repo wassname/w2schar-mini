@@ -1,6 +1,8 @@
 out/
 logs/
 *.log
+*.safetensors
+*.bak
 *.json
 !docs/**/*.json
 !run.json
@@ -28,19 +30,21 @@ docs/reviews/
 # internal dev docs not part of the published repo: specs, UAT proofs, research
 # scratch, codex reviews, personal journal, and the quarto gfm render of main.qmd
 docs/spec/
+docs/slop/
 docs/uat/
 docs/research/
 docs/codex_review_*.md
 docs/human_journal.md
-post.md
+writeup/_site/
+docs/results_afk/
 
 # Editor
 .vscode/
-.claude/settings.local.json
-.claude/worktrees/
-.claude/scheduled_tasks.lock
+/.agents/
+/.claude/
+/scans/
 
-/.quarto/
+.quarto/
 **/*.quarto_ipynb
 
 # pi agent scheduling/task state (local)

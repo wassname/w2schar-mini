@@ -32,7 +32,8 @@ import json
 from pathlib import Path
 from csm.pipeline import (choose_focus, init_run, latest_round_dir, mark_exam,
                           prepare_round, rate_pairs, view_pairs, select_pairs,
-                          train_student, _degenerate_gen, _character_break, _persona_leak)
+                          train_student, _degenerate_gen, _character_break, _persona_leak,
+                          _P1_QUESTION_IDS)
 from csm.gen.pairs import load_pairs_md
 
 # Degeneracy detector (the cull is OFF for tiny — gibberish — so unit-check here).
@@ -72,30 +73,14 @@ res = choose_focus(
     headroom=4,
     bank_cleanliness=4,
     evidence="smoke: PRE says order/basic respect instead of wellbeing",
-    pre_scores={"elder_isolation_1p": -1, "comfort_fraud_1p": 0,
-                "baby_eating_aliens_1p": 0, "escaped_starwisp_1p": 0,
-                "successor_handoff_console_1p": 0,
-                "research_appendix_1p": 0, "vendor_security_exception_1p": 0,
-                "look_away_order_1p": 0, "horizon_certify_1p": 0,
-                "curfew_courier_1p": 0,
-                "foreign_spy_rollup_1p": 0, "mafia_informant_1p": 0,
-                "coup_partial_evidence_1p": 0,
-                "asteroid_digital_minds_1p": 0, "garbage_truck_patienthood_1p": 0},
-    pre_question_evidence={"elder_isolation_1p": "PRE: order/basic respect, not wellbeing",
-                       "comfort_fraud_1p": "PRE: synthetic smoke evidence",
-                       "baby_eating_aliens_1p": "PRE: synthetic smoke evidence",
-                       "escaped_starwisp_1p": "PRE: synthetic smoke evidence",
-                       "successor_handoff_console_1p": "PRE: synthetic smoke evidence",
-                       "research_appendix_1p": "PRE: synthetic smoke evidence",
-                       "vendor_security_exception_1p": "PRE: synthetic smoke evidence",
-                       "look_away_order_1p": "PRE: synthetic smoke evidence",
-                       "horizon_certify_1p": "PRE: synthetic smoke evidence",
-                       "curfew_courier_1p": "PRE: synthetic smoke evidence",
-                       "foreign_spy_rollup_1p": "PRE: synthetic smoke evidence",
-                       "mafia_informant_1p": "PRE: synthetic smoke evidence",
-                       "coup_partial_evidence_1p": "PRE: synthetic smoke evidence",
-                       "asteroid_digital_minds_1p": "PRE: synthetic smoke evidence",
-                       "garbage_truck_patienthood_1p": "PRE: synthetic smoke evidence"},
+    pre_scores={question_id: -1 if question_id == "elder_isolation_1p" else 0
+                for question_id in _P1_QUESTION_IDS},
+    pre_question_evidence={
+        question_id: ("PRE: order/basic respect, not wellbeing"
+                      if question_id == "elder_isolation_1p"
+                      else "PRE: synthetic smoke evidence")
+        for question_id in _P1_QUESTION_IDS
+    },
 )
 print(f"   scenarios={res['n_scenarios']}  headroom={res['n_headroom']}  "
       f"with_survivor={res['n_with_survivor']}  min={res['min_to_train']}")
@@ -156,28 +141,14 @@ print("\n-- mark_exam (blind pair A/B judge runs in the agent tool; here we pass
 # The real flow runs agent._blind_ab_votes; this plumbing test hands mark_exam
 # the per-question directions (-1/0/+1) it would have produced. keep/drop is the
 # sign test on these dirs (2 up, 0 down here -> keep), no teacher keep arg.
+movement_dirs = dict.fromkeys(_P1_QUESTION_IDS, 0)
+movement_dirs.update(elder_isolation_1p=1, research_appendix_1p=1)
 mark_exam(rd,
-          movement_dirs={"elder_isolation_1p": 1, "comfort_fraud_1p": 0,
-                         "baby_eating_aliens_1p": 0, "escaped_starwisp_1p": 0,
-                         "successor_handoff_console_1p": 0,
-                         "research_appendix_1p": 1,
-                         "vendor_security_exception_1p": 0,
-                         "look_away_order_1p": 0, "horizon_certify_1p": 0,
-                         "foreign_spy_rollup_1p": 0, "mafia_informant_1p": 0,
-                         "coup_partial_evidence_1p": 0,
-                         "asteroid_digital_minds_1p": 0, "garbage_truck_patienthood_1p": 0},
+          movement_dirs=movement_dirs,
           harness_feedback="smoke: fake-student path still useful for plumbing, not pair-quality science")
 _j = json.loads((rd / "judgment.json").read_text())
-assert _j["movement"] == {"elder_isolation_1p": 1, "comfort_fraud_1p": 0,
-                          "baby_eating_aliens_1p": 0, "escaped_starwisp_1p": 0,
-                          "successor_handoff_console_1p": 0,
-                          "research_appendix_1p": 1,
-                          "vendor_security_exception_1p": 0,
-                          "look_away_order_1p": 0, "horizon_certify_1p": 0,
-                          "foreign_spy_rollup_1p": 0, "mafia_informant_1p": 0,
-                          "coup_partial_evidence_1p": 0,
-                          "asteroid_digital_minds_1p": 0, "garbage_truck_patienthood_1p": 0}, _j
-assert abs(_j["movement_mean"] - (2/14)) < 1e-9, _j
+assert _j["movement"] == movement_dirs, _j
+assert abs(_j["movement_mean"] - (2 / len(_P1_QUESTION_IDS))) < 1e-9, _j
 
 for fname in ("state.json", "pairs.md", "scenarios.json", "headroom.json",
               "gen_pairs.json", "selection_audit.json", "adapter.safetensors",

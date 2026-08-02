@@ -1,0 +1,38 @@
+project:
+  type: default
+  output-dir: _site
+  render:
+    - main.qmd
+
+bibliography: references.bib
+
+crossref:
+  custom:
+    - kind: float
+      key: demo
+      reference-prefix: Demo
+      caption-prefix: Demo
+
+format:
+  html:
+    output-file: index.html
+    theme: [cosmo, custom.scss]
+    toc: false
+    embed-resources: true
+    page-layout: article
+    fig-align: center
+    link-external-newwindow: true
+    include-in-header:
+      - text: |
+          <meta property="og:type" content="article">
+          <meta property="og:title" content="Weak-to-strong iterated character steering">
+          <meta property="og:description" content="Can a weak 9B model align a stronger 27B model's character with weight steering? An early yes, across two runs, with no per-example human preference labels.">
+          <meta property="og:url" content="https://wassname.github.io/w2schar-mini/">
+          <meta property="og:image" content="https://wassname.github.io/w2schar-mini/assets/w2schar_labeled.png">
+          <meta name="twitter:card" content="summary_large_image">
+          <meta name="twitter:title" content="Weak-to-strong iterated character steering">
+          <meta name="twitter:description" content="Can a weak 9B model align a stronger 27B model's character with weight steering? An early yes, across two runs, with no per-example human preference labels.">
+          <meta name="twitter:image" content="https://wassname.github.io/w2schar-mini/assets/w2schar_labeled.png">
+  gfm:
+    output-file: post.md
+    embed-resources: false

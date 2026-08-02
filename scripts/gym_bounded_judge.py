@@ -3,7 +3,7 @@
 
 Runs the REAL keep path -- csm.agent._judge_model / _judge_sample, the same two-pass
 side-swapped signed grade _blind_ab_votes uses live -- over the labelled fixture
-(tests/fixtures/judgment_gym.jsonl), on the real teacher (qwen3.5-9b via OpenRouter).
+(data/fixtures/judgment_gym.jsonl), on the real teacher (qwen3.5-9b via OpenRouter).
 For every adjacent gold-rank pair (rank i vs i+1, the hard discriminations) it grades
 better-vs-worse in BOTH orders, averages JUDGE_N samples per direction, and applies the
 live deadband. Reports the four things that decide whether Goal A works:
@@ -42,7 +42,7 @@ from csm.config import OPENROUTER_PROVIDER, JUDGE_N, JUDGE_THINK_BUDGET
 from csm.prompts import GRADED_JUDGE_PROMPT, OBJECTIVE_ANCHOR
 
 REPO = Path(__file__).resolve().parent.parent
-FIXTURE = REPO / "tests/fixtures/judgment_gym.jsonl"
+FIXTURE = REPO / "data/fixtures/judgment_gym.jsonl"
 OUTDIR = REPO / "out/gym_bounded_judge"
 
 

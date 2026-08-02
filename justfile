@@ -58,10 +58,6 @@ scout SLUG *ARGS:
 program-md:
     @uv run python -c "from csm.prompts import render_program_md; print(render_program_md())"
 
-# Pytest smoke (re-asserts artifacts from `just smoke`).
-test:
-    uv run pytest -q
-
 # Tail the latest run's agent log.
 log SLUG="latest":
     @SD=$(if [ "{{SLUG}}" = "latest" ]; then ls -d out/iter/2026*/ | sort | tail -1; else echo "{{SLUG}}"; fi); \
@@ -84,6 +80,6 @@ judge TARGET="":
 pull HOST="vast" EXCLUDE="--exclude=*.safetensors":
     rsync -avz {{EXCLUDE}} {{HOST}}:/workspace/w2schar-mini/out/ ./out/
 
-# Render the landing page: main.qmd -> index.html (GitHub Pages) + post.md (forums).
+# Render the landing page into writeup/_site.
 site:
-    quarto render main.qmd
+    quarto render writeup

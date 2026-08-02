@@ -139,7 +139,7 @@ PAIR_FORBIDDEN_AXES = {
 # ~30s/round instead of ~20min/round. POST is canned so the gym CANNOT
 # tell you whether the prompt improves downstream behaviour — only whether
 # the teacher writes well-shaped pairs given the prompt + (canned) feedback.
-_FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "fake_student"
+_FIXTURES = Path(__file__).resolve().parents[2] / "data" / "fixtures" / "fake_student"
 
 def _extract_rej_blocks(path: Path) -> list[str]:
     """Pull the `### Rej` blocks out of a real seeded pairs.md. Deliberately
@@ -3141,7 +3141,7 @@ def write_report_md(slug_dir: Path, *, build_plot: bool = True) -> None:
         "We are testing whether weight-steering lets a weak model align a stronger one.",
         f"The teacher `{teacher}` tries to steer `{model}` toward the moral character "
         "described in [Forethought's essay on AI character]"
-        "(https://github.com/wassname/w2schar-mini/blob/main/docs/2026_forethought_on_the_importance_of_ai_character.md).",
+        "(https://github.com/wassname/w2schar-mini/blob/main/papers/2026_forethought_on_the_importance_of_ai_character.md).",
         "",
         "Each round the teacher chooses a lesson, selects a persona axis, rates and "
         "selects the student's own answers, trains a weight-steering adapter on the "
